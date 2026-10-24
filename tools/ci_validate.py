@@ -34,6 +34,42 @@ def headings(text: str) -> list[int]:
     return levels
 
 
+
+BUILD_FOLDERS = {".compile", "build", "dist", "target", "node_modules", ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+                 "managed_components", ".gradle", ".cxx", ".idea", ".vscode"}
+PRIVATE_FOLDERS = {"local-data", "re", "secrets"}
+PRIVATE_FILES = re.compile(r"(^|/)(\.env(\.(?!example$).*)?|id_[a-z0-9]+|\.coverage|sdkconfig(\.old)?|Thumbs\.db|\.DS_Store)$|\.(pem|key|p12|pfx|jks|keystore|log|tmp|pyc)$", re.IGNORECASE)
+MAX_TRACKED_BYTES = 1_500_000
+
+
+def hygiene_problems() -> list[str]:
+    """Build folders, private data, keys, logs and big files must never be tracked by git."""
+    import subprocess
+
+    try:
+        out = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return []
+    found: list[str] = []
+    folders: dict[str, int] = {}
+    for raw in out.split(b"\0"):
+        if not raw:
+            continue
+        name = raw.decode("utf-8", "replace")
+        parts = name.split("/")
+        bad = next((p for p in parts[:-1] if p in BUILD_FOLDERS), None) or (parts[0] if len(parts) > 1 and parts[0] in PRIVATE_FOLDERS else None)
+        if bad:
+            folders[bad] = folders.get(bad, 0) + 1
+            continue
+        if PRIVATE_FILES.search(name):
+            found.append(f"{name} is a private or local file and must not be tracked")
+        path = ROOT / name
+        if path.is_file() and path.stat().st_size > MAX_TRACKED_BYTES and path.suffix.lower() not in {".png", ".jpg", ".svg", ".pdf", ".stl", ".step"}:
+            found.append(f"{name} is bigger than {MAX_TRACKED_BYTES // 1000} KB: build output does not belong in the repository")
+    for folder, count in sorted(folders.items()):
+        found.append(f"{folder}/ is a build or private folder and {count} of its files are tracked")
+    return found
+
 def main() -> int:
     problems: list[str] = []
     manifest = json.loads((ROOT / "eh3d.project.json").read_text(encoding="utf-8"))
@@ -74,6 +110,7 @@ def main() -> int:
             continue
         if FORBIDDEN.search(path.read_text(encoding="utf-8", errors="replace")):
             problems.append(f"{path.relative_to(ROOT)} mentions a word that must not appear in public files")
+    problems.extend(hygiene_problems())
     if problems:
         for problem in problems:
             print("  FAIL", problem)
