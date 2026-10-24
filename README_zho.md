@@ -77,6 +77,7 @@ EH3D-SERVER/
 ├── deploy/       systemd 单元
 ├── tools/        ci_validate.py：清单、版本、变更日志和 README 检查
 ├── images/       横幅
+├── server.cfg.example  设置文件示例: 复制为 server.cfg 使用 (每个键都是可选的)
 └── eh3d.project.json
 ```
 

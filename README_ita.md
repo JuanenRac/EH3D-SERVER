@@ -77,6 +77,7 @@ EH3D-SERVER/
 ├── deploy/       l'unità systemd
 ├── tools/        ci_validate.py: verifiche di manifesto, versioni, changelog e README
 ├── images/       banner
+├── server.cfg.example  un esempio del file delle impostazioni: copialo in server.cfg (ogni chiave è facoltativa)
 └── eh3d.project.json
 ```
 

@@ -77,6 +77,7 @@ EH3D-SERVER/
 ├── deploy/       systemd ユニット
 ├── tools/        ci_validate.py：マニフェスト、バージョン、変更履歴、README の確認
 ├── images/       バナー
+├── server.cfg.example  設定ファイルの例: server.cfg にコピーして使う (どのキーも任意)
 └── eh3d.project.json
 ```
 
