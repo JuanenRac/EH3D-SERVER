@@ -1,0 +1,22 @@
+# systemd unit for the EH3D server on the CM5 (or any Linux). Install: see docs/DEPLOY.md.
+[Unit]
+Description=EH3D server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=eh3d
+WorkingDirectory=/var/lib/eh3d-server
+ExecStart=/opt/eh3d-server/eh3d-server --config /etc/eh3d-server/server.cfg
+Restart=on-failure
+RestartSec=5
+# a machine must never be left moving: the server stops its jobs on SIGTERM
+KillSignal=SIGINT
+TimeoutStopSec=15
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/eh3d-server
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,52 @@
+# =============================================================================
+# EH3D Fabrication Suite - Software bug report form
+# Copyright (C) 2026 JuanenRac (Electro Hobby 3D) <electrohobby3d@gmail.com>
+# GPL-3.0-or-later - see LICENSE.md
+# =============================================================================
+name: Software bug report
+description: Report a reproducible software, build, CI or integration defect.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: input
+    id: repository
+    attributes:
+      label: Affected repository
+      description: Exact repository name, for example EH3D-ISOCAM.
+      placeholder: EH3D-ISOCAM
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [Firmware, SDK/contract, Server/service, UI/client, Bridge, CI/build, Documentation, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Include the non-mutating build/test command when possible. Never include tokens, passwords or private logs.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual result
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Safe evidence
+      description: Paste sanitized output, a CI link, version and operating system.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I removed credentials, personal data and non-public documentation.
+          required: true
+        - label: I did not use this report to request an unsafe physical action.
+          required: true

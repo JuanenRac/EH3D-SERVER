@@ -1,0 +1,28 @@
+# =============================================================================
+# EH3D Fabrication Suite - Documentation issue form
+# Copyright (C) 2026 JuanenRac (Electro Hobby 3D) <electrohobby3d@gmail.com>
+# GPL-3.0-or-later - see LICENSE.md
+# =============================================================================
+name: Documentation correction
+description: Report a missing, stale, unclear or broken public documentation item.
+title: "[Docs]: "
+labels: ["documentation"]
+body:
+  - type: input
+    id: repository
+    attributes:
+      label: Repository and file
+      placeholder: URTC-TESTER/docs/CANBUS.md
+    validations:
+      required: true
+  - type: textarea
+    id: issue
+    attributes:
+      label: What is incorrect or missing?
+    validations:
+      required: true
+  - type: textarea
+    id: correction
+    attributes:
+      label: Proposed correction
+      description: Mention the README translations or file-tree entries that must stay synchronized.

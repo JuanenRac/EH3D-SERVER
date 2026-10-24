@@ -1,0 +1,37 @@
+# =============================================================================
+# EH3D Fabrication Suite - Improvement request form
+# Copyright (C) 2026 JuanenRac (Electro Hobby 3D) <electrohobby3d@gmail.com>
+# GPL-3.0-or-later - see LICENSE.md
+# =============================================================================
+name: Improvement proposal
+description: Propose a bounded improvement with a clear ecosystem effect.
+title: "[Improvement]: "
+labels: ["enhancement"]
+body:
+  - type: input
+    id: repository
+    attributes:
+      label: Primary repository
+      placeholder: EH3D-CORE-LIBS
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change and affected contracts
+      description: State related repositories, compatibility impact and whether hardware evidence is required.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Include tests, documentation and fail-safe behavior where applicable.
+    validations:
+      required: true

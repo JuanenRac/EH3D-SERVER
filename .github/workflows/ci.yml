@@ -1,0 +1,54 @@
+name: EH3D CI baseline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate the repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Manifest, documentation and language parity
+        run: python -I tools/ci_validate.py
+
+  rust:
+    name: Rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      # the server uses the libraries of the programs, which have to be next to it
+      - uses: actions/checkout@v5
+        with:
+          path: EH3D-SERVER
+      - uses: actions/checkout@v5
+        with:
+          repository: JuanenRac/EH3D-DRILLPRO
+          path: EH3D-DRILLPRO
+      - uses: actions/checkout@v5
+        with:
+          repository: JuanenRac/EH3D-ROUTEPRO
+          path: EH3D-ROUTEPRO
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
+      - name: Format
+        working-directory: EH3D-SERVER
+        run: cargo fmt --all --check
+      - name: Lints
+        working-directory: EH3D-SERVER
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Tests
+        working-directory: EH3D-SERVER
+        run: cargo test --all-targets

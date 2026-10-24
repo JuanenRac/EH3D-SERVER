@@ -1,0 +1,12 @@
+# EH3D-SERVER settings. Copy to server.cfg (or give another file with --config). Every key is optional; an unknown key is an error.
+#
+# Where the server listens. 18200 is its own port (ARMOR and HYDRA-UMC use others on the same machine).
+listen = 0.0.0.0:18200
+# Where users, tokens, machines and jobs are kept. Back this folder up.
+data_dir = data
+# How long a login lasts, in hours.
+session_hours = 12
+# The largest request (a job with its files), in megabytes.
+max_body_mb = 8
+# How many finished jobs the list keeps.
+keep_jobs = 200

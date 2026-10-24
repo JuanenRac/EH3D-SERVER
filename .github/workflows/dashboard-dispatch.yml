@@ -1,0 +1,52 @@
+# =============================================================================
+# Electro Hobby 3D Ecosystem - Central dashboard dispatch notifier
+# Copyright (C) 2026 JuanenRac (Electro Hobby 3D) <electrohobby3d@gmail.com>
+# GPL-3.0-or-later - see LICENSE
+# =============================================================================
+# Notifies the central JuanenRac dashboard after a main-branch push. This
+# independent workflow never changes, delays or invalidates the project CI.
+
+name: Notify central ecosystem dashboard
+
+on:
+  push:
+    branches:
+      - main
+
+permissions: {}
+
+jobs:
+  notify:
+    name: Request dashboard refresh
+    runs-on: ubuntu-latest
+    env:
+      DASHBOARD_DISPATCH_TOKEN: ${{ secrets.ECOSYSTEM_DASHBOARD_DISPATCH_TOKEN }}
+    steps:
+      - name: Dispatch public manifest refresh when configured
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # The secret is intentionally optional during staged rollout.
+          # Do not print it or add it to a command line.
+          if [[ -z "${DASHBOARD_DISPATCH_TOKEN:-}" ]]; then
+            echo "Dashboard dispatch is not configured for this repository; skipping."
+            exit 0
+          fi
+
+          payload="$(jq -nc \
+            --arg repository "${{ github.repository }}" \
+            --arg ref "${{ github.ref }}" \
+            --arg sha "${{ github.sha }}" \
+            '{event_type: "ecosystem_project_updated", client_payload: {repository: $repository, ref: $ref, sha: $sha}}')"
+
+          curl --fail-with-body --retry 3 --retry-all-errors \
+            --connect-timeout 10 --max-time 30 \
+            --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${DASHBOARD_DISPATCH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --url "https://api.github.com/repos/JuanenRac/JuanenRac/dispatches" \
+            --data "${payload}"
+
+          echo "Dashboard refresh requested for ${{ github.repository }} at ${{ github.sha }}."

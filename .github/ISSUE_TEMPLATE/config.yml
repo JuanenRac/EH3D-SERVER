@@ -1,0 +1,13 @@
+# =============================================================================
+# EH3D Fabrication Suite - Issue form configuration
+# Copyright (C) 2026 JuanenRac (Electro Hobby 3D) <electrohobby3d@gmail.com>
+# GPL-3.0-or-later - see LICENSE.md
+# =============================================================================
+blank_issues_enabled: false
+contact_links:
+  - name: Ecosystem status dashboard
+    url: https://juanenrac.github.io/JuanenRac/
+    about: Check public project status, version, maturity and relationships.
+  - name: Security policy
+    url: https://github.com/JuanenRac/JuanenRac/blob/main/SECURITY.md
+    about: Do not disclose security-sensitive information in a public issue.

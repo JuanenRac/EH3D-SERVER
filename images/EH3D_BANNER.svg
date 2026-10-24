@@ -1,0 +1,271 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" width="100%" height="100%">
+  <defs>
+
+    <!-- Dark Cyberpunk Gradients -->
+    <linearGradient id="bgGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0A0C10" />
+      <stop offset="50%" stop-color="#0D1117" />
+      <stop offset="100%" stop-color="#05070A" />
+    </linearGradient>
+
+    <!-- Neon Accent Gradients -->
+    <linearGradient id="cyanGlow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00E5FF" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#0088FF" stop-opacity="0.9" />
+    </linearGradient>
+
+    <linearGradient id="goldGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFD700" />
+      <stop offset="100%" stop-color="#FF8C00" />
+    </linearGradient>
+
+    <linearGradient id="laserBeam" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FF0055" stop-opacity="1" />
+      <stop offset="30%" stop-color="#FF3300" stop-opacity="0.9" />
+      <stop offset="100%" stop-color="#00E5FF" stop-opacity="0" />
+    </linearGradient>
+
+    <linearGradient id="metalGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2A303C" />
+      <stop offset="50%" stop-color="#161B22" />
+      <stop offset="100%" stop-color="#0D1117" />
+    </linearGradient>
+
+    <!-- Glow Filters -->
+    <filter id="glowCyan" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="5" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="glowGold" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="glowLaser" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <!-- Cyber Grid Background Pattern -->
+    <pattern id="cyberGrid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#00E5FF" stroke-opacity="0.04" stroke-width="1" />
+      <circle cx="40" cy="40" r="1" fill="#00E5FF" fill-opacity="0.1" />
+    </pattern>
+
+    <!-- PCB Circuit Node Definition -->
+    <g id="pcbNode">
+      <circle cx="0" cy="0" r="3" fill="#00E5FF" filter="url(#glowCyan)" />
+      <circle cx="0" cy="0" r="1.5" fill="#FFFFFF" />
+    </g>
+  </defs>
+
+  <!-- Base Dark Background -->
+  <rect width="1200" height="300" fill="url(#bgGlow)" />
+  <rect width="1200" height="300" fill="url(#cyberGrid)" />
+
+  <!-- Ambient Light Blurs con respiración suave -->
+  <circle cx="220" cy="150" r="180" fill="#00E5FF" fill-opacity="0.03" filter="url(#glowCyan)">
+    <animate attributeName="fill-opacity" values="0.02;0.05;0.02" dur="6s" repeatCount="indefinite" />
+  </circle>
+  <circle cx="980" cy="150" r="180" fill="#FFB300" fill-opacity="0.03" filter="url(#glowGold)">
+    <animate attributeName="fill-opacity" values="0.02;0.05;0.02" dur="6s" repeatCount="indefinite" />
+  </circle>
+
+  <!-- Outer Frame & Cyber Corners -->
+  <rect x="10" y="10" width="1180" height="280" fill="none" stroke="#00E5FF" stroke-opacity="0.2" stroke-width="1" rx="6" />
+  <rect x="16" y="16" width="1168" height="268" fill="none" stroke="#00E5FF" stroke-opacity="0.08" stroke-width="1" rx="4" />
+  
+  <!-- Frame Corner Elements -->
+  <path d="M 10 35 L 10 10 L 35 10" fill="none" stroke="#00E5FF" stroke-width="3">
+    <animate attributeName="stroke-opacity" values="0.6;1;0.6" dur="3s" repeatCount="indefinite" />
+  </path>
+  <path d="M 1190 35 L 1190 10 L 1165 10" fill="none" stroke="#00E5FF" stroke-width="3">
+    <animate attributeName="stroke-opacity" values="0.6;1;0.6" dur="3s" repeatCount="indefinite" />
+  </path>
+  <path d="M 10 265 L 10 290 L 35 290" fill="none" stroke="#00E5FF" stroke-width="3">
+    <animate attributeName="stroke-opacity" values="0.6;1;0.6" dur="3s" repeatCount="indefinite" />
+  </path>
+  <path d="M 1190 265 L 1190 290 L 1165 290" fill="none" stroke="#00E5FF" stroke-width="3">
+    <animate attributeName="stroke-opacity" values="0.6;1;0.6" dur="3s" repeatCount="indefinite" />
+  </path>
+
+  <!-- LEFT SIDE: Trazas base estáticas (tenues para dar profundidad) -->
+  <g stroke="#00E5FF" stroke-opacity="0.15" stroke-width="1.5" fill="none">
+    <path d="M 30 70 L 120 70 L 160 110 L 240 110" />
+    <path d="M 30 150 L 90 150 L 130 190 L 220 190" />
+    <path d="M 30 230 L 140 230 L 180 190 L 210 190" />
+    <path d="M 80 290 L 80 250 L 110 220" />
+    <path d="M 190 10 L 190 60 L 220 90" stroke="#FFB300" stroke-opacity="0.15" />
+    <path d="M 140 30 L 170 60 L 220 60" stroke-dasharray="4,4" />
+    <path d="M 50 270 L 100 270 L 140 230" stroke="#FFB300" stroke-opacity="0.15" stroke-dasharray="3,3" />
+  </g>
+
+  <!-- LEFT SIDE: EFECTO SERPIENTE (Luz de pulso recorriendo las pistas) -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 30 70 L 120 70 L 160 110 L 240 110" stroke="#00E5FF" stroke-width="2.5" stroke-dasharray="40, 240" filter="url(#glowCyan)">
+      <animate attributeName="stroke-dashoffset" values="280;0" dur="3s" repeatCount="indefinite" />
+    </path>
+    <path d="M 30 150 L 90 150 L 130 190 L 220 190" stroke="#00E5FF" stroke-width="2.5" stroke-dasharray="40, 220" filter="url(#glowCyan)">
+      <animate attributeName="stroke-dashoffset" values="260;0" dur="3.5s" repeatCount="indefinite" />
+    </path>
+    <path d="M 30 230 L 140 230 L 180 190 L 210 190" stroke="#00E5FF" stroke-width="2.5" stroke-dasharray="40, 230" filter="url(#glowCyan)">
+      <animate attributeName="stroke-dashoffset" values="270;0" dur="3.2s" repeatCount="indefinite" />
+    </path>
+    <path d="M 80 290 L 80 250 L 110 220" stroke="#00E5FF" stroke-width="2.5" stroke-dasharray="25, 100" filter="url(#glowCyan)">
+      <animate attributeName="stroke-dashoffset" values="125;0" dur="2.5s" repeatCount="indefinite" />
+    </path>
+    <path d="M 190 10 L 190 60 L 220 90" stroke="#FFB300" stroke-width="2.5" stroke-dasharray="25, 90" filter="url(#glowGold)">
+      <animate attributeName="stroke-dashoffset" values="115;0" dur="2.8s" repeatCount="indefinite" />
+    </path>
+  </g>
+
+  <!-- Left PCB Circuit Nodes -->
+  <use href="#pcbNode" x="120" y="70" />
+  <use href="#pcbNode" x="160" y="110" />
+  <use href="#pcbNode" x="90" y="150" />
+  <use href="#pcbNode" x="130" y="190" />
+  <use href="#pcbNode" x="140" y="230" />
+  <use href="#pcbNode" x="170" y="60" />
+
+  <!-- RIGHT SIDE: Trazas base estáticas (tenues) -->
+  <g stroke="#FFB300" stroke-opacity="0.15" stroke-width="1.5" fill="none">
+    <path d="M 1170 80 L 1080 80 L 1040 120 L 960 120" />
+    <path d="M 1170 160 L 1100 160 L 1060 200 L 970 200" />
+    <path d="M 1170 220 L 1050 220 L 1010 180 M 1010 180 L 960 180" />
+    <path d="M 1010 10 L 1010 50 L 980 80" stroke="#00E5FF" stroke-opacity="0.15" />
+    <path d="M 1060 270 L 1010 270 L 970 230" stroke="#00E5FF" stroke-opacity="0.15" stroke-dasharray="4,4" />
+  </g>
+
+  <!-- RIGHT SIDE: EFECTO SERPIENTE (Luz de pulso dorado recorriendo las pistas) -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 1170 80 L 1080 80 L 1040 120 L 960 120" stroke="#FFB300" stroke-width="2.5" stroke-dasharray="40, 230" filter="url(#glowGold)">
+      <animate attributeName="stroke-dashoffset" values="0;270" dur="3.5s" repeatCount="indefinite" />
+    </path>
+    <path d="M 1170 160 L 1100 160 L 1060 200 L 970 200" stroke="#FFB300" stroke-width="2.5" stroke-dasharray="40, 240" filter="url(#glowGold)">
+      <animate attributeName="stroke-dashoffset" values="0;280" dur="3.8s" repeatCount="indefinite" />
+    </path>
+    <path d="M 1170 220 L 1050 220 L 1010 180 M 1010 180 L 960 180" stroke="#FFB300" stroke-width="2.5" stroke-dasharray="40, 250" filter="url(#glowGold)">
+      <animate attributeName="stroke-dashoffset" values="0;290" dur="4s" repeatCount="indefinite" />
+    </path>
+    <path d="M 1010 10 L 1010 50 L 980 80" stroke="#00E5FF" stroke-width="2.5" stroke-dasharray="25, 95" filter="url(#glowCyan)">
+      <animate attributeName="stroke-dashoffset" values="0;120" dur="2.6s" repeatCount="indefinite" />
+    </path>
+  </g>
+
+  <!-- Right Circuit Nodes -->
+  <circle cx="1080" cy="80" r="3" fill="#FFB300" filter="url(#glowGold)" />
+  <circle cx="1040" cy="120" r="3" fill="#FFB300" filter="url(#glowGold)" />
+  <circle cx="1100" cy="160" r="3" fill="#FFB300" filter="url(#glowGold)" />
+  <circle cx="1060" cy="200" r="3" fill="#FFB300" filter="url(#glowGold)" />
+
+  <!-- CENTRAL ICON & EMBLEM: CON ANIMACIÓN NATIVA FLUIDA -->
+  <g transform="translate(250, 150)">
+    <!-- Outer Glow Ring con Rotación Horaria -->
+    <g>
+      <circle cx="0" cy="0" r="92" fill="none" stroke="#00E5FF" stroke-opacity="0.25" stroke-width="1.5" stroke-dasharray="8,4" />
+      <circle cx="0" cy="0" r="82" fill="none" stroke="#FFB300" stroke-opacity="0.35" stroke-width="1" stroke-dasharray="4,6" />
+      <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="360 0 0" dur="25s" repeatCount="indefinite" />
+    </g>
+
+    <circle cx="0" cy="0" r="70" fill="url(#metalGradient)" stroke="#00E5FF" stroke-width="2" filter="url(#glowCyan)" />
+
+    <!-- CNC / Mill Spindle Flange con Rotación Antihoraria -->
+    <g>
+      <polygon points="0,-58 48,-30 48,30 0,58 -48,30 -48,-30" fill="none" stroke="#FFB300" stroke-width="2" filter="url(#glowGold)" />
+      <animateTransform attributeName="transform" type="rotate" from="360 0 0" to="0 0 0" dur="18s" repeatCount="indefinite" />
+    </g>
+    
+    <!-- PnP Nozzle & Laser Lens Assembly -->
+    <circle cx="0" cy="0" r="38" fill="#0A0C10" stroke="#00E5FF" stroke-width="2" />
+    
+    <!-- Optical Alignment Crosshair Grid -->
+    <line x1="-50" y1="0" x2="-22" y2="0" stroke="#00E5FF" stroke-width="2" />
+    <line x1="22" y1="0" x2="50" y2="0" stroke="#00E5FF" stroke-width="2" />
+    <line x1="0" y1="-50" x2="0" y2="-22" stroke="#00E5FF" stroke-width="2" />
+    <line x1="0" y1="22" x2="0" y2="50" stroke="#00E5FF" stroke-width="2" />
+
+    <circle cx="0" cy="0" r="16" fill="#161B22" stroke="#FFD700" stroke-width="1.5" />
+
+    <!-- Center High-Precision Laser Diode Core con Pulso -->
+    <circle cx="0" cy="0" r="7" fill="#FF0055" filter="url(#glowLaser)">
+      <animate attributeName="opacity" values="0.5;1;0.5" dur="1.5s" repeatCount="indefinite" />
+    </circle>
+    <circle cx="0" cy="0" r="3" fill="#FFFFFF" />
+
+    <!-- Orbiting Component Pick & Place Gripper Pins con leve escala -->
+    <g>
+      <circle cx="-28" cy="-28" r="4" fill="#00E5FF" />
+      <circle cx="28" cy="-28" r="4" fill="#00E5FF" />
+      <circle cx="-28" cy="28" r="4" fill="#00E5FF" />
+      <circle cx="28" cy="28" r="4" fill="#00E5FF" />
+      <animateTransform attributeName="transform" type="scale" values="1;1.05;1" dur="2s" repeatCount="indefinite" additive="sum" />
+    </g>
+  </g>
+
+  <!-- Laser Beam Downward Focal Point Effect Animado -->
+  <path d="M 250 157 L 246 250 L 254 250 Z" fill="url(#laserBeam)" filter="url(#glowLaser)">
+    <animate attributeName="opacity" values="0.3;1;0.3" dur="1.2s" repeatCount="indefinite" />
+  </path>
+  <ellipse cx="250" cy="250" rx="14" ry="4" fill="#00E5FF" filter="url(#glowCyan)">
+    <animate attributeName="rx" values="10;18;10" dur="1.2s" repeatCount="indefinite" />
+    <animate attributeName="opacity" values="0.4;1;0.4" dur="1.2s" repeatCount="indefinite" />
+  </ellipse>
+
+  <!-- MAIN TYPOGRAPHY / TITLE BLOCK -->
+  <g transform="translate(380, 0)">
+    <g transform="translate(0, 82)">
+      <rect x="0" y="-18" width="162" height="24" rx="4" fill="#00E5FF" fill-opacity="0.1" stroke="#00E5FF" stroke-opacity="0.4" stroke-width="1">
+        <animate attributeName="stroke-opacity" values="0.3;0.8;0.3" dur="4s" repeatCount="indefinite"/>
+      </rect>
+      <text x="12" y="-2" font-family="'Inter', 'Segoe UI', 'Roboto', sans-serif" font-weight="700" font-size="11" fill="#00E5FF" letter-spacing="2.5">EH3D · SERVER</text>
+    </g>
+
+    <text x="0" y="142" font-family="'Inter', 'Segoe UI', 'Roboto', sans-serif" font-weight="900" font-size="56" fill="#FFFFFF" letter-spacing="5">EH3D-SERVER</text>
+
+    <text x="0" y="182" font-family="'Inter', 'Segoe UI', 'Roboto', sans-serif" font-weight="700" font-size="22" fill="url(#goldGlow)" letter-spacing="4" filter="url(#glowGold)">JOBS · MACHINES · NODES</text>
+
+    <text x="0" y="212" font-family="'Inter', 'Segoe UI', 'Roboto', sans-serif" font-weight="500" font-size="12" fill="#8B949E" letter-spacing="1.5">RUST · AXUM · REST · WEBSOCKET</text>
+
+    <g transform="translate(0, 232)">
+      <rect x="0" y="0" width="60" height="22" rx="11" fill="#161B22" stroke="#30363D" stroke-width="1"/>
+      <circle cx="11" cy="11" r="4" fill="#00E5FF">
+        <animate attributeName="opacity" values="0.5;1;0.5" dur="2.0s" repeatCount="indefinite"/>
+      </circle>
+      <text x="22" y="15" font-family="sans-serif" font-weight="600" font-size="10" fill="#C9D1D9" letter-spacing="0.5">RUST</text>
+      <rect x="70" y="0" width="67" height="22" rx="11" fill="#161B22" stroke="#30363D" stroke-width="1"/>
+      <circle cx="81" cy="11" r="4" fill="#FFB300">
+        <animate attributeName="opacity" values="0.5;1;0.5" dur="2.2s" repeatCount="indefinite"/>
+      </circle>
+      <text x="92" y="15" font-family="sans-serif" font-weight="600" font-size="10" fill="#C9D1D9" letter-spacing="0.5">AXUM</text>
+      <rect x="147" y="0" width="53" height="22" rx="11" fill="#161B22" stroke="#30363D" stroke-width="1"/>
+      <circle cx="158" cy="11" r="4" fill="#00FF88">
+        <animate attributeName="opacity" values="0.5;1;0.5" dur="2.4s" repeatCount="indefinite"/>
+      </circle>
+      <text x="169" y="15" font-family="sans-serif" font-weight="600" font-size="10" fill="#C9D1D9" letter-spacing="0.5">REST</text>
+      <rect x="210" y="0" width="60" height="22" rx="11" fill="#161B22" stroke="#30363D" stroke-width="1"/>
+      <circle cx="221" cy="11" r="4" fill="#FF0055">
+        <animate attributeName="opacity" values="0.5;1;0.5" dur="2.6s" repeatCount="indefinite"/>
+      </circle>
+      <text x="232" y="15" font-family="sans-serif" font-weight="600" font-size="10" fill="#C9D1D9" letter-spacing="0.5">WS</text>
+    </g>
+  </g>
+
+  <!-- Top Right Status / Version Indicator -->
+  <g transform="translate(1060, 42)">
+    <rect x="-10" y="-14" width="105" height="24" rx="12" fill="#0D1117" stroke="#00E5FF" stroke-opacity="0.3" stroke-width="1"/>
+    <circle cx="2" cy="-2" r="4" fill="#00E5FF" filter="url(#glowGold)">
+      <animate attributeName="opacity" values="0.3;1;0.3" dur="1.5s" repeatCount="indefinite"/>
+    </circle>
+    <text x="14" y="2" font-family="monospace" font-weight="700" font-size="11" fill="#00E5FF" letter-spacing="1">SERVER</text>
+  </g>
+</svg>
