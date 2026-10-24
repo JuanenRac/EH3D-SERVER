@@ -27,31 +27,81 @@ impl Drop for Running {
 }
 
 async fn start_server(name: &str) -> Running {
-    let dir = std::env::temp_dir().join(format!("eh3d-server-programs-{name}-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "eh3d-server-programs-{name}-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&dir);
-    let state = AppState::open(ServerConfig { data_dir: dir.clone(), ..ServerConfig::default() }).unwrap();
+    let state = AppState::open(ServerConfig {
+        data_dir: dir.clone(),
+        ..ServerConfig::default()
+    })
+    .unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap().to_string();
     let app = router(state.clone());
     tokio::spawn(async move {
         let _ = axum::serve(listener, app).await;
     });
-    Running { state, address, dir }
+    Running {
+        state,
+        address,
+        dir,
+    }
 }
 
 /// Sets the server up like a person would: the administrator, a demo machine and a token for the program. Returns the token.
 async fn prepare(server: &Running) -> String {
     let address = server.address.clone();
-    let code = server.state.auth.lock().unwrap().setup_code().unwrap().to_string();
+    let code = server
+        .state
+        .auth
+        .lock()
+        .unwrap()
+        .setup_code()
+        .unwrap()
+        .to_string();
     tokio::task::spawn_blocking(move || {
-        let anonymous = Client { address: address.clone(), token: String::new(), machine: String::new() };
-        let (status, body) = anonymous.call("POST", "/api/v1/setup", Some(&json!({"code": code, "name": "juan", "password": "una-clave-larga"}))).unwrap();
+        let anonymous = Client {
+            address: address.clone(),
+            token: String::new(),
+            machine: String::new(),
+        };
+        let (status, body) = anonymous
+            .call(
+                "POST",
+                "/api/v1/setup",
+                Some(&json!({"code": code, "name": "juan", "password": "una-clave-larga"})),
+            )
+            .unwrap();
         assert_eq!(status, 200, "{body}");
-        let (_, login) = anonymous.call("POST", "/api/v1/login", Some(&json!({"name": "juan", "password": "una-clave-larga"}))).unwrap();
-        let admin = Client { address: address.clone(), token: login["token"].as_str().unwrap().to_string(), machine: String::new() };
-        let (status, body) = admin.call("POST", "/api/v1/machines", Some(&json!({"id": "bungard", "name": "Bungard", "connection": {"kind": "demo"}}))).unwrap();
+        let (_, login) = anonymous
+            .call(
+                "POST",
+                "/api/v1/login",
+                Some(&json!({"name": "juan", "password": "una-clave-larga"})),
+            )
+            .unwrap();
+        let admin = Client {
+            address: address.clone(),
+            token: login["token"].as_str().unwrap().to_string(),
+            machine: String::new(),
+        };
+        let (status, body) = admin
+            .call(
+                "POST",
+                "/api/v1/machines",
+                Some(&json!({"id": "bungard", "name": "Bungard", "connection": {"kind": "demo"}})),
+            )
+            .unwrap();
         assert_eq!(status, 200, "{body}");
-        let (_, made) = admin.call("POST", "/api/v1/tokens", Some(&json!({"name": "drillpro-pc", "role": "operator"}))).unwrap();
+        let (_, made) = admin
+            .call(
+                "POST",
+                "/api/v1/tokens",
+                Some(&json!({"name": "drillpro-pc", "role": "operator"})),
+            )
+            .unwrap();
         made["token"].as_str().unwrap().to_string()
     })
     .await
@@ -98,7 +148,12 @@ async fn a_drilling_job_of_the_program_runs_on_the_server_to_the_end() {
         "holes": [{"tool": 1, "x_mm": 10, "y_mm": 10}, {"tool": 1, "x_mm": 20, "y_mm": 10}, {"tool": 1, "x_mm": 30, "y_mm": 20}]
     });
     // the program's own plan of the job, as it makes it for its screen: three holes ending at these items of 20
-    let run = RealRun::start_on_server(config(&server, &token, "bungard"), request, vec![5, 9, 13], 20);
+    let run = RealRun::start_on_server(
+        config(&server, &token, "bungard"),
+        request,
+        vec![5, 9, 13],
+        20,
+    );
     let (state, dialogs) = finish(&run).await;
     assert_eq!(state, RunState::Done, "{:?}", run.state());
     assert_eq!(dialogs.first(), Some(&Pause::ToolChange { tool: 1 }));
@@ -106,7 +161,14 @@ async fn a_drilling_job_of_the_program_runs_on_the_server_to_the_end() {
     // the server kept the job as done, started by the program's token
     let jobs = server.state.jobs.lock().unwrap();
     let job = &jobs.list()[0];
-    assert_eq!((job.state, job.by.as_str(), job.name.as_str()), (eh3d_server::jobs::JobState::Done, "drillpro-pc", "board.ncd"));
+    assert_eq!(
+        (job.state, job.by.as_str(), job.name.as_str()),
+        (
+            eh3d_server::jobs::JobState::Done,
+            "drillpro-pc",
+            "board.ncd"
+        )
+    );
     assert_eq!(job.holes_done, 3);
 }
 
@@ -131,23 +193,45 @@ async fn what_the_server_refuses_comes_back_to_the_program_as_a_failure_with_its
     let token = prepare(&server).await;
     // a hole of a tool that is not in the table
     let request = json!({"kind": "drill", "holes": [{"tool": 7, "x_mm": 1, "y_mm": 1}]});
-    let run = RealRun::start_on_server(config(&server, &token, "bungard"), request.clone(), vec![3], 10);
+    let run = RealRun::start_on_server(
+        config(&server, &token, "bungard"),
+        request.clone(),
+        vec![3],
+        10,
+    );
     let (state, _) = finish(&run).await;
-    assert!(matches!(&state, RunState::Failed(why) if why.starts_with("unknown_tool")), "{state:?}");
+    assert!(
+        matches!(&state, RunState::Failed(why) if why.starts_with("unknown_tool")),
+        "{state:?}"
+    );
     // a machine the server does not know
     let run = RealRun::start_on_server(config(&server, &token, "nowhere"), request, vec![3], 10);
     let (state, _) = finish(&run).await;
-    assert!(matches!(&state, RunState::Failed(why) if why.starts_with("unknown_machine")), "{state:?}");
+    assert!(
+        matches!(&state, RunState::Failed(why) if why.starts_with("unknown_machine")),
+        "{state:?}"
+    );
     // a token that is not valid
-    let run = RealRun::start_on_server(config(&server, "eh3d_nonsense", "bungard"), json!({"kind": "drill"}), Vec::new(), 1);
+    let run = RealRun::start_on_server(
+        config(&server, "eh3d_nonsense", "bungard"),
+        json!({"kind": "drill"}),
+        Vec::new(),
+        1,
+    );
     let (state, _) = finish(&run).await;
-    assert!(matches!(&state, RunState::Failed(why) if why.starts_with("unauthorized")), "{state:?}");
+    assert!(
+        matches!(&state, RunState::Failed(why) if why.starts_with("unauthorized")),
+        "{state:?}"
+    );
     // a connection file with no server address says so
     let mut c = config(&server, &token, "bungard");
     c.server_address.clear();
     let run = RealRun::start_on_server(c, json!({"kind": "drill"}), Vec::new(), 1);
     let (state, _) = finish(&run).await;
-    assert!(matches!(&state, RunState::Failed(why) if why.contains("server_address")), "{state:?}");
+    assert!(
+        matches!(&state, RunState::Failed(why) if why.contains("server_address")),
+        "{state:?}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -159,7 +243,12 @@ async fn the_program_can_stop_a_job_on_the_server_and_closing_the_program_does_n
         "holes": [{"tool": 1, "x_mm": 10, "y_mm": 10}, {"tool": 1, "x_mm": 20, "y_mm": 10}]
     });
     // stopped from the program: it waits at the first dialog and Escape ends it on the server
-    let run = RealRun::start_on_server(config(&server, &token, "bungard"), request.clone(), vec![5, 9], 12);
+    let run = RealRun::start_on_server(
+        config(&server, &token, "bungard"),
+        request.clone(),
+        vec![5, 9],
+        12,
+    );
     let limit = Instant::now() + Duration::from_secs(60);
     while !matches!(run.state(), RunState::WaitPause(_)) {
         assert!(Instant::now() < limit, "{:?}", run.state());
@@ -175,8 +264,14 @@ async fn the_program_can_stop_a_job_on_the_server_and_closing_the_program_does_n
         assert!(Instant::now() < limit, "{:?}", run.state());
         tokio::time::sleep(Duration::from_millis(40)).await;
     }
-    tokio::task::spawn_blocking(move || drop(run)).await.unwrap();
+    tokio::task::spawn_blocking(move || drop(run))
+        .await
+        .unwrap();
     let jobs = server.state.jobs.lock().unwrap();
     let last = jobs.list().last().unwrap();
-    assert!(last.state.active(), "the job stopped with the program: {:?}", last.state);
+    assert!(
+        last.state.active(),
+        "the job stopped with the program: {:?}",
+        last.state
+    );
 }
