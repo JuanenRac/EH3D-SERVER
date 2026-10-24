@@ -34,6 +34,24 @@
 | Stack tecnologico | Rust |
 | Su hardware reale | No: provato contro il simulatore; per suo tramite non è ancora girato nulla su una macchina reale |
 
+## 🚦 Stato del progetto
+
+Ogni riga è una parte di questo repository e il semaforo dice a che punto è oggi. È scritta in base a ciò che il repository può mostrare (test, compilazioni, esecuzioni), non a ciò che è previsto.
+
+🟢 Fatto e verificato · 🟡 Funziona, con limiti noti · 🟠 Fatto a metà o non ancora verificato · 🔴 Non fatto o non funzionante
+
+| Area | Stato | Cosa significa qui |
+|---|---|---|
+| Software | 🟡 | Un server Rust (axum) gestisce utenti, macchine e lavori, pianifica lavori di foratura e fresatura con le librerie di EH3D-DRILLPRO ed EH3D-ROUTEPRO, mostra un'anteprima ed esegue il lavoro con i dialoghi dell'operatore e un arresto. |
+| Test | 🟢 | 39 test passano (`cargo test`), l'interfaccia da un capo all'altro con lavori eseguiti sul simulatore. |
+| Interfaccia per i client (API) | 🟡 | Le richieste REST e gli eventi del websocket sono descritti in `docs/API.md` e coperti dai test; per ora li usa solo la connessione al server dei programmi stessi. |
+| Client | 🔴 | L'app Android, lo Studio e il pannello touch accanto alla macchina non esistono ancora. |
+| Sicurezza | 🟡 | Ogni richiesta richiede un token con uno di tre ruoli, le password sono hash Argon2 e le password errate vengono rallentate; il server non termina TLS (mettere HTTPS davanti) e non ha avuto una revisione indipendente. |
+| Hardware reale | 🟠 | I lavori sono stati eseguiti solo sul simulatore: nulla è girato su una macchina reale attraverso il server. |
+| Distribuzione | 🟠 | Un'unità systemd e `docs/DEPLOY.md` descrivono il servizio sulla CM5; non risulta nessuna distribuzione eseguita. |
+| Integrazione | 🟡 | Pianifica con le stesse librerie di EH3D-DRILLPRO ed EH3D-ROUTEPRO (le loro cartelle devono stare accanto a questa) e parla con il collegamento di EH3D-NODE-BUNGARD, raggiunto solo tramite il simulatore. |
+| Documentazione | 🟢 | README in otto lingue, il riferimento dell'API e la guida per eseguirlo come servizio. |
+
 ## 🎯 Panoramica
 
 * I **lavori**: un lavoro di foratura (fori e utensili, o un file `.NCD` con la sua tabella utensili) o di fresatura (percorsi e utensili, o un file `.PLT` con la sua tabella utensili), pianificati con le librerie dei programmi, così un client disegna e una macchina fa esattamente la stessa cosa; rifiutati con un codice quando un foro è fuori dal piano o manca un utensile.

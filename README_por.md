@@ -34,6 +34,24 @@
 | Tecnologias | Rust |
 | Em hardware real | Não: testado contra o simulador; ainda nada correu numa máquina real através do servidor |
 
+## 🚦 Estado do projeto
+
+Cada linha é uma parte deste repositório e a luz diz até onde chega hoje. É escrita com o que o repositório consegue demonstrar (testes, compilações, execuções), não com o que está previsto.
+
+🟢 Feito e verificado · 🟡 Funciona, com limites conhecidos · 🟠 Feito a meio ou ainda por verificar · 🔴 Por fazer ou a não funcionar
+
+| Área | Estado | O que significa aqui |
+|---|---|---|
+| Software | 🟡 | Um servidor Rust (axum) guarda utilizadores, máquinas e trabalhos, planeia trabalhos de furação e fresagem com as bibliotecas do EH3D-DRILLPRO e do EH3D-ROUTEPRO, mostra uma pré-visualização e executa o trabalho com diálogos do operador e uma paragem. |
+| Testes | 🟢 | Passam 39 testes (`cargo test`), a interface de ponta a ponta com trabalhos a correr no simulador. |
+| Interface para clientes (API) | 🟡 | Os pedidos REST e os eventos do websocket estão descritos em `docs/API.md` e cobertos pelos testes; por agora só a ligação ao servidor dos próprios programas os usa. |
+| Clientes | 🔴 | A app Android, o Studio e o painel tátil junto à máquina ainda não existem. |
+| Segurança | 🟡 | Cada pedido precisa de um token com um de três papéis, as palavras-passe são hashes Argon2 e as erradas são atrasadas; o servidor não termina TLS (é preciso pôr HTTPS à frente) e não teve revisão independente. |
+| Hardware real | 🟠 | Os trabalhos só correram no simulador: nada correu numa máquina real através do servidor. |
+| Instalação em serviço | 🟠 | Uma unidade systemd e o `docs/DEPLOY.md` descrevem o serviço no CM5; não há registo de nenhuma instalação feita. |
+| Integração | 🟡 | Planeia com as mesmas bibliotecas do EH3D-DRILLPRO e do EH3D-ROUTEPRO (as suas pastas têm de estar ao lado desta) e fala com a ligação do EH3D-NODE-BUNGARD, que só alcançou através do simulador. |
+| Documentação | 🟢 | README em oito idiomas, a referência da API e o guia para o executar como serviço. |
+
 ## 🎯 Descrição geral
 
 * Os **trabalhos**: um trabalho de furação (furos e ferramentas, ou um ficheiro `.NCD` com a sua tabela de ferramentas) ou de fresagem (trajetórias e ferramentas, ou um ficheiro `.PLT` com a sua tabela de ferramentas), planeados com as bibliotecas dos programas, de modo que um cliente desenha e uma máquina faz exatamente o mesmo; recusados com um código quando um furo fica fora da mesa ou falta uma ferramenta.

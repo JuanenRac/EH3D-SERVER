@@ -70,6 +70,35 @@ def hygiene_problems() -> list[str]:
         found.append(f"{folder}/ is a build or private folder and {count} of its files are tracked")
     return found
 
+STATUS_LIGHTS = ("🟢", "🟡", "🟠", "🔴")
+
+
+def status_lights(text: str) -> list[str] | None:
+    """The lights of the "Project status" section of a README, in order, or None when the section is missing or malformed.
+
+    The section is the second `## ` heading (right after "At a glance"), has the legend with the four lights and a
+    table whose State column holds only a light."""
+    lines, fenced, heads = text.splitlines(), False, []
+    for index, line in enumerate(lines):
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced and line.startswith("## "):
+            heads.append(index)
+    if len(heads) < 3 or not lines[heads[1]].startswith("## 🚦 "):
+        return None
+    block = lines[heads[1]:heads[2]]
+    if not all(light in " ".join(block) for light in STATUS_LIGHTS):
+        return None
+    rows = [line for line in block if line.startswith("|")][2:]
+    lights = []
+    for row in rows:
+        cells = [part.strip() for part in re.split(r"(?<!\\)\|", row.strip().strip("|"))]
+        if len(cells) != 3 or cells[1] not in STATUS_LIGHTS or not cells[0] or not cells[2]:
+            return None
+        lights.append(cells[1])
+    return lights if len(lights) >= 3 else None
+
+
 def main() -> int:
     problems: list[str] = []
     manifest = json.loads((ROOT / "eh3d.project.json").read_text(encoding="utf-8"))
@@ -90,6 +119,7 @@ def main() -> int:
     if not top or top.group(1) != version:
         problems.append(f"the newest CHANGELOG entry ({top.group(1) if top else 'none'}) is not the version {version}")
     english = headings((ROOT / "README.md").read_text(encoding="utf-8"))
+    english_lights = status_lights((ROOT / "README.md").read_text(encoding="utf-8"))
     for name in LANGUAGES:
         path = ROOT / name
         if not path.exists():
@@ -98,6 +128,11 @@ def main() -> int:
         text = path.read_text(encoding="utf-8")
         if headings(text) != english:
             problems.append(f"{name} does not have the heading structure of README.md")
+        lights = status_lights(text)
+        if lights is None:
+            problems.append(f"{name} has no valid 'Project status' section right after 'At a glance' (a table of lights, one row per part)")
+        elif lights != english_lights:
+            problems.append(f"{name} does not show the same lights as README.md in its 'Project status' table")
         if f"`{version}`" not in text:
             problems.append(f"{name} does not show the version {version}")
         for other in LANGUAGES:

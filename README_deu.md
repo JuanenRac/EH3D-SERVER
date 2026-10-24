@@ -34,6 +34,24 @@
 | Technologie-Stack | Rust |
 | Auf echter Hardware | Nein: gegen den Simulator getestet; über den Server lief noch nichts an einer echten Maschine |
 
+## 🚦 Projektstatus
+
+Jede Zeile ist ein Teil dieses Repositorys, und die Ampel sagt, wie weit er heute ist. Sie beruht auf dem, was das Repository zeigen kann (Tests, Builds, Läufe), nicht auf dem, was geplant ist.
+
+🟢 Fertig und überprüft · 🟡 Funktioniert, mit bekannten Grenzen · 🟠 Teilweise fertig oder noch nicht überprüft · 🔴 Nicht gemacht oder funktioniert nicht
+
+| Bereich | Stand | Was das hier bedeutet |
+|---|---|---|
+| Software | 🟡 | Ein Rust-Server (axum) verwaltet Benutzer, Maschinen und Aufträge, plant Bohr- und Fräsaufträge mit den Bibliotheken von EH3D-DRILLPRO und EH3D-ROUTEPRO, zeigt eine Vorschau und führt den Auftrag mit Bedienerdialogen und einem Stopp aus. |
+| Tests | 🟢 | 39 Tests bestehen (`cargo test`), die Schnittstelle von Anfang bis Ende mit Aufträgen auf dem Simulator. |
+| Schnittstelle für Clients (API) | 🟡 | Die REST-Anfragen und die Websocket-Ereignisse sind in `docs/API.md` beschrieben und von den Tests abgedeckt; bisher nutzt sie nur die Serververbindung der Programme selbst. |
+| Clients | 🔴 | Die Android-App, das Studio und das Touch-Panel neben der Maschine gibt es noch nicht. |
+| Sicherheit | 🟡 | Jede Anfrage braucht ein Token mit einer von drei Rollen, Passwörter sind Argon2-Hashes und falsche Passwörter werden gebremst; der Server beendet kein TLS (HTTPS davorschalten) und wurde nicht unabhängig geprüft. |
+| Echte Hardware | 🟠 | Die Aufträge liefen bisher nur gegen den Simulator: über den Server ist nichts auf einer echten Maschine gelaufen. |
+| Bereitstellung | 🟠 | Eine systemd-Unit und `docs/DEPLOY.md` beschreiben den Dienst auf dem CM5; eine durchgeführte Installation ist nicht vermerkt. |
+| Integration | 🟡 | Er plant mit denselben Bibliotheken wie EH3D-DRILLPRO und EH3D-ROUTEPRO (deren Ordner müssen neben diesem liegen) und spricht die Verbindung von EH3D-NODE-BUNGARD an, die er nur über den Simulator erreicht hat. |
+| Dokumentation | 🟢 | README in acht Sprachen, die API-Referenz und die Anleitung, es als Dienst zu betreiben. |
+
 ## 🎯 Überblick
 
 * Die **Aufträge**: ein Bohrauftrag (Bohrungen und Werkzeuge oder eine `.NCD`-Datei mit Werkzeugtabelle) oder ein Fräsauftrag (Bahnen und Werkzeuge oder eine `.PLT`-Datei mit Werkzeugtabelle), geplant mit den Bibliotheken der Programme, sodass ein Client genau das zeichnet, was die Maschine tut; mit einem Code abgelehnt, wenn eine Bohrung außerhalb des Tisches liegt oder ein Werkzeug fehlt.

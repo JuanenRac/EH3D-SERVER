@@ -34,6 +34,24 @@
 | Pila tecnológica | Rust |
 | En hardware real | No: probado contra el simulador; todavía no ha corrido nada en una máquina real a través del servidor |
 
+## 🚦 Estado del proyecto
+
+Cada línea es una parte de este repositorio y la luz dice hasta dónde llega hoy. Se escribe con lo que el repositorio puede demostrar (pruebas, compilaciones, ejecuciones), no con lo previsto.
+
+🟢 Hecho y verificado · 🟡 Funciona, con límites conocidos · 🟠 Hecho a medias o sin verificar · 🔴 Sin hacer o sin funcionar
+
+| Área | Estado | Qué significa aquí |
+|---|---|---|
+| Software | 🟡 | Un servidor en Rust (axum) guarda usuarios, máquinas y trabajos, planifica trabajos de taladrado y fresado con las bibliotecas de EH3D-DRILLPRO y EH3D-ROUTEPRO, muestra una vista previa y ejecuta el trabajo con diálogos del operador y una parada. |
+| Pruebas | 🟢 | Pasan 39 pruebas (`cargo test`), la interfaz de extremo a extremo con trabajos ejecutándose en el simulador. |
+| Interfaz para clientes (API) | 🟡 | Las peticiones REST y los eventos del websocket están descritos en `docs/API.md` y cubiertos por las pruebas; por ahora solo los usa la conexión con el servidor de los propios programas. |
+| Clientes | 🔴 | La app de Android, el Studio y el panel táctil junto a la máquina todavía no existen. |
+| Seguridad | 🟡 | Toda petición necesita un token con uno de tres roles, las contraseñas son hashes Argon2 y las contraseñas erróneas se ralentizan; el servidor no termina TLS (hay que poner HTTPS delante) y no ha tenido revisión independiente. |
+| Hardware real | 🟠 | Los trabajos solo se han ejecutado contra el simulador: nada se ha ejecutado en una máquina real a través del servidor. |
+| Despliegue | 🟠 | Una unidad de systemd y `docs/DEPLOY.md` describen el servicio en la CM5; no consta ningún despliegue hecho. |
+| Integración | 🟡 | Planifica con las mismas bibliotecas que EH3D-DRILLPRO y EH3D-ROUTEPRO (sus carpetas deben estar junto a esta) y habla con el enlace de EH3D-NODE-BUNGARD, al que solo ha llegado a través del simulador. |
+| Documentación | 🟢 | README en ocho idiomas, la referencia de la API y la guía para ejecutarlo como servicio. |
+
 ## 🎯 Descripción general
 
 * Los **trabajos**: un trabajo de taladrado (agujeros y herramientas, o un fichero `.NCD` con su tabla de herramientas) o de fresado (trayectorias y herramientas, o un fichero `.PLT` con su tabla de herramientas), planificados con las bibliotecas de los programas, de modo que un cliente dibuja y una máquina hace exactamente lo mismo; rechazados con un código cuando un agujero queda fuera de la mesa o falta una herramienta.

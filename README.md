@@ -34,6 +34,24 @@
 | Stack | Rust |
 | On real hardware | No: tested against the simulator; nothing has run on a real machine through the server yet |
 
+## 🚦 Project status
+
+Each line is one part of this repository and the light says how far it is today. It is written from what the repository can show (tests, builds, runs), not from what is planned.
+
+🟢 Done and verified · 🟡 Works, with known limits · 🟠 Partly done or not verified yet · 🔴 Not done or not working
+
+| Area | State | What it means here |
+|---|---|---|
+| Software | 🟡 | A Rust server (axum) keeps users, machines and jobs, plans drilling and routing jobs with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview and runs the job with operator dialogs and a stop. |
+| Tests | 🟢 | 39 tests pass (`cargo test`), the interface end to end with jobs running on the simulator. |
+| Interface for clients (API) | 🟡 | The REST requests and the websocket events are written down in `docs/API.md` and covered by the tests; only the programs' own server connection uses them so far. |
+| Clients | 🔴 | The Android app, the Studio and the touch panel next to the machine do not exist yet. |
+| Security | 🟡 | Every request needs a token with one of three roles, passwords are Argon2 hashes and wrong passwords are slowed down; the server does not terminate TLS (put HTTPS in front) and has had no independent review. |
+| Real hardware | 🟠 | The jobs have only run against the simulator: nothing has run on a real machine through the server. |
+| Deployment | 🟠 | A systemd unit and `docs/DEPLOY.md` describe the service on the CM5; no deployment is recorded as done. |
+| Integration | 🟡 | It plans with the same libraries as EH3D-DRILLPRO and EH3D-ROUTEPRO (their folders must sit next to this one) and talks to the link of EH3D-NODE-BUNGARD, which it has only reached through the simulator. |
+| Documentation | 🟢 | README in eight languages, the API reference and the guide to running it as a service. |
+
 ## 🎯 Overview
 
 * The **jobs**: a drilling job (holes and tools, or a `.NCD` file with its tool table) or a routing job (paths and tools, or a `.PLT` file with its tool table), planned with the libraries of the programs, so a client draws and a machine does exactly the same thing; refused with a code when a hole is outside the table or a tool is missing.

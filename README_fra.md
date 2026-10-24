@@ -34,6 +34,24 @@
 | Pile technique | Rust |
 | Sur du matériel réel | Non : testé contre le simulateur ; rien n'a encore tourné sur une machine réelle par le serveur |
 
+## 🚦 État du projet
+
+Chaque ligne est une partie de ce dépôt et le feu dit où elle en est aujourd'hui. Elle est écrite d'après ce que le dépôt peut montrer (tests, compilations, exécutions), pas d'après ce qui est prévu.
+
+🟢 Fait et vérifié · 🟡 Fonctionne, avec des limites connues · 🟠 À moitié fait ou pas encore vérifié · 🔴 Pas fait ou ne fonctionne pas
+
+| Domaine | État | Ce que cela veut dire ici |
+|---|---|---|
+| Logiciel | 🟡 | Un serveur Rust (axum) tient les utilisateurs, les machines et les travaux, planifie les travaux de perçage et de fraisage avec les bibliothèques d'EH3D-DRILLPRO et d'EH3D-ROUTEPRO, montre un aperçu et exécute le travail avec des dialogues d'opérateur et un arrêt. |
+| Tests | 🟢 | 39 tests réussissent (`cargo test`), l'interface de bout en bout avec des travaux exécutés sur le simulateur. |
+| Interface pour les clients (API) | 🟡 | Les requêtes REST et les événements du websocket sont décrits dans `docs/API.md` et couverts par les tests ; pour l'instant, seule la connexion au serveur des programmes eux-mêmes les utilise. |
+| Clients | 🔴 | L'appli Android, le Studio et le panneau tactile à côté de la machine n'existent pas encore. |
+| Sécurité | 🟡 | Chaque requête exige un jeton avec l'un des trois rôles, les mots de passe sont des empreintes Argon2 et les mauvais mots de passe sont ralentis ; le serveur ne termine pas TLS (mettre HTTPS devant) et n'a pas eu de revue indépendante. |
+| Matériel réel | 🟠 | Les travaux n'ont tourné que sur le simulateur : rien n'a tourné sur une vraie machine à travers le serveur. |
+| Déploiement | 🟠 | Une unité systemd et `docs/DEPLOY.md` décrivent le service sur la CM5 ; aucun déploiement n'est consigné comme fait. |
+| Intégration | 🟡 | Il planifie avec les mêmes bibliothèques qu'EH3D-DRILLPRO et EH3D-ROUTEPRO (leurs dossiers doivent être à côté de celui-ci) et parle à la liaison d'EH3D-NODE-BUNGARD, qu'il n'a atteinte que par le simulateur. |
+| Documentation | 🟢 | README en huit langues, la référence de l'API et le guide pour l'exécuter comme service. |
+
 ## 🎯 Vue d'ensemble
 
 * Les **travaux** : un travail de perçage (trous et outils, ou un fichier `.NCD` avec sa table d'outils) ou de fraisage (trajectoires et outils, ou un fichier `.PLT` avec sa table d'outils), planifiés avec les bibliothèques des programmes, si bien qu'un client dessine et qu'une machine fait exactement la même chose ; refusés avec un code quand un trou est hors de la table ou qu'un outil manque.
