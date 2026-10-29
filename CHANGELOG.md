@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **The layout of the README is checked in the CI:** the validator runs `tools/universal_readme_check.py` and lists, as a warning, what differs from the universal layout of the README.
+
 ## [0.0.1] - The server: users, machines, jobs and the run through a node
 
 - **Jobs:** a drilling job (holes and tools, or an Excellon file with its tool table) or a routing job (paths and tools, or an HP-GL file with its tool table), planned with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO and the constants and tuning of the machine; refused with a code when a hole or a point is outside the table, a tool is missing or out of range, or the request is too big.
