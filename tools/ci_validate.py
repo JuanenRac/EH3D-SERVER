@@ -101,7 +101,7 @@ def status_lights(text: str) -> list[str] | None:
 
 TREE_EXEMPT = re.compile(
     r"^(README(_[a-z]{3})?\.md|LICENSE(\.md)?|CHANGELOG\.md|CODE_OF_CONDUCT\.md|CONTRIBUTING\.md|SECURITY\.md|SUPPORT\.md|VERSION"
-    r"|eh3d\.project\.json|images|\..*|build.*|run.*|dev.*|bump.*|.*\.lock|Cargo\.toml|package(-lock)?\.json|pyproject\.toml|.*\.toml)$"
+    r"|eh3d\.project\.json|images|\..*|build.*|run.*|test[.](bat|sh)|dev.*|bump.*|.*\.lock|Cargo\.toml|package(-lock)?\.json|pyproject\.toml|.*\.toml)$"
 )
 TREE_ROW = re.compile(r"^[├└]── ([^\s,]+(?:(?:, | / | \+ )[^\s,]+)*)")
 
