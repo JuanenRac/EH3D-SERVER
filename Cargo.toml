@@ -31,3 +31,7 @@ eh3d-routepro = { path = "../EH3D-ROUTEPRO" }
 [dev-dependencies]
 tower = { version = "0.4", features = ["util"] }
 http-body-util = "0.1"
+
+[profile.dev]
+# a lighter debug build: the file and line of a panic stay, the full debug symbols (the bulk of the target folder) do not
+debug = "line-tables-only"
