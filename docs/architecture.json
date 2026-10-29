@@ -1,0 +1,175 @@
+{
+  "repo": "EH3D-SERVER",
+  "ecosystem": "eh3d",
+  "tagline": "The center of the EH3D programs: it plans the jobs, runs them on the machine through its node and tells everybody how they go.",
+  "description": "EH3D-SERVER is a Rust service (axum) with a REST interface and a websocket. Every request needs a token with one of three roles. It plans a drilling or routing job with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, keeps it ready until an operator starts it, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator and a stop. Everything is tested on a computer against the simulator; nothing has run on a real machine through it, and it does not terminate TLS.",
+  "columns": [
+    "WHO USES IT",
+    "THIS REPOSITORY",
+    "WHERE THE JOB GOES"
+  ],
+  "nodes": [
+    {
+      "id": "programs",
+      "column": 0,
+      "level": "external",
+      "title": "The programs",
+      "lines": [
+        "DRILLPRO, ROUTEPRO: jobs",
+        "with connection = server"
+      ]
+    },
+    {
+      "id": "people",
+      "column": 0,
+      "level": "external",
+      "title": "People with a token",
+      "lines": [
+        "viewer reads, operator runs",
+        "jobs, administrator manages",
+        "users, tokens and machines"
+      ]
+    },
+    {
+      "id": "clients",
+      "column": 0,
+      "level": "external",
+      "title": "Clients to come",
+      "lines": [
+        "the Android app, the Studio and",
+        "the touch panel: not built yet"
+      ]
+    },
+    {
+      "id": "api",
+      "column": 1,
+      "level": "tested",
+      "title": "REST and websocket",
+      "lines": [
+        "/api/v1: users, machines, jobs;",
+        "/events tells every change"
+      ],
+      "code": [
+        "src/api.rs::/api/v1/events",
+        "src/api.rs::/api/v1/jobs"
+      ]
+    },
+    {
+      "id": "auth",
+      "column": 1,
+      "level": "tested",
+      "title": "Users and tokens",
+      "lines": [
+        "Argon2 passwords, SHA-256 of",
+        "tokens, slowdown on wrong",
+        "passwords, set-up code"
+      ],
+      "code": [
+        "src/auth.rs::MAX_FAILURES",
+        "src/auth.rs::Argon2"
+      ]
+    },
+    {
+      "id": "plan",
+      "column": 1,
+      "level": "tested",
+      "title": "Planning and jobs",
+      "lines": [
+        "preview, one job per machine,",
+        "operator dialogs, stop"
+      ],
+      "code": [
+        "src/plan.rs",
+        "src/jobs.rs::WaitingOperator"
+      ]
+    },
+    {
+      "id": "libs",
+      "column": 2,
+      "level": "tested",
+      "title": "Program libraries",
+      "lines": [
+        "eh3d-drillpro and eh3d-routepro:",
+        "the same planning and protocol"
+      ],
+      "code": [
+        "Cargo.toml::eh3d-drillpro"
+      ]
+    },
+    {
+      "id": "sim",
+      "column": 2,
+      "level": "tested",
+      "title": "Simulator",
+      "lines": [
+        "connection kind demo: the",
+        "tests run whole jobs on it"
+      ],
+      "code": [
+        "tests/programs.rs"
+      ]
+    },
+    {
+      "id": "node",
+      "column": 2,
+      "level": "untested",
+      "title": "EH3D-NODE-BUNGARD",
+      "lines": [
+        "the node in the machine's box;",
+        "never reached for real"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "programs",
+      "to": "api",
+      "label": "jobs",
+      "level": "tested"
+    },
+    {
+      "from": "people",
+      "to": "api",
+      "label": "token",
+      "level": "tested"
+    },
+    {
+      "from": "clients",
+      "to": "api",
+      "label": "planned",
+      "level": "config"
+    },
+    {
+      "from": "api",
+      "to": "auth",
+      "level": "tested"
+    },
+    {
+      "from": "auth",
+      "to": "plan",
+      "level": "tested"
+    },
+    {
+      "from": "plan",
+      "to": "libs",
+      "level": "tested"
+    },
+    {
+      "from": "plan",
+      "to": "sim",
+      "level": "tested"
+    },
+    {
+      "from": "plan",
+      "to": "node",
+      "level": "untested"
+    }
+  ],
+  "legend": {
+    "tested": "covered by tests on a computer",
+    "config": "planned, not built",
+    "untested": "has not run on real hardware",
+    "external": "a person, a program or another repository"
+  },
+  "footer": "Nothing has run on a real machine through the server yet."
+}

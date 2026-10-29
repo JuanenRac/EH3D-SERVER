@@ -1,0 +1,397 @@
+{
+  "repo": "EH3D-SERVER",
+  "ecosystem": "eh3d",
+  "svg": "en",
+  "exempt": [
+    "test.bat",
+    "test.sh"
+  ],
+  "tagline": {
+    "en": "Two levels: the folders, and the files that carry the logic.",
+    "es": "Dos niveles: las carpetas y los ficheros que llevan la lógica.",
+    "de": "Zwei Ebenen: die Ordner und die Dateien, die die Logik tragen.",
+    "fr": "Deux niveaux : les dossiers et les fichiers qui portent la logique.",
+    "it": "Due livelli: le cartelle e i file che portano la logica.",
+    "ja": "2階層：フォルダと、ロジックを担うファイル。",
+    "zh": "两个层级：文件夹，以及承载逻辑的文件。",
+    "pt": "Dois níveis: as pastas e os ficheiros que levam a lógica."
+  },
+  "cards": [
+    {
+      "name": "src/",
+      "span": 3,
+      "accent": "a",
+      "rows": [
+        {
+          "desc": {
+            "en": "the REST routes and the websocket",
+            "es": "las rutas REST y el websocket",
+            "de": "die REST-Routen und der Websocket",
+            "fr": "les routes REST et le websocket",
+            "it": "le route REST e il websocket",
+            "ja": "REST ルートと WebSocket",
+            "zh": "REST 路由和 websocket",
+            "pt": "as rotas REST e o websocket"
+          },
+          "name": "api.rs"
+        },
+        {
+          "desc": {
+            "en": "users, roles, tokens and the slowdown on wrong passwords",
+            "es": "usuarios, roles, tokens y la ralentización ante contraseñas erróneas",
+            "de": "Benutzer, Rollen, Tokens und die Bremse bei falschen Passwörtern",
+            "fr": "utilisateurs, rôles, jetons et ralentissement sur mauvais mot de passe",
+            "it": "utenti, ruoli, token e rallentamento sulle password sbagliate",
+            "ja": "ユーザー、権限、トークン、誤ったパスワードの遅延",
+            "zh": "用户、角色、令牌和对错误密码的减速",
+            "pt": "utilizadores, papéis, tokens e abrandamento perante palavras-passe erradas"
+          },
+          "name": "auth.rs"
+        },
+        {
+          "desc": {
+            "en": "from the request to the items the machine runs",
+            "es": "de la petición a los elementos que ejecuta la máquina",
+            "de": "von der Anfrage zu den Elementen, die die Maschine ausführt",
+            "fr": "de la requête aux éléments que la machine exécute",
+            "it": "dalla richiesta agli elementi che la macchina esegue",
+            "ja": "リクエストから機械が実行する項目まで",
+            "zh": "从请求到机床执行的项目",
+            "pt": "do pedido aos elementos que a máquina executa"
+          },
+          "name": "plan.rs"
+        },
+        {
+          "desc": {
+            "en": "the jobs and what the server is made of while it runs",
+            "es": "los trabajos y de qué se compone el servidor mientras corre",
+            "de": "die Aufträge und woraus der Server im Betrieb besteht",
+            "fr": "les travaux et ce dont le serveur est fait pendant qu'il tourne",
+            "it": "i lavori e di cosa è fatto il server mentre gira",
+            "ja": "ジョブと、実行中のサーバーの構成要素",
+            "zh": "作业以及服务器运行时的组成",
+            "pt": "os trabalhos e aquilo de que o servidor é feito enquanto corre"
+          },
+          "name": "jobs.rs  state.rs",
+          "tree_name": "jobs.rs state.rs"
+        },
+        {
+          "desc": {
+            "en": "the machines, and the files written through a temporary file",
+            "es": "las máquinas y los ficheros escritos a través de uno temporal",
+            "de": "die Maschinen und die über eine temporäre Datei geschriebenen Dateien",
+            "fr": "les machines, et les fichiers écrits via un fichier temporaire",
+            "it": "le macchine e i file scritti tramite uno temporaneo",
+            "ja": "機械と、一時ファイル経由で書かれるファイル",
+            "zh": "机床以及通过临时文件写入的文件",
+            "pt": "as máquinas e os ficheiros escritos através de um temporário"
+          },
+          "name": "machines.rs  store.rs",
+          "tree_name": "machines.rs store.rs"
+        },
+        {
+          "desc": {
+            "en": "the settings file, the library root and the program",
+            "es": "el fichero de ajustes, la raíz de la biblioteca y el programa",
+            "de": "die Einstellungsdatei, die Bibliothekswurzel und das Programm",
+            "fr": "le fichier de réglages, la racine de la bibliothèque et le programme",
+            "it": "il file delle impostazioni, la radice della libreria e il programma",
+            "ja": "設定ファイル、ライブラリのルート、プログラム",
+            "zh": "设置文件、库根和程序",
+            "pt": "o ficheiro de definições, a raiz da biblioteca e o programa"
+          },
+          "name": "config.rs  lib.rs  main.rs",
+          "tree_name": "config.rs lib.rs main.rs"
+        }
+      ],
+      "sub": {
+        "en": "the server: settings, users, machines, planning, jobs, the interface and the websocket",
+        "es": "el servidor: ajustes, usuarios, máquinas, planificación, trabajos, interfaz y websocket",
+        "de": "der Server: Einstellungen, Benutzer, Maschinen, Planung, Aufträge, Schnittstelle und Websocket",
+        "fr": "le serveur : réglages, utilisateurs, machines, planification, travaux, interface et websocket",
+        "it": "il server: impostazioni, utenti, macchine, pianificazione, lavori, interfaccia e websocket",
+        "ja": "サーバー：設定、ユーザー、機械、計画、ジョブ、インターフェース、WebSocket",
+        "zh": "服务器：设置、用户、机床、规划、作业、接口和 websocket",
+        "pt": "o servidor: definições, utilizadores, máquinas, planeamento, trabalhos, interface e websocket"
+      }
+    },
+    {
+      "name": "tests/",
+      "span": 3,
+      "accent": "c",
+      "rows": [
+        {
+          "desc": {
+            "en": "the interface through the real router",
+            "es": "la interfaz a través del router real",
+            "de": "die Schnittstelle über den echten Router",
+            "fr": "l'interface par le vrai routeur",
+            "it": "l'interfaccia attraverso il vero router",
+            "ja": "実際のルーターを通すインターフェース",
+            "zh": "通过真实路由器的接口",
+            "pt": "a interface através do router real"
+          },
+          "name": "api.rs"
+        },
+        {
+          "desc": {
+            "en": "DRILLPRO and ROUTEPRO sending jobs to a real server",
+            "es": "DRILLPRO y ROUTEPRO enviando trabajos a un servidor real",
+            "de": "DRILLPRO und ROUTEPRO senden Aufträge an einen echten Server",
+            "fr": "DRILLPRO et ROUTEPRO envoient des travaux à un vrai serveur",
+            "it": "DRILLPRO e ROUTEPRO inviano lavori a un vero server",
+            "ja": "DRILLPRO と ROUTEPRO が実サーバーへジョブを送る",
+            "zh": "DRILLPRO 和 ROUTEPRO 向真实服务器发送作业",
+            "pt": "DRILLPRO e ROUTEPRO a enviar trabalhos a um servidor real"
+          },
+          "name": "programs.rs"
+        }
+      ],
+      "tree": {
+        "en": "the interface end to end on the simulator, and the real programs against a real server",
+        "es": "la interfaz de extremo a extremo en el simulador y los programas reales contra un servidor real",
+        "de": "die Schnittstelle von Ende zu Ende im Simulator und die echten Programme gegen einen echten Server",
+        "fr": "l'interface de bout en bout sur le simulateur et les vrais programmes contre un vrai serveur",
+        "it": "l'interfaccia end to end sul simulatore e i programmi reali contro un vero server",
+        "ja": "シミュレーター上のインターフェースのエンドツーエンドと、実サーバーに対する実プログラム",
+        "zh": "模拟器上的接口端到端测试，以及真实程序对真实服务器",
+        "pt": "a interface de ponta a ponta no simulador e os programas reais contra um servidor real"
+      }
+    },
+    {
+      "name": "docs/",
+      "span": 3,
+      "accent": "d",
+      "rows": [
+        {
+          "desc": {
+            "en": "every request, the job and the view, the states and the websocket",
+            "es": "cada petición, el trabajo y la vista, los estados y el websocket",
+            "de": "jede Anfrage, der Auftrag und die Ansicht, die Zustände und der Websocket",
+            "fr": "chaque requête, le travail et la vue, les états et le websocket",
+            "it": "ogni richiesta, il lavoro e la vista, gli stati e il websocket",
+            "ja": "すべてのリクエスト、ジョブとビュー、状態、WebSocket",
+            "zh": "每个请求、作业和视图、状态及 websocket",
+            "pt": "cada pedido, o trabalho e a vista, os estados e o websocket"
+          },
+          "name": "API.md"
+        },
+        {
+          "desc": {
+            "en": "the build, the first start and the service on the CM5",
+            "es": "la compilación, el primer arranque y el servicio en la CM5",
+            "de": "der Build, der erste Start und der Dienst auf der CM5",
+            "fr": "la compilation, le premier démarrage et le service sur la CM5",
+            "it": "la compilazione, il primo avvio e il servizio sulla CM5",
+            "ja": "ビルド、初回起動、CM5 上のサービス",
+            "zh": "编译、首次启动和 CM5 上的服务",
+            "pt": "a compilação, o primeiro arranque e o serviço na CM5"
+          },
+          "name": "DEPLOY.md"
+        },
+        {
+          "desc": {
+            "en": "the data of the Architecture and Repository Structure pictures",
+            "es": "los datos de las imágenes de Arquitectura y Estructura",
+            "de": "die Daten der Bilder Architektur und Struktur",
+            "fr": "les données des images d'Architecture et de Structure",
+            "it": "i dati delle immagini di Architettura e Struttura",
+            "ja": "アーキテクチャ図と構成図のデータ",
+            "zh": "架构图和结构图的数据",
+            "pt": "os dados das imagens de Arquitetura e Estrutura"
+          },
+          "name": "architecture.json  structure.json",
+          "tree_name": "architecture.json structure.json"
+        }
+      ],
+      "tree": {
+        "en": "the API, the guide to running the server and the data of the two pictures",
+        "es": "la API, la guía para ejecutar el servidor y los datos de las dos imágenes",
+        "de": "die API, die Anleitung zum Betrieb des Servers und die Daten der beiden Bilder",
+        "fr": "l'API, le guide pour exécuter le serveur et les données des deux images",
+        "it": "l'API, la guida per eseguire il server e i dati delle due immagini",
+        "ja": "API、サーバー運用の手引き、2 つの図のデータ",
+        "zh": "API、运行服务器的指南和两张图的数据",
+        "pt": "a API, o guia para executar o servidor e os dados das duas imagens"
+      }
+    },
+    {
+      "name": {
+        "en": "Other folders and the files at the root",
+        "es": "Otras carpetas y los archivos de la raíz",
+        "de": "Weitere Ordner und die Dateien im Wurzelverzeichnis",
+        "fr": "Autres dossiers et fichiers à la racine",
+        "it": "Altre cartelle e i file nella radice",
+        "ja": "その他のフォルダーとルートのファイル",
+        "zh": "其他文件夹和根目录文件",
+        "pt": "Outras pastas e os ficheiros da raiz"
+      },
+      "span": 3,
+      "accent": "a",
+      "kind": "group",
+      "rows": [
+        {
+          "desc": {
+            "en": "the systemd unit of the service",
+            "es": "la unidad de systemd del servicio",
+            "de": "die systemd-Unit des Dienstes",
+            "fr": "l'unité systemd du service",
+            "it": "l'unità systemd del servizio",
+            "ja": "サービスの systemd ユニット",
+            "zh": "服务的 systemd 单元",
+            "pt": "a unidade systemd do serviço"
+          },
+          "name": "deploy/"
+        },
+        {
+          "desc": {
+            "en": "the settings file with every key explained",
+            "es": "el fichero de ajustes con cada clave explicada",
+            "de": "die Einstellungsdatei mit jeder erklärten Taste",
+            "fr": "le fichier de réglages avec chaque clé expliquée",
+            "it": "il file delle impostazioni con ogni chiave spiegata",
+            "ja": "すべてのキーに説明を付けた設定ファイル",
+            "zh": "为每个键附有说明的设置文件",
+            "pt": "o ficheiro de definições com cada chave explicada"
+          },
+          "name": "server.cfg.example"
+        },
+        {
+          "desc": {
+            "en": "CI check, README check, the panel of the scripts and the picture tools",
+            "es": "comprobación del CI y del README, el panel de los scripts y herramientas de imágenes",
+            "de": "CI-Prüfung, README-Prüfung, das Panel der Skripte und die Bildwerkzeuge",
+            "fr": "contrôle de la CI et du README, le panneau des scripts et outils d'images",
+            "it": "controllo della CI e del README, il pannello degli script e strumenti per le immagini",
+            "ja": "CI と README のチェック、スクリプトのパネル、図のツール",
+            "zh": "CI 和 README 检查、脚本面板和绘图工具",
+            "pt": "verificação da CI e do README, o painel dos scripts e ferramentas de imagens"
+          },
+          "name": "tools/"
+        },
+        {
+          "name": "images/",
+          "desc": {
+            "en": "banner and the Architecture and Repository Structure pictures",
+            "es": "banner y las imágenes de Arquitectura y Estructura del repositorio",
+            "de": "Banner und die Bilder von Architektur und Repository-Struktur",
+            "fr": "bannière et images d'Architecture et de Structure du dépôt",
+            "it": "banner e le immagini di Architettura e Struttura del repository",
+            "ja": "バナーとアーキテクチャ・リポジトリ構成の図",
+            "zh": "横幅图以及架构和仓库结构图片",
+            "pt": "banner e as imagens de Arquitetura e Estrutura do repositório"
+          }
+        },
+        {
+          "name": ".github/",
+          "desc": {
+            "en": "CI and release workflows, issue and pull-request templates",
+            "es": "flujos de CI y de publicación, plantillas de issues y pull requests",
+            "de": "CI- und Release-Workflows, Vorlagen für Issues und Pull Requests",
+            "fr": "workflows de CI et de publication, modèles d'issues et de pull requests",
+            "it": "workflow di CI e di rilascio, modelli di issue e pull request",
+            "ja": "CI とリリースのワークフロー、Issue と PR のテンプレート",
+            "zh": "CI 与发布工作流、Issue 和 PR 模板",
+            "pt": "fluxos de CI e de publicação, modelos de issues e pull requests"
+          }
+        },
+        {
+          "desc": {
+            "en": "build the release binary in a live panel",
+            "es": "compila el binario de release con un panel en vivo",
+            "de": "baut die Release-Binärdatei mit einem Live-Panel",
+            "fr": "compile le binaire de release avec un panneau en direct",
+            "it": "compila il binario di release con un pannello dal vivo",
+            "ja": "ライブ パネルでリリース バイナリをビルド",
+            "zh": "在实时面板中编译发布二进制",
+            "pt": "compila o binário de release com um painel em direto"
+          },
+          "name": "build.sh  build.bat",
+          "tree_name": "build.sh build.bat"
+        },
+        {
+          "desc": {
+            "en": "start the server (builds first if needed)",
+            "es": "arranca el servidor (compila antes si hace falta)",
+            "de": "startet den Server (baut bei Bedarf zuerst)",
+            "fr": "démarre le serveur (compile d'abord si besoin)",
+            "it": "avvia il server (compila prima se serve)",
+            "ja": "サーバーを起動（必要なら先にビルド）",
+            "zh": "启动服务器（需要时先编译）",
+            "pt": "arranca o servidor (compila antes se for preciso)"
+          },
+          "name": "run.sh  run.bat",
+          "tree_name": "run.sh run.bat"
+        },
+        {
+          "name": "eh3d.project.json",
+          "desc": {
+            "en": "manifest: version, role, maturity and build command",
+            "es": "manifiesto: versión, rol, madurez y comando de compilación",
+            "de": "Manifest: Version, Rolle, Reifegrad und Build-Befehl",
+            "fr": "manifeste : version, rôle, maturité et commande de compilation",
+            "it": "manifesto: versione, ruolo, maturità e comando di compilazione",
+            "ja": "マニフェスト：バージョン、役割、成熟度、ビルドコマンド",
+            "zh": "清单：版本、角色、成熟度和构建命令",
+            "pt": "manifesto: versão, papel, maturidade e comando de compilação"
+          }
+        },
+        {
+          "desc": {
+            "en": "the Rust package, its dependencies and the libraries of the two programs",
+            "es": "el paquete de Rust, sus dependencias y las bibliotecas de los dos programas",
+            "de": "das Rust-Paket, seine Abhängigkeiten und die Bibliotheken der beiden Programme",
+            "fr": "le paquet Rust, ses dépendances et les bibliothèques des deux programmes",
+            "it": "il pacchetto Rust, le sue dipendenze e le librerie dei due programmi",
+            "ja": "Rust パッケージ、依存関係、2 つのプログラムのライブラリ",
+            "zh": "Rust 包、其依赖及两个程序的库",
+            "pt": "o pacote Rust, as suas dependências e as bibliotecas dos dois programas"
+          },
+          "name": "Cargo.toml  Cargo.lock",
+          "tree_name": "Cargo.toml Cargo.lock"
+        },
+        {
+          "name": "CHANGELOG.md",
+          "desc": {
+            "en": "what changed in each version",
+            "es": "qué cambió en cada versión",
+            "de": "was sich in jeder Version geändert hat",
+            "fr": "ce qui a changé dans chaque version",
+            "it": "cosa è cambiato in ogni versione",
+            "ja": "各バージョンの変更点",
+            "zh": "每个版本的变更",
+            "pt": "o que mudou em cada versão"
+          }
+        },
+        {
+          "name": "SECURITY.md  SUPPORT.md",
+          "tree_name": "SECURITY.md SUPPORT.md",
+          "desc": {
+            "en": "how to report a vulnerability and where to ask",
+            "es": "cómo informar de una vulnerabilidad y dónde preguntar",
+            "de": "Schwachstellen melden und Fragen stellen",
+            "fr": "signaler une vulnérabilité et poser des questions",
+            "it": "come segnalare una vulnerabilità e dove chiedere",
+            "ja": "脆弱性の報告方法と問い合わせ先",
+            "zh": "如何报告漏洞及在哪里提问",
+            "pt": "como comunicar uma vulnerabilidade e onde perguntar"
+          }
+        },
+        {
+          "name": "CONTRIBUTING.md  LICENSE",
+          "tree_name": "CONTRIBUTING.md CODE_OF_CONDUCT.md LICENSE",
+          "desc": {
+            "en": "how to contribute, the code of conduct and the licence",
+            "es": "cómo contribuir, el código de conducta y la licencia",
+            "de": "Mitwirken, Verhaltenskodex und Lizenz",
+            "fr": "contribuer, code de conduite et licence",
+            "it": "come contribuire, codice di condotta e licenza",
+            "ja": "貢献方法、行動規範、ライセンス",
+            "zh": "参与贡献、行为准则和许可证",
+            "pt": "como contribuir, o código de conduta e a licença"
+          }
+        }
+      ]
+    }
+  ]
+}

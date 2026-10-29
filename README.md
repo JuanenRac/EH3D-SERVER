@@ -18,7 +18,7 @@
 
 ---
 
-**Honesty check - what actually runs today:** a Rust server (axum) with a REST and websocket interface that keeps users, machines and jobs, plans a drilling or routing job (holes and paths, or an Excellon or HP-GL file with its tool table) with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview, and runs it on a machine through its EH3D-NODE-BUNGARD, with the dialogs of the operator, a stop and every change told as it happens. 39 tests run on a computer, the jobs against the simulator. **Nothing has run on a real machine through it yet**, it does not terminate TLS, and the clients that will use it besides the programs (the Android app, the Studio, the panel next to the machine) do not exist yet.
+**Honesty check - what actually runs today:** a Rust server (axum) with a REST and websocket interface that keeps users, machines and jobs, plans a drilling or routing job (holes and paths, or an Excellon or HP-GL file with its tool table) with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator, a stop and every change told as it happens. 39 tests run on a computer, the jobs against the simulator. **Nothing has run on a real machine through it yet**, it does not terminate TLS, and the clients that will use it besides the programs (the Android app, the Studio, the panel next to the machine) do not exist yet.
 
 ---
 
@@ -31,8 +31,10 @@
 | Version | `0.0.1` |
 | Maturity | Scaffolding |
 | Tests | 39 |
-| Stack | Rust |
+| Stack | Rust (axum, tokio) |
 | On real hardware | No: tested against the simulator; nothing has run on a real machine through the server yet |
+
+**Jump to:** [Overview](#-overview) · [Architecture](#-architecture) · [Quick start](#-quick-start) · [Testing](#-testing) · [Structure](#-repository-structure) · [Related](#-related-projects)
 
 ## 🚦 Project status
 
@@ -43,12 +45,12 @@ Each line is one part of this repository and the light says how far it is today.
 | Area | State | What it means here |
 |---|---|---|
 | Software | 🟡 | A Rust server (axum) keeps users, machines and jobs, plans drilling and routing jobs with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview and runs the job with operator dialogs and a stop. |
-| Tests | 🟢 | 39 tests pass (`cargo test`), the interface end to end with jobs running on the simulator. |
+| Tests | 🟢 | 39 tests pass (`cargo test`): 28 in the modules and 11 on the interface end to end, with jobs running on the simulator (7 in `tests/api.rs`, 4 with the real programs in `tests/programs.rs`). |
 | Interface for clients (API) | 🟡 | The REST requests and the websocket events are written down in `docs/API.md` and covered by the tests; only the programs' own server connection uses them so far. |
 | Clients | 🔴 | The Android app, the Studio and the touch panel next to the machine do not exist yet. |
 | Security | 🟡 | Every request needs a token with one of three roles, passwords are Argon2 hashes and wrong passwords are slowed down; the server does not terminate TLS (put HTTPS in front) and has had no independent review. |
 | Real hardware | 🟠 | The jobs have only run against the simulator: nothing has run on a real machine through the server. |
-| Deployment | 🟠 | A systemd unit and `docs/DEPLOY.md` describe the service on the CM5; no deployment is recorded as done. |
+| Deployment | 🟠 | A systemd unit and `docs/DEPLOY.md` describe the service on the CM5; this repository does not record a deployment as done. |
 | Integration | 🟡 | It plans with the same libraries as EH3D-DRILLPRO and EH3D-ROUTEPRO (their folders must sit next to this one) and talks to the link of EH3D-NODE-BUNGARD, which it has only reached through the simulator. |
 | Documentation | 🟢 | README in eight languages, the API reference and the guide to running it as a service. |
 
@@ -67,23 +69,69 @@ Each line is one part of this repository and the light says how far it is today.
 
 EH3D-SERVER is the center of the EH3D family: the programs send their jobs to it, it talks to the machines through their nodes, and the other clients see and send the same jobs through the same interface. It uses the libraries of [EH3D-DRILLPRO](https://github.com/JuanenRac/EH3D-DRILLPRO) and [EH3D-ROUTEPRO](https://github.com/JuanenRac/EH3D-ROUTEPRO) and speaks to [EH3D-NODE-BUNGARD](https://github.com/JuanenRac/EH3D-NODE-BUNGARD).
 
-## 📂 Repository Structure
+## 🏛️ Architecture
 
-```text
-EH3D-SERVER/
-├── src/          the server: settings, users, machines, planning, jobs, the interface and the websocket
-├── tests/        the interface end to end, with the jobs running on the simulator
-├── docs/         API.md and DEPLOY.md
-├── deploy/       the systemd unit
-├── tools/        ci_validate.py: manifest, versions, changelog and README checks
-├── images/       banner
-├── server.cfg.example  an example of the settings file: copy it to server.cfg (every key is optional)
-└── eh3d.project.json
-```
+<p align="center">
+  <img src="images/architecture.svg" alt="EH3D-SERVER architecture: who uses it, what it holds and what it depends on" width="100%">
+</p>
 
-## 🛠️ BUILD & RUN
+How the parts of this repository fit together: who uses it, what it holds and what it depends on. The picture is drawn from `docs/architecture.json` and checked against the code.
 
-You need a stable Rust toolchain, and EH3D-DRILLPRO and EH3D-ROUTEPRO next to this folder.
+## ✨ Features
+
+* **A preview that is the plan:** the preview and the real run come from the same planning, so what a client draws is what the machine does.
+* **A job never starts by itself:** it is created ready, and only an operator starts it; one job at a time on a machine (`409 machine_busy`).
+* **Operator dialogs over the network:** the job pauses at the tool change and the spindle confirmation until a client confirms.
+* **Live events:** a websocket tells every change of a job as it happens, with the summaries of the jobs on connect.
+* **Calibration in one place:** the configuration files and the tuned values of each machine are kept on the server, so every client plans with the same numbers.
+* **A job that was running when the server stopped is marked failed:** nobody knows where the machine was, so nothing resumes by itself.
+* **Safe files:** users, tokens, machines and jobs are JSON files written through a temporary file; a damaged file is an error, never a silent restart from nothing.
+
+## 🔒 Security & Safety
+
+| Threat | Defense |
+|---|---|
+| Anyone on the network sending requests | every request but the health check, the first set-up and the login needs a token (`Authorization: Bearer`, or `?token=` for the websocket); three roles: viewer reads, operator runs jobs, administrator manages users, tokens and machines |
+| Guessing a password | five wrong passwords block the name, for 30 s and then 60 s, 120 s and so on while they go on (`429 throttled`); the answer does not say which part was wrong, and an unknown name costs as much as a known one |
+| A copy of the data folder | passwords are Argon2id hashes; session and program tokens are random and only their SHA-256 is kept, so a copy of the folder logs nobody in; the token of a node is never shown by the API |
+| Taking over a fresh server | the first administrator is made with a set-up code that only the console prints |
+| Locking everybody out | the last administrator cannot be deleted, disabled or demoted (`409 last_admin`) |
+| A job that starts by itself or a second job on a machine | a job is created ready; only an operator starts it, and a machine runs one job at a time |
+| A plan that would hit the table or use a missing tool | the planning refuses holes and paths outside the table, and tools that are missing or out of range, with a code |
+| The server dies while the machine moves | the node stops by itself when its link goes quiet; the job is marked failed and never resumes by itself; the service stops its jobs on SIGINT |
+| A huge request | the body is limited (`max_body_mb`, 8 MB by default) |
+| A damaged data file | an error, never a silent start from nothing |
+| A service with too many rights | the systemd unit runs as its own user with `NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp` and one writable folder |
+
+**What is not defended:** the server does not terminate TLS, so tokens and passwords cross the network in the clear unless HTTPS is put in front; the token of the websocket is in the address; it has had no independent review. Report a vulnerability privately (see [SECURITY.md](SECURITY.md)).
+
+## 🔌 Interfaces
+
+| Interface | What it is | Where |
+|---|---|---|
+| REST | `/api/v1/`: `health`, `setup`, `login`, `logout`, `session`, `account`, `users`, `tokens`, `machines` (with `preview` and `jobs`), `jobs` (with `start`, `confirm`, `cancel`); JSON in and out, errors as `{"error","detail"}` | [docs/API.md](docs/API.md), `src/api.rs` |
+| Websocket | `GET /api/v1/events?token=...`: a `hello` with the summaries of the jobs, then `job` and `job_removed` for every change | [docs/API.md](docs/API.md) |
+| To the machine | a machine's `connection` is `node` (an EH3D-NODE-BUNGARD at an address with its token) or `demo` (the simulator) | [docs/API.md](docs/API.md), `src/machines.rs` |
+| Command line | `eh3d-server [--config FILE]`; `--help` lists it | `src/main.rs` |
+| Service | one binary, port 18200 by default, a systemd unit | [docs/DEPLOY.md](docs/DEPLOY.md), `deploy/eh3d-server.service` |
+
+## ⚙️ Configuration
+
+`server.cfg` (or the file given with `--config`) holds five optional keys; an unknown key or a value out of range is an error at start. `server.cfg.example` explains them.
+
+| Key | Default | Range | What it does |
+|---|---|---|---|
+| `listen` | `0.0.0.0:18200` | an address and a port | where the server listens (18200 is its own port) |
+| `data_dir` | `data` | a folder | where users, tokens, machines and jobs are kept; back it up |
+| `session_hours` | 12 | 1 to 720 | how long a login lasts |
+| `max_body_mb` | 8 | 1 to 256 | the largest request, in megabytes |
+| `keep_jobs` | 200 | 10 to 100,000 | how many finished jobs the list keeps |
+
+Names of users and tokens: letters, digits, `.`, `_` and `-`, up to 32 characters; passwords: 8 to 128 characters. The values tuned on each machine are not here: they live in the machine record, in the format of the machine file of the programs.
+
+## 🚀 Quick start
+
+You need a stable Rust toolchain, and EH3D-DRILLPRO and EH3D-ROUTEPRO next to this folder (the server uses their libraries).
 
 ```bash
 cargo build --release
@@ -95,6 +143,71 @@ python -I tools/ci_validate.py
 
 Run it with `run.bat` (Windows) or `./run.sh` (Linux); it builds first if needed. While it has no user the console shows a set-up code: make the administrator with `POST /api/v1/setup`, log in, add the machine with its node's address and token, and make a token for each program. `server.cfg.example` lists the settings; `docs/DEPLOY.md` installs it as a service on the CM5.
 
+## 🧪 Testing
+
+The suite has 39 tests (`cargo test`, run on Windows and Linux in the CI with DRILLPRO and ROUTEPRO checked out next to the server): 28 in the modules (settings and their ranges, users, roles, tokens, the slowdown on wrong passwords, the files and the job book, planning), 7 on the interface end to end through the real router (`tests/api.rs`), and 4 with the real programs sending their jobs to a real server on a real port, with the machine on the simulator (`tests/programs.rs`). The CI also runs `cargo fmt --all --check`, `cargo clippy` with warnings as errors and `python -I tools/ci_validate.py`. Nothing here has been tested against a real node or machine.
+
+## 🏗️ Build & Release
+
+The version lives in `Cargo.toml` and in `eh3d.project.json`, and each version has its entry in [CHANGELOG.md](CHANGELOG.md). `build.sh` / `build.bat` build the release binary (`target/release/eh3d-server`) in a live panel, and `test.sh` / `test.bat` run only the tests; neither changes the version. No release has been published yet. On a CM5 (aarch64 Linux) build it on the machine itself; `docs/DEPLOY.md` installs it as a service.
+
+## 📂 Repository Structure
+
+<p align="center">
+  <img src="images/repository-structure.svg" alt="Repository structure of EH3D-SERVER" width="100%">
+</p>
+
+<details>
+<summary>Text version of the tree</summary>
+
+```text
+EH3D-SERVER/
+├── src/
+│   ├── api.rs                                   the REST routes and the websocket
+│   ├── auth.rs                                  users, roles, tokens and the slowdown on wrong passwords
+│   ├── plan.rs                                  from the request to the items the machine runs
+│   ├── jobs.rs state.rs                         the jobs and what the server is made of while it runs
+│   ├── machines.rs store.rs                     the machines, and the files written through a temporary file
+│   └── config.rs lib.rs main.rs                 the settings file, the library root and the program
+├── tests/                                       the interface end to end on the simulator, and the real programs against a real server
+├── docs/                                        the API, the guide to running the server and the data of the two pictures
+├── deploy/                                      the systemd unit of the service
+├── server.cfg.example                           the settings file with every key explained
+├── tools/                                       CI check, README check, the panel of the scripts and the picture tools
+├── images/                                      banner and the Architecture and Repository Structure pictures
+├── .github/                                     CI and release workflows, issue and pull-request templates
+├── build.sh build.bat                           build the release binary in a live panel
+├── run.sh run.bat                               start the server (builds first if needed)
+├── eh3d.project.json                            manifest: version, role, maturity and build command
+├── Cargo.toml Cargo.lock                        the Rust package, its dependencies and the libraries of the two programs
+├── CHANGELOG.md                                 what changed in each version
+├── SECURITY.md SUPPORT.md                       how to report a vulnerability and where to ask
+└── CONTRIBUTING.md CODE_OF_CONDUCT.md LICENSE   how to contribute, the code of conduct and the licence
+```
+
+</details>
+
+## 🗺️ Roadmap & Known limits
+
+**Known limits today**
+
+* Nothing has run on a real machine through the server: the jobs have only run against the simulator, and the link to EH3D-NODE-BUNGARD has not been reached for real.
+* The server does not terminate TLS; put HTTPS in front before anything outside reaches it. It has had no independent review.
+* The clients that will use it besides the programs (the Android app, the Studio, the touch panel) do not exist yet.
+* It needs the folders of EH3D-DRILLPRO and EH3D-ROUTEPRO next to it, because it uses their libraries.
+* A job that was running when the server stopped is marked failed and does not resume.
+
+**Next**
+
+* Run a whole job on a real machine through the server and the node.
+* HTTPS in the server itself.
+* Use the node's lamps and its buffer to finish a held job when the server goes away.
+* Build the first client besides the programs.
+
+## 🌍 Languages
+
+README and texts exist in English, Spanish, French, Italian, German, Chinese, Japanese and European Portuguese.
+
 ## 🔗 Related Projects
 
 * [EH3D-DRILLPRO](https://github.com/JuanenRac/EH3D-DRILLPRO): the drilling program; its library plans and runs the drilling jobs
@@ -102,14 +215,18 @@ Run it with `run.bat` (Windows) or `./run.sh` (Linux); it builds first if needed
 * [EH3D-NODE-BUNGARD](https://github.com/JuanenRac/EH3D-NODE-BUNGARD): the node in the machine's box that the server talks to
 * [EH3D-COMMON](https://github.com/JuanenRac/EH3D-COMMON): the common parts of the family
 
-## 📚 Documentation & Community
+## 📚 Documentation
 
 * [The API](docs/API.md): every request, the job and the view a client draws, the states and the websocket.
 * [Running the server](docs/DEPLOY.md): the build, the first start, the service on the CM5 and the safety of the deployment.
 * [Changelog](CHANGELOG.md)
-* [Contributing](CONTRIBUTING.md)
-* [Security policy](SECURITY.md)
-* [Support](SUPPORT.md)
+
+## 🤝 Contributing & Community
+
+* Before a pull request run `cargo fmt --all --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` and `python -I tools/ci_validate.py`: all must pass. See [CONTRIBUTING.md](CONTRIBUTING.md) and the [code of conduct](CODE_OF_CONDUCT.md).
+* The README exists in eight languages: a change to the text is made in all eight files, and the two pictures are drawn from `docs/architecture.json` and `docs/structure.json` by `tools/make_architecture.py` and `tools/make_structure.py`.
+* A change to a route of the API needs its entry in `docs/API.md`, a test through the real router and, for a request that changes something, the role that may do it.
+* Report a vulnerability privately: [SECURITY.md](SECURITY.md). Questions, ideas and reports: electrohobby3d@gmail.com ([SUPPORT.md](SUPPORT.md)).
 
 ## 👤 AUTHOR
 
