@@ -385,7 +385,7 @@ def check_file(name: str, language: str, readme: Readme, english: Readme | None)
     architecture = readme.section("architecture")
     if architecture:
         body = "\n".join(architecture["lines"])
-        if not re.search(r"<img[^>]*architecture|!\[[^\]]*\]\([^)]*architecture", body, re.I):
+        if not re.search(r"<img[^>]*architecture|!\[[^\]]*\]\([^)]*architecture", body, re.IGNORECASE):
             add("Architecture has no diagram image (images/architecture.svg)")
 
     for number, line in readme.prose:
@@ -408,7 +408,7 @@ def check_file(name: str, language: str, readme: Readme, english: Readme | None)
         if mine != theirs:
             add("the sequence of sections differs from README.md")
         else:
-            for a, b in zip(readme.sections, english.sections):
+            for a, b in zip(readme.sections, english.sections, strict=True):
                 if a["h3"] != b["h3"]:
                     add(f"the section '{a['heading']}' has {a['h3']} sub-sections, README.md has {b['h3']}")
     return problems
@@ -423,7 +423,7 @@ def run_tests(root: Path) -> int | None:
         candidates.append(([sys.executable, "-m", "pytest", "-q", "tests"], r"(\d+) passed"))
     for command, pattern in candidates:
         try:
-            result = subprocess.run(command, cwd=root, env=environment, capture_output=True, text=True, timeout=1800)
+            result = subprocess.run(command, cwd=root, env=environment, capture_output=True, text=True, timeout=1800, check=False)
         except (OSError, subprocess.TimeoutExpired):
             continue
         match = re.search(pattern, result.stderr + result.stdout)
