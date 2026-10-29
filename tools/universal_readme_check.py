@@ -35,6 +35,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 LANGUAGE_FILES = [("en", "README.md"), ("es", "README_spa.md"), ("fr", "README_fra.md"), ("it", "README_ita.md"),
                   ("de", "README_deu.md"), ("zh", "README_zho.md"), ("ja", "README_jpn.md"), ("pt", "README_por.md")]
@@ -270,9 +271,9 @@ class Readme:
     def __init__(self, text: str):
         self.lines = text.replace("\r\n", "\n").split("\n")
         self.prose: list[tuple[int, str]] = []   # (line number, line) outside code blocks
-        self.sections: list[dict] = []
+        self.sections: list[dict[str, Any]] = []
         fence = False
-        current = None
+        current: dict[str, Any] | None = None
         self.header: list[str] = []
         for number, line in enumerate(self.lines, 1):
             if FENCE.match(line):
@@ -390,10 +391,12 @@ def check_file(name: str, language: str, readme: Readme, english: Readme | None)
     for number, line in readme.prose:
         if VERSION_RULE.search(line):
             add(f"line {number}: it mentions the version rule")
-        if PRIVATE.search(line):
-            add(f"line {number}: it refers to a private document, tool or person: {PRIVATE.search(line).group(0)}")
-        if DATE.search(line):
-            add(f"line {number}: it has a date: {DATE.search(line).group(0)}")
+        private = PRIVATE.search(line)
+        if private:
+            add(f"line {number}: it refers to a private document, tool or person: {private.group(0)}")
+        dated = DATE.search(line)
+        if dated:
+            add(f"line {number}: it has a date: {dated.group(0)}")
 
     counts = tests_in_readme(readme)
     if len(counts) > 1:
