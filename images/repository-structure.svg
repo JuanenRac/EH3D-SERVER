@@ -52,7 +52,7 @@
 <text x="392" y="415" font-family="'JetBrains Mono','Cascadia Code','SFMono-Regular',Consolas,'Liberation Mono',monospace" font-size="14.5" font-weight="600" fill="#E6EDF3" text-anchor="start">config.rs  lib.rs  main.rs</text>
 <text x="649.74" y="415" font-family="'Segoe UI','Noto Sans','Noto Sans CJK SC','Microsoft YaHei','Yu Gothic','Helvetica Neue',Helvetica,Arial,sans-serif" font-size="12.8" font-weight="400" fill="#8A97A6" text-anchor="start">the settings file, the library root and the program</text>
 <line x1="392" y1="423" x2="1118" y2="423" stroke="#1A2430" stroke-width="1"/>
-<text x="392" y="442" font-family="'JetBrains Mono','Cascadia Code','SFMono-Regular',Consolas,'Liberation Mono',monospace" font-size="14.5" font-weight="600" fill="#E6EDF3" text-anchor="start">updates.rs</text>
+<text x="392" y="442" font-family="'JetBrains Mono','Cascadia Code','SFMono-Regular',Consolas,'Liberation Mono',monospace" font-size="14.5" font-weight="600" fill="#E6EDF3" text-anchor="start">updates.rs  head.rs</text>
 <text x="649.74" y="442" font-family="'Segoe UI','Noto Sans','Noto Sans CJK SC','Microsoft YaHei','Yu Gothic','Helvetica Neue',Helvetica,Arial,sans-serif" font-size="12.8" font-weight="400" fill="#8A97A6" text-anchor="start">the updates of the services</text>
 <line x1="392" y1="450" x2="1118" y2="450" stroke="#1A2430" stroke-width="1"/>
 <rect x="360" y="503" width="780" height="165" rx="10" fill="url(#card)" stroke="#1E2A36" stroke-width="1"/>

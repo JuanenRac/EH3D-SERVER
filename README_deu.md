@@ -18,7 +18,7 @@
 
 ---
 
-**Ehrlichkeitscheck - was heute tatsächlich läuft:** ein Rust-Server (axum) mit REST- und Websocket-Schnittstelle, der Benutzer, Maschinen und Aufträge verwaltet, einen Bohr- oder Fräsauftrag (Bohrungen und Pfade oder eine Excellon- oder HP-GL-Datei mit ihrer Werkzeugtabelle) mit den Bibliotheken von EH3D-DRILLPRO und EH3D-ROUTEPRO plant, eine Vorschau zeigt und ihn über den EH3D-NODE-BUNGARD oder in einem Simulator auf einer Maschine ausführt, mit den Dialogen des Bedieners, einem Stopp und jeder Änderung, die sofort gemeldet wird. 41 Tests laufen auf einem Computer, die Aufträge gegen den Simulator. **Über ihn lief noch nichts auf einer echten Maschine**, er beendet kein TLS, und die Clients, die ihn neben den Programmen nutzen sollen (die Android-App, das Studio, das Panel an der Maschine), gibt es noch nicht.
+**Ehrlichkeitscheck - was heute tatsächlich läuft:** ein Rust-Server (axum) mit REST- und Websocket-Schnittstelle, der Benutzer, Maschinen und Aufträge verwaltet, einen Bohr- oder Fräsauftrag (Bohrungen und Pfade oder eine Excellon- oder HP-GL-Datei mit ihrer Werkzeugtabelle) mit den Bibliotheken von EH3D-DRILLPRO und EH3D-ROUTEPRO plant, eine Vorschau zeigt und ihn über den EH3D-NODE-BUNGARD oder in einem Simulator auf einer Maschine ausführt, mit den Dialogen des Bedieners, einem Stopp und jeder Änderung, die sofort gemeldet wird. 41 Tests laufen auf einem Computer, die Aufträge gegen den Simulator. **Über ihn lief noch nichts auf einer echten Maschine**, er beendet kein TLS, und von den Clients neben den Programmen gibt es EH3D-STUDIO (nie an einer echten Maschine probiert), die Android-App und das Panel an der Maschine gibt es noch nicht.
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.0.1` |
 | Reifegrad | Gerüst |
-| Tests | 47 |
+| Tests | 51 |
 | Technologie-Stack | Rust (axum, tokio) |
 | Auf echter Hardware | Nein: gegen den Simulator getestet; über den Server lief noch nichts auf einer echten Maschine |
 
@@ -45,9 +45,9 @@ Jede Zeile ist ein Teil dieses Repositorys, und die Ampel sagt, wie weit er heut
 | Bereich | Stand | Was das hier bedeutet |
 |---|---|---|
 | Software | 🟡 | Ein Rust-Server (axum) verwaltet Benutzer, Maschinen und Aufträge, plant Bohr- und Fräsaufträge mit den Bibliotheken von EH3D-DRILLPRO und EH3D-ROUTEPRO, zeigt eine Vorschau und führt den Auftrag mit Bedienerdialogen und einem Stopp aus. |
-| Tests | 🟢 | 47 Tests bestehen (`cargo test`): 29 in den Modulen und 14 an der Schnittstelle von Ende zu Ende, mit Aufträgen im Simulator (8 in `tests/api.rs`, 4 mit den echten Programmen in `tests/programs.rs`). |
+| Tests | 🟢 | 51 Tests bestehen (`cargo test`): 35 in den Modulen und 16 an der Schnittstelle von Ende zu Ende, mit Aufträgen im Simulator (11 in `tests/api.rs`, 4 mit den echten Programmen in `tests/programs.rs`). |
 | Schnittstelle für Clients (API) | 🟡 | Die REST-Anfragen und die Websocket-Ereignisse sind in `docs/API.md` beschrieben und von den Tests abgedeckt; bisher nutzt sie nur die Serververbindung der Programme selbst. |
-| Clients | 🔴 | Die Android-App, das Studio und das Touch-Panel an der Maschine gibt es noch nicht. |
+| Clients | 🔴 | EH3D-STUDIO nutzt ihn (nie an einer echten Maschine probiert); die Android-App und das Touch-Panel an der Maschine gibt es noch nicht. |
 | Sicherheit | 🟡 | Jede Anfrage braucht ein Token mit einer von drei Rollen, Passwörter sind Argon2-Hashes und falsche Passwörter werden ausgebremst; der Server beendet kein TLS (setze HTTPS davor) und wurde nicht unabhängig geprüft. |
 | Echte Hardware | 🟠 | Die Aufträge liefen nur gegen den Simulator: Über den Server lief nichts auf einer echten Maschine. |
 | Bereitstellung | 🟠 | Eine systemd-Unit und `docs/DEPLOY.md` beschreiben den Dienst auf der CM5; dieses Repository verzeichnet keine Bereitstellung als erledigt. |
@@ -64,7 +64,7 @@ Jede Zeile ist ein Teil dieses Repositorys, und die Ampel sagt, wie weit er heut
 * Die **Menschen und die Programme**: Benutzer mit drei Rollen, Tokens für Programme, die nur einmal angezeigt werden, eine Bremse bei falschen Passwörtern und ein Einrichtungscode auf der Konsole für den ersten Administrator.
 * Die **Ereignisse**: ein Websocket, der jede Änderung eines Auftrags sofort sendet.
 * Der **Dienst**: eine Binärdatei und eine kleine Einstellungsdatei, standardmäßig auf Port 18200 (nicht der von ARMOR oder HYDRA-UMC), mit einer systemd-Unit für die CM5.
-* **Geplant, noch nicht gebaut**: die Clients (die Android-App, das Studio, das Panel mit Touchscreen an der Maschine), HTTPS im Server selbst und die Nutzung der Lampen und des Puffers des Knotens, um einen festgehaltenen Auftrag zu beenden, wenn der Server wegfällt.
+* **Geplant, noch nicht gebaut**: die Clients (die Android-App, das Panel mit Touchscreen an der Maschine), HTTPS im Server selbst und die Nutzung der Lampen und des Puffers des Knotens, um einen festgehaltenen Auftrag zu beenden, wenn der Server wegfällt.
 
 ## 🧩 Rolle in EH3D
 
@@ -88,6 +88,7 @@ Wie die Teile dieses Repositorys zusammenpassen: wer es nutzt, was es enthält u
 * **Ein Auftrag, der beim Stopp des Servers lief, wird als fehlgeschlagen markiert:** Niemand weiß, wo die Maschine war, daher setzt nichts von selbst fort.
 * **Sichere Dateien:** Benutzer, Tokens, Maschinen und Aufträge sind JSON-Dateien, die über eine temporäre Datei geschrieben werden; eine beschädigte Datei ist ein Fehler, nie ein stiller Neustart bei null.
 * **Aktualisierungen von GitHub:** mit `updates_dir` bietet der Server einem Administrator die Prüfung der neuesten Releases von sich selbst und von EH3D-STUDIO und deren Aktualisierung an (`/api/v1/updates`); ein kleiner, von systemd gestarteter Helfer (`deploy/eh3d-update.py`) lädt herunter, prüft den SHA-256 jeder Datei, lehnt ein Archiv mit Namen außerhalb seines Ordners ab, ersetzt den installierten Ordner (der alte bleibt als `.previous`) und startet den Dienst neu. Getestet mit durch Attrappen ersetzten GitHub und systemd, nie an einer echten Installation.
+* **Der Knoten am Bohrkopf über den Server:** nennt die Konfiguration einer Maschine den Knoten (`head_address`, `head_token`), reicht der Server seinen Status weiter (`GET /api/v1/machines/:id/head/status`), seine Kamera als MJPEG (`.../head/stream`, für einen Browser mit dem Token in der Adresse) und eine Messung des Tisches (`POST .../head/measure`, Bediener), sodass ein Programm in einem anderen Netz ihn mit derselben Anmeldung erreicht. Getestet mit einem Ersatzknoten, nie mit einem echten.
 
 ## 🔒 Sicherheit und Schutz
 
@@ -147,7 +148,7 @@ Starte ihn mit `run.bat` (Windows) oder `./run.sh` (Linux); bei Bedarf baut er z
 
 ## 🧪 Tests
 
-Die Suite hat 47 Tests (`cargo test`, in der CI unter Windows und Linux mit COMMON, DRILLPRO und ROUTEPRO neben dem Server ausgeführt): 29 in den Modulen (Einstellungen und ihre Bereiche, Benutzer, Rollen, Tokens, die Bremse bei falschen Passwörtern, die Dateien und das Auftragsbuch, die Planung), 8 an der Schnittstelle von Ende zu Ende über den echten Router (`tests/api.rs`) und 5 mit den echten Programmen, die ihre Aufträge an einen echten Server auf einem echten Port schicken, mit der Maschine im Simulator (`tests/programs.rs`). Die CI führt außerdem `cargo fmt --all --check`, `cargo clippy` mit Warnungen als Fehlern und `python -I tools/ci_validate.py` aus. Nichts davon wurde gegen einen echten Knoten oder eine echte Maschine getestet. Der Helfer, der die Aktualisierungen macht, hat 10 weitere eigene Tests (`python -I tests/test_update_helper.py`, mit durch Attrappen ersetzten GitHub und systemd).
+Die Suite hat 51 Tests (`cargo test`, in der CI unter Windows und Linux mit COMMON, DRILLPRO und ROUTEPRO neben dem Server ausgeführt): 35 in den Modulen (Einstellungen und ihre Bereiche, Benutzer, Rollen, Tokens, die Bremse bei falschen Passwörtern, die Dateien und das Auftragsbuch, die Planung), 11 an der Schnittstelle von Ende zu Ende über den echten Router (`tests/api.rs`) und 5 mit den echten Programmen, die ihre Aufträge an einen echten Server auf einem echten Port schicken, mit der Maschine im Simulator (`tests/programs.rs`). Die CI führt außerdem `cargo fmt --all --check`, `cargo clippy` mit Warnungen als Fehlern und `python -I tools/ci_validate.py` aus. Nichts davon wurde gegen einen echten Knoten oder eine echte Maschine getestet. Der Helfer, der die Aktualisierungen macht, hat 10 weitere eigene Tests (`python -I tests/test_update_helper.py`, mit durch Attrappen ersetzten GitHub und systemd).
 
 ## 🏗️ Build und Veröffentlichung
 
@@ -171,7 +172,7 @@ EH3D-SERVER/
 │   ├── jobs.rs state.rs                         die Aufträge und woraus der Server im Betrieb besteht
 │   ├── machines.rs store.rs                     die Maschinen und die über eine temporäre Datei geschriebenen Dateien
 │   ├── config.rs lib.rs main.rs                 die Einstellungsdatei, die Bibliothekswurzel und das Programm
-│   └── updates.rs                               die Aktualisierungen der Dienste
+│   └── updates.rs  head.rs                      die Aktualisierungen der Dienste
 ├── tests/                                       die Schnittstelle von Ende zu Ende im Simulator und die echten Programme gegen einen echten Server
 ├── docs/                                        die API, die Anleitung zum Betrieb des Servers und die Daten der beiden Bilder
 ├── deploy/                                      die systemd-Unit des Dienstes
@@ -196,7 +197,7 @@ EH3D-SERVER/
 
 * Über den Server lief nichts auf einer echten Maschine: Die Aufträge liefen nur gegen den Simulator, und die Verbindung zum EH3D-NODE-BUNGARD wurde nie echt erreicht.
 * Der Server beendet kein TLS; setze HTTPS davor, bevor etwas von außen ihn erreicht. Er wurde nicht unabhängig geprüft.
-* Die Clients, die ihn neben den Programmen nutzen sollen (die Android-App, das Studio, das Touch-Panel), gibt es noch nicht.
+* Von den Clients neben den Programmen gibt es EH3D-STUDIO; die Android-App und das Touch-Panel gibt es noch nicht.
 * Er braucht die Ordner von EH3D-DRILLPRO und EH3D-ROUTEPRO neben sich, weil er ihre Bibliotheken nutzt.
 * Ein Auftrag, der beim Stopp des Servers lief, wird als fehlgeschlagen markiert und setzt nicht fort.
 

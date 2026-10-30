@@ -18,7 +18,7 @@
 
 ---
 
-**诚实性核对 - 今天真正能运行的内容：** 一个带有 REST 和 websocket 接口的 Rust 服务器（axum），保存用户、机床和作业，使用 EH3D-DRILLPRO 和 EH3D-ROUTEPRO 的库规划钻孔或铣削作业（孔和路径，或带刀具表的 Excellon 或 HP-GL 文件），显示预览，并通过 EH3D-NODE-BUNGARD 或模拟器在机床上执行，带有操作员对话框、停止功能，并实时通告每个变化。41 个测试在计算机上运行，作业针对模拟器运行。**还没有通过它在真实机床上运行过任何东西**，它不终止 TLS，除程序之外将使用它的客户端（Android 应用、Studio、机床旁的面板）还不存在。
+**诚实性核对 - 今天真正能运行的内容：** 一个带有 REST 和 websocket 接口的 Rust 服务器（axum），保存用户、机床和作业，使用 EH3D-DRILLPRO 和 EH3D-ROUTEPRO 的库规划钻孔或铣削作业（孔和路径，或带刀具表的 Excellon 或 HP-GL 文件），显示预览，并通过 EH3D-NODE-BUNGARD 或模拟器在机床上执行，带有操作员对话框、停止功能，并实时通告每个变化。41 个测试在计算机上运行，作业针对模拟器运行。**还没有通过它在真实机床上运行过任何东西**，它不终止 TLS，除程序之外的客户端中，EH3D-STUDIO 已存在（从未对真实机床试过），Android 应用和机床旁的面板还不存在。
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|
 | 版本 | `0.0.1` |
 | 成熟度 | 脚手架 |
-| 测试 | 47 |
+| 测试 | 51 |
 | 技术栈 | Rust (axum, tokio) |
 | 真实硬件 | 否：已针对模拟器测试；尚未通过服务器在真实机床上运行过任何东西 |
 
@@ -45,9 +45,9 @@
 | 领域 | 状态 | 在这里的含义 |
 |---|---|---|
 | 软件 | 🟡 | Rust 服务器（axum）保存用户、机床和作业，使用 EH3D-DRILLPRO 和 EH3D-ROUTEPRO 的库规划钻孔和铣削作业，显示预览，并带有操作员对话框和停止功能地运行作业。 |
-| 测试 | 🟢 | 47 个测试通过（`cargo test`）：模块内 29 个，接口端到端 14 个，作业在模拟器上运行（`tests/api.rs` 8 个，使用真实程序的 `tests/programs.rs` 4 个）。 |
+| 测试 | 🟢 | 51 个测试通过（`cargo test`）：模块内 35 个，接口端到端 16 个，作业在模拟器上运行（`tests/api.rs` 8 个，使用真实程序的 `tests/programs.rs` 4 个）。 |
 | 面向客户端的接口（API） | 🟡 | REST 请求和 websocket 事件已写在 `docs/API.md` 中并被测试覆盖；目前只有程序自带的服务器连接在使用。 |
-| 客户端 | 🔴 | Android 应用、Studio 和机床旁的触摸面板尚不存在。 |
+| 客户端 | 🔴 | EH3D-STUDIO 在使用它（从未对真实机床试过）；Android 应用和机床旁的触摸面板尚不存在。 |
 | 安全 | 🟡 | 每个请求都需要带三种角色之一的令牌，密码是 Argon2 哈希，错误密码会被减速；服务器不终止 TLS（请在前面加 HTTPS），也未经独立审查。 |
 | 真实硬件 | 🟠 | 作业只针对模拟器运行过：尚未通过服务器在真实机床上运行任何东西。 |
 | 部署 | 🟠 | systemd 单元和 `docs/DEPLOY.md` 描述了 CM5 上的服务；本仓库不记录任何已完成的部署。 |
@@ -64,7 +64,7 @@
 * **人和程序**：三种角色的用户、只显示一次的程序令牌、对错误密码的减速，以及控制台上给第一个管理员的设置码。
 * **事件**：一个 websocket，实时发送作业的每个变化。
 * **服务**：一个可执行文件和一个小的文本设置文件，默认端口 18200（不是 ARMOR 或 HYDRA-UMC 的端口），并带有用于 CM5 的 systemd 单元。
-* **计划中、尚未构建**：客户端（Android 应用、Studio、机床旁的触摸屏面板）、服务器自身的 HTTPS，以及在服务器消失时利用节点的指示灯和缓冲区完成被保留的作业。
+* **计划中、尚未构建**：客户端（Android 应用、机床旁的触摸屏面板）、服务器自身的 HTTPS，以及在服务器消失时利用节点的指示灯和缓冲区完成被保留的作业。
 
 ## 🧩 在 EH3D 中的角色
 
@@ -88,6 +88,7 @@ EH3D-SERVER 是 EH3D 家族的中心：程序把作业发给它，它通过节�
 * **服务器停止时正在运行的作业会标记为失败：** 没人知道机床当时在哪里，所以不会自动恢复。
 * **安全的文件：** 用户、令牌、机床和作业是通过临时文件写入的 JSON 文件；损坏的文件是错误，绝不会悄悄地从零重新开始。
 * **来自 GitHub 的更新：** 设置 `updates_dir` 后，服务器向管理员提供检查自身和 EH3D-STUDIO 最新版本并更新的功能（`/api/v1/updates`）；由 systemd 启动的小型辅助程序（`deploy/eh3d-update.py`）负责下载、校验每个文件的 SHA-256、拒绝名称超出其文件夹的压缩包、替换已安装的文件夹（旧的保留为 `.previous`）并重启服务。已用替身替代 GitHub 和 systemd 测试过，从未在真实安装上运行。
+* **经服务器访问钻头节点：** 当机床配置写明节点（`head_address`、`head_token`）时，服务器转发它的状态（`GET /api/v1/machines/:id/head/status`）、它的 MJPEG 摄像头（`.../head/stream`，浏览器可把令牌放在地址里）和一次工作台测量（`POST .../head/measure`，操作员），这样另一个网络里的程序用同一个登录就能访问。已用替身节点测试，从未对真实节点测试。
 
 ## 🔒 安全与防护
 
@@ -147,7 +148,7 @@ python -I tools/ci_validate.py
 
 ## 🧪 测试
 
-测试共 47 个（`cargo test`，CI 中在 Windows 和 Linux 上运行，COMMON, DRILLPRO 和 ROUTEPRO 检出在服务器旁）：模块内 29 个（设置及其范围、用户、角色、令牌、对错误密码的减速、文件和作业簿、规划），通过真实路由器的接口端到端 8 个（`tests/api.rs`），以及真实程序通过真实端口把作业发给真实服务器、机床使用模拟器的 5 个（`tests/programs.rs`）。CI 还运行 `cargo fmt --all --check`、将警告视为错误的 `cargo clippy` 和 `python -I tools/ci_validate.py`。这里没有任何东西针对真实节点或机床测试过。 负责更新的辅助程序另有 10 项自己的测试（`python -I tests/test_update_helper.py`，用替身替代 GitHub 和 systemd）。
+测试共 51 个（`cargo test`，CI 中在 Windows 和 Linux 上运行，COMMON, DRILLPRO 和 ROUTEPRO 检出在服务器旁）：模块内 35 个（设置及其范围、用户、角色、令牌、对错误密码的减速、文件和作业簿、规划），通过真实路由器的接口端到端 11 个（`tests/api.rs`），以及真实程序通过真实端口把作业发给真实服务器、机床使用模拟器的 5 个（`tests/programs.rs`）。CI 还运行 `cargo fmt --all --check`、将警告视为错误的 `cargo clippy` 和 `python -I tools/ci_validate.py`。这里没有任何东西针对真实节点或机床测试过。 负责更新的辅助程序另有 10 项自己的测试（`python -I tests/test_update_helper.py`，用替身替代 GitHub 和 systemd）。
 
 ## 🏗️ 构建与发布
 
@@ -171,7 +172,7 @@ EH3D-SERVER/
 │   ├── jobs.rs state.rs                         作业以及服务器运行时的组成
 │   ├── machines.rs store.rs                     机床以及通过临时文件写入的文件
 │   ├── config.rs lib.rs main.rs                 设置文件、库根和程序
-│   └── updates.rs                               服务的更新
+│   └── updates.rs  head.rs                      服务的更新
 ├── tests/                                       模拟器上的接口端到端测试，以及真实程序对真实服务器
 ├── docs/                                        API、运行服务器的指南和两张图的数据
 ├── deploy/                                      服务的 systemd 单元
@@ -196,7 +197,7 @@ EH3D-SERVER/
 
 * 尚未通过服务器在真实机床上运行过任何东西：作业只针对模拟器运行过，与 EH3D-NODE-BUNGARD 的链路也没有真正连通过。
 * 服务器不终止 TLS；在外部任何东西能访问它之前，请在前面加上 HTTPS。它未经独立审查。
-* 除程序之外将使用它的客户端（Android 应用、Studio、触摸面板）还不存在。
+* 除程序之外的客户端中，EH3D-STUDIO 已存在；Android 应用和触摸面板还不存在。
 * 它需要 EH3D-DRILLPRO 和 EH3D-ROUTEPRO 的文件夹在旁边，因为它使用它们的库。
 * 服务器停止时正在运行的作业会标记为失败，不会恢复。
 

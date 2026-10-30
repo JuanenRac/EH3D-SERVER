@@ -18,7 +18,7 @@
 
 ---
 
-**Comprobación de honestidad - lo que se ejecuta hoy:** un servidor en Rust (axum) con interfaz REST y websocket que guarda usuarios, máquinas y trabajos, planifica un trabajo de taladrado o de fresado (agujeros y trayectorias, o un fichero Excellon o HP-GL con su tabla de herramientas) con las bibliotecas de EH3D-DRILLPRO y EH3D-ROUTEPRO, muestra una vista previa y lo ejecuta en una máquina a través de su EH3D-NODE-BUNGARD o en un simulador, con los diálogos del operador, una parada y cada cambio contado según ocurre. 41 pruebas se ejecutan en un ordenador, los trabajos contra el simulador. **Todavía no se ha ejecutado nada en una máquina real a través de él**, no termina TLS y los clientes que lo usarán además de los programas (la app de Android, el Studio, el panel junto a la máquina) todavía no existen.
+**Comprobación de honestidad - lo que se ejecuta hoy:** un servidor en Rust (axum) con interfaz REST y websocket que guarda usuarios, máquinas y trabajos, planifica un trabajo de taladrado o de fresado (agujeros y trayectorias, o un fichero Excellon o HP-GL con su tabla de herramientas) con las bibliotecas de EH3D-DRILLPRO y EH3D-ROUTEPRO, muestra una vista previa y lo ejecuta en una máquina a través de su EH3D-NODE-BUNGARD o en un simulador, con los diálogos del operador, una parada y cada cambio contado según ocurre. 51 pruebas se ejecutan en un ordenador, los trabajos contra el simulador. **Todavía no se ha ejecutado nada en una máquina real a través de él**, no termina TLS y de los clientes además de los programas, EH3D-STUDIO existe (nunca probado con una máquina real) y la app de Android y el panel junto a la máquina todavía no existen.
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|
 | Versión | `0.0.1` |
 | Madurez | Andamiaje |
-| Pruebas | 47 |
+| Pruebas | 51 |
 | Pila tecnológica | Rust (axum, tokio) |
 | En hardware real | No: probado contra el simulador; todavía no se ha ejecutado nada en una máquina real a través del servidor |
 
@@ -45,9 +45,9 @@ Cada línea es una parte de este repositorio y la luz dice hasta dónde llega ho
 | Área | Estado | Qué significa aquí |
 |---|---|---|
 | Software | 🟡 | Un servidor en Rust (axum) guarda usuarios, máquinas y trabajos, planifica trabajos de taladrado y fresado con las bibliotecas de EH3D-DRILLPRO y EH3D-ROUTEPRO, muestra una vista previa y ejecuta el trabajo con diálogos de operador y una parada. |
-| Pruebas | 🟢 | Pasan 47 pruebas (`cargo test`): 29 en los módulos y 14 de la interfaz de extremo a extremo, con trabajos en el simulador (8 en `tests/api.rs`, 4 con los programas reales en `tests/programs.rs`). |
+| Pruebas | 🟢 | Pasan 51 pruebas (`cargo test`): 35 en los módulos y 16 de la interfaz de extremo a extremo, con trabajos en el simulador (11 en `tests/api.rs`, 4 con los programas reales en `tests/programs.rs`). |
 | Interfaz para clientes (API) | 🟡 | Las peticiones REST y los eventos del websocket están escritos en `docs/API.md` y cubiertos por las pruebas; hasta ahora solo los usa la conexión al servidor de los propios programas. |
-| Clientes | 🔴 | La app de Android, el Studio y el panel táctil junto a la máquina todavía no existen. |
+| Clientes | 🔴 | EH3D-STUDIO lo usa (nunca probado con una máquina real); la app de Android y el panel táctil junto a la máquina todavía no existen. |
 | Seguridad | 🟡 | Cada petición necesita un token con uno de tres roles, las contraseñas son hashes Argon2 y las contraseñas erróneas se ralentizan; el servidor no termina TLS (pon HTTPS delante) y no ha tenido revisión independiente. |
 | Hardware real | 🟠 | Los trabajos solo se han ejecutado contra el simulador: nada se ha ejecutado en una máquina real a través del servidor. |
 | Despliegue | 🟠 | Una unidad de systemd y `docs/DEPLOY.md` describen el servicio en la CM5; este repositorio no registra ningún despliegue como hecho. |
@@ -88,6 +88,7 @@ Cómo encajan las partes de este repositorio: quién lo usa, qué contiene y de 
 * **Un trabajo que corría cuando el servidor se detuvo se marca como fallido:** nadie sabe dónde estaba la máquina, así que nada se reanuda solo.
 * **Ficheros seguros:** usuarios, tokens, máquinas y trabajos son ficheros JSON escritos a través de uno temporal; un fichero dañado es un error, nunca un reinicio silencioso desde cero.
 * **Actualizaciones desde GitHub:** con `updates_dir` el servidor ofrece a un administrador la comprobación de las últimas versiones de sí mismo y de EH3D-STUDIO y su actualización (`/api/v1/updates`); un pequeño ayudante lanzado por systemd (`deploy/eh3d-update.py`) descarga, comprueba el SHA-256 de cada fichero, rechaza un archivo con nombres fuera de su carpeta, sustituye la carpeta instalada (la anterior se conserva como `.previous`) y reinicia el servicio. Se ha probado con GitHub y systemd sustituidos por simulaciones, nunca en una instalación real.
+* **El nodo del cabezal de taladro a través del servidor:** cuando la configuración de una máquina nombra el nodo (`head_address`, `head_token`), el servidor transmite su estado (`GET /api/v1/machines/:id/head/status`), su cámara como MJPEG (`.../head/stream`, con el token en la dirección para un navegador) y una medida de la mesa (`POST .../head/measure`, operador), así un programa de otra red llega a él con el mismo acceso. Probado con un nodo simulado, nunca con uno real.
 
 ## 🔒 Seguridad y protección
 
@@ -147,7 +148,7 @@ Ejecútalo con `run.bat` (Windows) o `./run.sh` (Linux); compila primero si hace
 
 ## 🧪 Pruebas
 
-La suite tiene 47 pruebas (`cargo test`, ejecutadas en Windows y Linux en el CI con COMMON, DRILLPRO y ROUTEPRO descargados junto al servidor): 29 en los módulos (ajustes y sus rangos, usuarios, roles, tokens, la ralentización ante contraseñas erróneas, los ficheros y el libro de trabajos, la planificación), 8 de la interfaz de extremo a extremo a través del router real (`tests/api.rs`) y 5 con los programas reales enviando sus trabajos a un servidor real en un puerto real, con la máquina en el simulador (`tests/programs.rs`). El CI también ejecuta `cargo fmt --all --check`, `cargo clippy` con advertencias como errores y `python -I tools/ci_validate.py`. Nada de esto se ha probado contra un nodo o una máquina reales. El ayudante que hace las actualizaciones tiene 10 pruebas más propias (`python -I tests/test_update_helper.py`, con GitHub y systemd sustituidos por simulaciones).
+La suite tiene 51 pruebas (`cargo test`, ejecutadas en Windows y Linux en el CI con COMMON, DRILLPRO y ROUTEPRO descargados junto al servidor): 35 en los módulos (ajustes y sus rangos, usuarios, roles, tokens, la ralentización ante contraseñas erróneas, los ficheros y el libro de trabajos, la planificación), 11 de la interfaz de extremo a extremo a través del router real (`tests/api.rs`) y 5 con los programas reales enviando sus trabajos a un servidor real en un puerto real, con la máquina en el simulador (`tests/programs.rs`). El CI también ejecuta `cargo fmt --all --check`, `cargo clippy` con advertencias como errores y `python -I tools/ci_validate.py`. Nada de esto se ha probado contra un nodo o una máquina reales. El ayudante que hace las actualizaciones tiene 10 pruebas más propias (`python -I tests/test_update_helper.py`, con GitHub y systemd sustituidos por simulaciones).
 
 ## 🏗️ Compilación y publicación
 
@@ -171,7 +172,7 @@ EH3D-SERVER/
 │   ├── jobs.rs state.rs                         los trabajos y de qué se compone el servidor mientras corre
 │   ├── machines.rs store.rs                     las máquinas y los ficheros escritos a través de uno temporal
 │   ├── config.rs lib.rs main.rs                 el fichero de ajustes, la raíz de la biblioteca y el programa
-│   └── updates.rs                               las actualizaciones de los servicios
+│   └── updates.rs  head.rs                      las actualizaciones de los servicios
 ├── tests/                                       la interfaz de extremo a extremo en el simulador y los programas reales contra un servidor real
 ├── docs/                                        la API, la guía para ejecutar el servidor y los datos de las dos imágenes
 ├── deploy/                                      la unidad de systemd del servicio
@@ -196,7 +197,7 @@ EH3D-SERVER/
 
 * Nada se ha ejecutado en una máquina real a través del servidor: los trabajos solo han corrido contra el simulador y el enlace con EH3D-NODE-BUNGARD no se ha alcanzado de verdad.
 * El servidor no termina TLS; pon HTTPS delante antes de que le llegue nada de fuera. No ha tenido revisión independiente.
-* Los clientes que lo usarán además de los programas (la app de Android, el Studio, el panel táctil) todavía no existen.
+* De los clientes además de los programas, EH3D-STUDIO existe; la app de Android y el panel táctil todavía no existen.
 * Necesita las carpetas de EH3D-DRILLPRO y EH3D-ROUTEPRO a su lado, porque usa sus bibliotecas.
 * Un trabajo que corría cuando el servidor se detuvo se marca como fallido y no se reanuda.
 

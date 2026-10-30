@@ -18,7 +18,7 @@
 
 ---
 
-**Vérification d'honnêteté - ce qui tourne aujourd'hui :** un serveur Rust (axum) avec une interface REST et websocket qui garde utilisateurs, machines et travaux, planifie un travail de perçage ou de défonçage (trous et parcours, ou un fichier Excellon ou HP-GL avec sa table d'outils) avec les bibliothèques d'EH3D-DRILLPRO et d'EH3D-ROUTEPRO, montre un aperçu et l'exécute sur une machine par son EH3D-NODE-BUNGARD ou sur un simulateur, avec les dialogues de l'opérateur, un arrêt et chaque changement annoncé au fur et à mesure. 41 tests tournent sur un ordinateur, les travaux contre le simulateur. **Rien n'a encore tourné sur une vraie machine par son intermédiaire**, il ne termine pas le TLS, et les clients qui l'utiliseront en plus des programmes (l'application Android, le Studio, le panneau à côté de la machine) n'existent pas encore.
+**Vérification d'honnêteté - ce qui tourne aujourd'hui :** un serveur Rust (axum) avec une interface REST et websocket qui garde utilisateurs, machines et travaux, planifie un travail de perçage ou de défonçage (trous et parcours, ou un fichier Excellon ou HP-GL avec sa table d'outils) avec les bibliothèques d'EH3D-DRILLPRO et d'EH3D-ROUTEPRO, montre un aperçu et l'exécute sur une machine par son EH3D-NODE-BUNGARD ou sur un simulateur, avec les dialogues de l'opérateur, un arrêt et chaque changement annoncé au fur et à mesure. 41 tests tournent sur un ordinateur, les travaux contre le simulateur. **Rien n'a encore tourné sur une vraie machine par son intermédiaire**, il ne termine pas le TLS, et parmi les clients en plus des programmes, EH3D-STUDIO existe (jamais essayé avec une vraie machine) et l'application Android et le panneau à côté de la machine n'existent pas encore.
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.0.1` |
 | Maturité | Échafaudage |
-| Tests | 47 |
+| Tests | 51 |
 | Pile technique | Rust (axum, tokio) |
 | Sur du matériel réel | Non : testé contre le simulateur ; rien n'a encore tourné sur une vraie machine par le serveur |
 
@@ -45,9 +45,9 @@ Chaque ligne est une partie de ce dépôt et le feu dit où elle en est aujourd'
 | Domaine | État | Ce que cela veut dire ici |
 |---|---|---|
 | Logiciel | 🟡 | Un serveur Rust (axum) garde utilisateurs, machines et travaux, planifie des travaux de perçage et de défonçage avec les bibliothèques d'EH3D-DRILLPRO et d'EH3D-ROUTEPRO, montre un aperçu et exécute le travail avec des dialogues d'opérateur et un arrêt. |
-| Tests | 🟢 | 47 tests réussissent (`cargo test`) : 29 dans les modules et 14 sur l'interface de bout en bout, avec des travaux sur le simulateur (8 dans `tests/api.rs`, 4 avec les vrais programmes dans `tests/programs.rs`). |
+| Tests | 🟢 | 51 tests réussissent (`cargo test`) : 35 dans les modules et 16 sur l'interface de bout en bout, avec des travaux sur le simulateur (11 dans `tests/api.rs`, 4 avec les vrais programmes dans `tests/programs.rs`). |
 | Interface pour les clients (API) | 🟡 | Les requêtes REST et les événements websocket sont décrits dans `docs/API.md` et couverts par les tests ; seule la connexion au serveur des programmes eux-mêmes les utilise pour l'instant. |
-| Clients | 🔴 | L'application Android, le Studio et le panneau tactile à côté de la machine n'existent pas encore. |
+| Clients | 🔴 | EH3D-STUDIO l'utilise (jamais essayé avec une vraie machine) ; l'application Android et le panneau tactile à côté de la machine n'existent pas encore. |
 | Sécurité | 🟡 | Chaque requête exige un jeton avec l'un de trois rôles, les mots de passe sont des hachages Argon2 et les mauvais mots de passe sont ralentis ; le serveur ne termine pas le TLS (mets du HTTPS devant) et n'a pas eu de revue indépendante. |
 | Matériel réel | 🟠 | Les travaux n'ont tourné que contre le simulateur : rien n'a tourné sur une vraie machine par le serveur. |
 | Déploiement | 🟠 | Une unité systemd et `docs/DEPLOY.md` décrivent le service sur la CM5 ; ce dépôt n'enregistre aucun déploiement comme fait. |
@@ -88,6 +88,7 @@ Comment les parties de ce dépôt s'articulent : qui l'utilise, ce qu'il contien
 * **Un travail qui tournait quand le serveur s'est arrêté est marqué en échec :** personne ne sait où était la machine, donc rien ne reprend tout seul.
 * **Fichiers sûrs :** utilisateurs, jetons, machines et travaux sont des fichiers JSON écrits via un fichier temporaire ; un fichier endommagé est une erreur, jamais un redémarrage silencieux à zéro.
 * **Mises à jour depuis GitHub :** avec `updates_dir` le serveur propose à un administrateur la vérification des dernières versions de lui-même et d'EH3D-STUDIO et leur mise à jour (`/api/v1/updates`) ; un petit assistant lancé par systemd (`deploy/eh3d-update.py`) télécharge, vérifie le SHA-256 de chaque fichier, refuse une archive aux noms hors de son dossier, remplace le dossier installé (l'ancien est gardé en `.previous`) et redémarre le service. Il a été testé avec GitHub et systemd remplacés par des doublures, jamais sur une installation réelle.
+* **Le nœud de la tête de perçage par le serveur :** quand la configuration d'une machine nomme le nœud (`head_address`, `head_token`), le serveur relaie son état (`GET /api/v1/machines/:id/head/status`), sa caméra en MJPEG (`.../head/stream`, avec le jeton dans l'adresse pour un navigateur) et une mesure de la table (`POST .../head/measure`, opérateur), si bien qu'un programme sur un autre réseau l'atteint avec la même connexion. Testé avec un nœud de substitution, jamais avec un vrai.
 
 ## 🔒 Sécurité et protection
 
@@ -147,7 +148,7 @@ Lance-le avec `run.bat` (Windows) ou `./run.sh` (Linux) ; il compile d'abord si 
 
 ## 🧪 Tests
 
-La suite compte 47 tests (`cargo test`, exécutés sous Windows et Linux dans la CI avec COMMON, DRILLPRO et ROUTEPRO récupérés à côté du serveur) : 29 dans les modules (réglages et leurs plages, utilisateurs, rôles, jetons, le ralentissement sur mauvais mot de passe, les fichiers et le registre des travaux, la planification), 8 sur l'interface de bout en bout par le vrai routeur (`tests/api.rs`) et 5 avec les vrais programmes envoyant leurs travaux à un vrai serveur sur un vrai port, la machine étant sur le simulateur (`tests/programs.rs`). La CI exécute aussi `cargo fmt --all --check`, `cargo clippy` avec les avertissements en erreurs et `python -I tools/ci_validate.py`. Rien de tout cela n'a été testé contre un vrai nœud ou une vraie machine. L'assistant qui fait les mises à jour a 10 tests de plus qui lui sont propres (`python -I tests/test_update_helper.py`, avec GitHub et systemd remplacés par des doublures).
+La suite compte 51 tests (`cargo test`, exécutés sous Windows et Linux dans la CI avec COMMON, DRILLPRO et ROUTEPRO récupérés à côté du serveur) : 35 dans les modules (réglages et leurs plages, utilisateurs, rôles, jetons, le ralentissement sur mauvais mot de passe, les fichiers et le registre des travaux, la planification), 11 sur l'interface de bout en bout par le vrai routeur (`tests/api.rs`) et 5 avec les vrais programmes envoyant leurs travaux à un vrai serveur sur un vrai port, la machine étant sur le simulateur (`tests/programs.rs`). La CI exécute aussi `cargo fmt --all --check`, `cargo clippy` avec les avertissements en erreurs et `python -I tools/ci_validate.py`. Rien de tout cela n'a été testé contre un vrai nœud ou une vraie machine. L'assistant qui fait les mises à jour a 10 tests de plus qui lui sont propres (`python -I tests/test_update_helper.py`, avec GitHub et systemd remplacés par des doublures).
 
 ## 🏗️ Compilation et publication
 
@@ -171,7 +172,7 @@ EH3D-SERVER/
 │   ├── jobs.rs state.rs                         les travaux et ce dont le serveur est fait pendant qu'il tourne
 │   ├── machines.rs store.rs                     les machines, et les fichiers écrits via un fichier temporaire
 │   ├── config.rs lib.rs main.rs                 le fichier de réglages, la racine de la bibliothèque et le programme
-│   └── updates.rs                               les mises à jour des services
+│   └── updates.rs  head.rs                      les mises à jour des services
 ├── tests/                                       l'interface de bout en bout sur le simulateur et les vrais programmes contre un vrai serveur
 ├── docs/                                        l'API, le guide pour exécuter le serveur et les données des deux images
 ├── deploy/                                      l'unité systemd du service
@@ -196,7 +197,7 @@ EH3D-SERVER/
 
 * Rien n'a tourné sur une vraie machine par le serveur : les travaux n'ont tourné que contre le simulateur et le lien avec EH3D-NODE-BUNGARD n'a pas été atteint pour de vrai.
 * Le serveur ne termine pas le TLS ; mets du HTTPS devant avant que quoi que ce soit de l'extérieur l'atteigne. Il n'a pas eu de revue indépendante.
-* Les clients qui l'utiliseront en plus des programmes (l'application Android, le Studio, le panneau tactile) n'existent pas encore.
+* Parmi les clients en plus des programmes, EH3D-STUDIO existe ; l'application Android et le panneau tactile n'existent pas encore.
 * Il a besoin des dossiers d'EH3D-DRILLPRO et d'EH3D-ROUTEPRO à côté de lui, car il utilise leurs bibliothèques.
 * Un travail qui tournait quand le serveur s'est arrêté est marqué en échec et ne reprend pas.
 

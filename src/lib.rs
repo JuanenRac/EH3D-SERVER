@@ -6,6 +6,7 @@
 pub mod api;
 pub mod auth;
 pub mod config;
+pub mod head;
 pub mod jobs;
 pub mod machines;
 pub mod plan;

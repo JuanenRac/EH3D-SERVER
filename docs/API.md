@@ -100,6 +100,18 @@ For an administrator, when `updates_dir` is set in `server.cfg` (see `docs/DEPLO
 
 The components are `server` (EH3D-SERVER, installed as `/opt/eh3d-server`) and `studio` (EH3D-STUDIO, the folder of its pages). The helper checks the SHA-256 of each file against the one the release publishes, and keeps the old folder as `.previous`.
 
+## The node of the drill head
+
+For a machine whose configuration names the node of its drill head (`head_node`, `head_address` and `head_token`, the keys of the programs' machine file). The server asks the node for the viewer or the operator, with the token of the machine, so the node's token never leaves the server.
+
+| Request | Role | What it does |
+|---|---|---|
+| `GET /api/v1/machines/:id/head/status` | viewer | the status of the node as it answers it (`node`, `camera`, `camera_model`, `laser`, `rpm`, `temp_c`, `heat`, `protect_open`, `uptime_s`) |
+| `POST /api/v1/machines/:id/head/measure[?samples=N]` | operator | one measure of the table under the head (`samples` from 1 to 31); the node's own answer and status code, so a refused measure says why |
+| `GET /api/v1/machines/:id/head/stream[?token=T]` | viewer | the camera of the node as MJPEG, handed on while it comes; the token may be in the address because a browser cannot set a header on a picture |
+
+Refusals: `404 no_head` (the machine has no `head_address`), `422 bad_address`, `422 bad_samples`, `502 head_unreachable` (the node does not answer in four seconds) and `502 head_refused` (the node answered with a status other than 200).
+
 ## What happens, as it happens
 
 `GET /events?token=<token>` upgrades to a websocket (a browser cannot set headers on one, so the token goes in the address). The first text is `{"type":"hello","jobs":[...]}` with the summaries of the jobs; after it every change arrives as `{"type":"job","job":{...}}`, `{"type":"job_removed","id":"..."}` or `{"type":"machine","id":"..."}`.

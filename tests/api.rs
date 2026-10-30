@@ -1084,3 +1084,165 @@ async fn the_updates_are_offered_to_an_administrator_when_the_server_has_a_folde
     let (_, body) = call(&on, Method::GET, "/api/v1/updates", Some(&token), None).await;
     assert_eq!(body["pending"], json!(true));
 }
+
+/// A node of the drill head that says what the real one says: a status, a measure (only with its token) and a camera that sends two pictures.
+fn fake_head(token: &'static str) -> String {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap().to_string();
+    std::thread::spawn(move || {
+        for conn in listener.incoming() {
+            let Ok(mut c) = conn else { continue };
+            let mut buf = [0u8; 2048];
+            let n = c.read(&mut buf).unwrap_or(0);
+            let req = String::from_utf8_lossy(&buf[..n]).to_string();
+            let authorised = req.contains(&format!("Authorization: Bearer {token}\r\n"));
+            let reply: Vec<u8> = if req.starts_with("GET /api/status ") {
+                b"HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n{\"node\":\"head-1\",\"camera\":true,\"camera_model\":\"ov5640\"}".to_vec()
+            } else if req.starts_with("POST /api/measure") && authorised {
+                format!("HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n{{\"ok\":true,\"distance_mm\":42.5,\"asked\":{}}}", if req.contains("samples=5") { 5 } else { 7 }).into_bytes()
+            } else if req.starts_with("GET /stream") && authorised {
+                b"HTTP/1.0 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\n\r\n--frame\r\nPICTURE-ONE\r\n--frame\r\nPICTURE-TWO\r\n".to_vec()
+            } else {
+                b"HTTP/1.0 401 Unauthorized\r\nContent-Type: application/json\r\n\r\n{\"error\":\"unauthorized\"}".to_vec()
+            };
+            let _ = c.write_all(&reply);
+        }
+    });
+    address
+}
+
+#[tokio::test]
+async fn the_node_of_the_drill_head_is_reached_through_the_server_with_the_machines_address_and_token(
+) {
+    let s = server("head");
+    let token = admin(&s).await;
+    let node = fake_head("headtoken12");
+
+    // a machine without a node of the head says so
+    demo_machine(&s, &token, "plain").await;
+    let (status, body) = call(
+        &s,
+        Method::GET,
+        "/api/v1/machines/plain/head/status",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].clone()),
+        (StatusCode::NOT_FOUND, json!("no_head"))
+    );
+
+    // a machine whose configuration names the node
+    let cfg = format!("head_node = server\nhead_address = {node}\nhead_token = headtoken12\n");
+    let (status, body) = call(&s, Method::POST, "/api/v1/machines", Some(&token), Some(json!({"id": "bench", "name": "Bench", "model": "ccd-mtc", "connection": {"kind": "demo"}, "cfg": cfg}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let (status, body) = call(
+        &s,
+        Method::GET,
+        "/api/v1/machines/bench/head/status",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, body["node"].clone(), body["camera_model"].clone()),
+        (StatusCode::OK, json!("head-1"), json!("ov5640"))
+    );
+
+    // the measure goes with the token of the node (the one of the machine), and the samples are checked here
+    let (status, body) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines/bench/head/measure?samples=5",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, body["distance_mm"].clone(), body["asked"].clone()),
+        (StatusCode::OK, json!(42.5), json!(5))
+    );
+    let (status, body) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines/bench/head/measure?samples=99",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].clone()),
+        (StatusCode::UNPROCESSABLE_ENTITY, json!("bad_samples"))
+    );
+
+    // the camera: the picture comes through, with the token in the address because a browser cannot set a header on it
+    let (status, text) = raw_get(
+        s.app.clone(),
+        &format!("/api/v1/machines/bench/head/stream?token={token}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        text.contains("PICTURE-ONE") && text.contains("PICTURE-TWO"),
+        "{text}"
+    );
+    let (status, _) = raw_get(s.app.clone(), "/api/v1/machines/bench/head/stream").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    // a viewer sees the status but may not measure
+    let (status, _) = call(
+        &s,
+        Method::POST,
+        "/api/v1/users",
+        Some(&token),
+        Some(json!({"name": "luis", "role": "viewer", "password": "otra-clave-larga"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, login) = call(
+        &s,
+        Method::POST,
+        "/api/v1/login",
+        None,
+        Some(json!({"name": "luis", "password": "otra-clave-larga"})),
+    )
+    .await;
+    let viewer = login["token"].as_str().unwrap().to_string();
+    let (status, _) = call(
+        &s,
+        Method::GET,
+        "/api/v1/machines/bench/head/status",
+        Some(&viewer),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines/bench/head/measure",
+        Some(&viewer),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // a node that is not there is a bad gateway, not a hang
+    let (status, body) = call(&s, Method::POST, "/api/v1/machines", Some(&token), Some(json!({"id": "gone", "name": "Gone", "model": "ccd-mtc", "connection": {"kind": "demo"}, "cfg": "head_node = server\nhead_address = 127.0.0.1:9\n"}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = call(
+        &s,
+        Method::GET,
+        "/api/v1/machines/gone/head/status",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].clone()),
+        (StatusCode::BAD_GATEWAY, json!("head_unreachable"))
+    );
+}

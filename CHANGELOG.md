@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **The node of the drill head through the server:** `GET /api/v1/machines/:id/head/status`, `POST .../head/measure` and `GET .../head/stream` hand on the status, a measure of the table and the camera (MJPEG) of the node that the machine's configuration names (`head_address`, `head_token`), with the roles viewer, operator and viewer; the token of the node never leaves the server. Tested against a stand-in node.
+
 ## [0.0.1] - First release: the server of the machines, the fleet, the pages of Studio and the updates from GitHub
 
 - **Updates from GitHub:** with `updates_dir` the server offers (`GET /api/v1/updates`, `POST /api/v1/updates/check` and `/apply`, administrator only) the check of the latest releases and the update of the server and of Studio; a small helper started by systemd (`deploy/eh3d-update.py`) does the downloading, checks the SHA-256, replaces the installed folder (keeping the old one) and restarts the service. A workflow builds the packages of the server for Linux (x86_64 and aarch64), Windows and macOS.

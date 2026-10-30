@@ -18,7 +18,7 @@
 
 ---
 
-**Honesty check - what actually runs today:** a Rust server (axum) with a REST and websocket interface that keeps users, machines and jobs, plans a drilling or routing job (holes and paths, or an Excellon or HP-GL file with its tool table) with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator, a stop and every change told as it happens. 41 tests run on a computer, the jobs against the simulator. **Nothing has run on a real machine through it yet**, it does not terminate TLS, and the clients that will use it besides the programs (the Android app, the Studio, the panel next to the machine) do not exist yet.
+**Honesty check - what actually runs today:** a Rust server (axum) with a REST and websocket interface that keeps users, machines and jobs, plans a drilling or routing job (holes and paths, or an Excellon or HP-GL file with its tool table) with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator, a stop and every change told as it happens. 51 tests run on a computer, the jobs against the simulator. **Nothing has run on a real machine through it yet**, it does not terminate TLS, and of the clients besides the programs, EH3D-STUDIO exists (never tried against a real machine) and the Android app and the panel next to the machine do not exist yet.
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.0.1` |
 | Maturity | Scaffolding |
-| Tests | 47 |
+| Tests | 51 |
 | Stack | Rust (axum, tokio) |
 | On real hardware | No: tested against the simulator; nothing has run on a real machine through the server yet |
 
@@ -45,9 +45,9 @@ Each line is one part of this repository and the light says how far it is today.
 | Area | State | What it means here |
 |---|---|---|
 | Software | 🟡 | A Rust server (axum) keeps users, machines and jobs, plans drilling and routing jobs with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview and runs the job with operator dialogs and a stop. |
-| Tests | 🟢 | 47 tests pass (`cargo test`): 29 in the modules and 14 on the interface end to end, with jobs running on the simulator (8 in `tests/api.rs`, 5 with the real programs in `tests/programs.rs`). |
+| Tests | 🟢 | 51 tests pass (`cargo test`): 35 in the modules and 16 on the interface end to end, with jobs running on the simulator (11 in `tests/api.rs`, 5 with the real programs in `tests/programs.rs`). |
 | Interface for clients (API) | 🟡 | The REST requests and the websocket events are written down in `docs/API.md` and covered by the tests; only the programs' own server connection uses them so far. |
-| Clients | 🔴 | The Android app, the Studio and the touch panel next to the machine do not exist yet. |
+| Clients | 🔴 | EH3D-STUDIO uses it (never tried against a real machine); the Android app and the touch panel next to the machine do not exist yet. |
 | Security | 🟡 | Every request needs a token with one of three roles, passwords are Argon2 hashes and wrong passwords are slowed down; the server does not terminate TLS (put HTTPS in front) and has had no independent review. |
 | Real hardware | 🟠 | The jobs have only run against the simulator: nothing has run on a real machine through the server. |
 | Deployment | 🟠 | A systemd unit and `docs/DEPLOY.md` describe the service on the CM5; this repository does not record a deployment as done. |
@@ -88,6 +88,7 @@ How the parts of this repository fit together: who uses it, what it holds and wh
 * **A job that was running when the server stopped is marked failed:** nobody knows where the machine was, so nothing resumes by itself.
 * **Safe files:** users, tokens, machines and jobs are JSON files written through a temporary file; a damaged file is an error, never a silent restart from nothing.
 * **Updates from GitHub:** with `updates_dir` the server offers, to an administrator, the check of the latest releases of itself and of EH3D-STUDIO and their update (`/api/v1/updates`); a small helper started by systemd (`deploy/eh3d-update.py`) does the downloading, checks the SHA-256 of each file, refuses an archive with names outside its folder, replaces the installed folder (the old one is kept as `.previous`) and restarts the service. It has been tested with GitHub and systemd replaced by stand-ins, never on a real installation.
+* **The node of the drill head through the server:** when the configuration of a machine names the node (`head_address`, `head_token`), the server hands on its status (`GET /api/v1/machines/:id/head/status`), its camera as MJPEG (`.../head/stream`, with the token in the address for a browser) and a measure of the table (`POST .../head/measure`, operator), so a program on another network reaches it with the same login. Tested against a stand-in node, never against a real one.
 
 ## 🔒 Security & Safety
 
@@ -147,7 +148,7 @@ Run it with `run.bat` (Windows) or `./run.sh` (Linux); it builds first if needed
 
 ## 🧪 Testing
 
-The suite has 47 tests (`cargo test`, run on Windows and Linux in the CI with COMMON, DRILLPRO and ROUTEPRO checked out next to the server): 29 in the modules (settings and their ranges, users, roles, tokens, the slowdown on wrong passwords, the files and the job book, planning), 8 on the interface end to end through the real router (`tests/api.rs`), and 5 with the real programs sending their jobs to a real server on a real port, with the machine on the simulator (`tests/programs.rs`). The CI also runs `cargo fmt --all --check`, `cargo clippy` with warnings as errors and `python -I tools/ci_validate.py`. Nothing here has been tested against a real node or machine. The helper that does the updates has 10 more tests of its own (`python -I tests/test_update_helper.py`, with GitHub and systemd replaced by stand-ins).
+The suite has 51 tests (`cargo test`, run on Windows and Linux in the CI with COMMON, DRILLPRO and ROUTEPRO checked out next to the server): 35 in the modules (settings and their ranges, users, roles, tokens, the slowdown on wrong passwords, the files and the job book, planning), 11 on the interface end to end through the real router (`tests/api.rs`), and 5 with the real programs sending their jobs to a real server on a real port, with the machine on the simulator (`tests/programs.rs`). The CI also runs `cargo fmt --all --check`, `cargo clippy` with warnings as errors and `python -I tools/ci_validate.py`. Nothing here has been tested against a real node or machine. The helper that does the updates has 10 more tests of its own (`python -I tests/test_update_helper.py`, with GitHub and systemd replaced by stand-ins).
 
 ## 🏗️ Build & Release
 
@@ -171,7 +172,7 @@ EH3D-SERVER/
 │   ├── jobs.rs state.rs                         the jobs and what the server is made of while it runs
 │   ├── machines.rs store.rs                     the machines, and the files written through a temporary file
 │   ├── config.rs lib.rs main.rs                 the settings file, the library root and the program
-│   └── updates.rs                               the updates of the services
+│   └── updates.rs  head.rs                      the updates of the services
 ├── tests/                                       the interface end to end on the simulator, and the real programs against a real server
 ├── docs/                                        the API, the guide to running the server and the data of the two pictures
 ├── deploy/                                      the systemd unit of the service
@@ -196,7 +197,7 @@ EH3D-SERVER/
 
 * Nothing has run on a real machine through the server: the jobs have only run against the simulator, and the link to EH3D-NODE-BUNGARD has not been reached for real.
 * The server does not terminate TLS; put HTTPS in front before anything outside reaches it. It has had no independent review.
-* The clients that will use it besides the programs (the Android app, the Studio, the touch panel) do not exist yet.
+* Of the clients besides the programs, EH3D-STUDIO exists; the Android app and the touch panel do not exist yet.
 * It needs the folders of EH3D-DRILLPRO and EH3D-ROUTEPRO next to it, because it uses their libraries.
 * A job that was running when the server stopped is marked failed and does not resume.
 

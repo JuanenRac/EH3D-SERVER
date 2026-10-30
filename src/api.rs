@@ -17,6 +17,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::auth::{AuthError, Identity, Role};
+use crate::head::{self, HeadError};
 use crate::jobs::{new_id, now, JobRecord, JobState};
 use crate::machines::{MachineError, MachineRecord};
 use crate::plan::{self, JobRequest};
@@ -153,6 +154,9 @@ pub fn router(state: Shared) -> Router {
         )
         .route("/api/v1/machines/:id/preview", post(preview))
         .route("/api/v1/machines/:id/jobs", post(create_job))
+        .route("/api/v1/machines/:id/head/status", get(head_status))
+        .route("/api/v1/machines/:id/head/measure", post(head_measure))
+        .route("/api/v1/machines/:id/head/stream", get(head_stream))
         .route("/api/v1/fleet", get(fleet))
         .route("/api/v1/jobs", get(list_jobs))
         .route("/api/v1/jobs/:id", get(get_job).delete(delete_job))
@@ -795,6 +799,141 @@ async fn delete_job(
 }
 
 // ---- what happens, as it happens ------------------------------------------------------------------------------------------------------
+
+// ---- the node of the drill head, through the server
+
+/// The address and the token of the node of this machine's drill head, from the machine's configuration.
+fn head_of(s: &Shared, id: &str) -> Result<(String, String), ApiError> {
+    let machine = machine_of(s, id)?;
+    let c = machine.connection_config()?;
+    if c.head_address.trim().is_empty() {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "no_head",
+            "this machine has no node of the drill head: set head_address in its configuration",
+        ));
+    }
+    Ok((c.head_address, c.head_token))
+}
+
+fn head_error(e: HeadError) -> ApiError {
+    match e {
+        HeadError::NoAddress => ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "bad_address",
+            "head_address is not a host and a port",
+        ),
+        HeadError::Unreachable => ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "head_unreachable",
+            "the node of the drill head does not answer",
+        ),
+    }
+}
+
+/// What the node says as it says it: its status code and its content type are kept, so the picture of a client and the one of the node are the same.
+fn pass_on(status: u16, content_type: String, body: Vec<u8>) -> Response {
+    let mut r = Response::new(axum::body::Body::from(body));
+    *r.status_mut() = StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY);
+    if let Ok(v) = header::HeaderValue::from_str(&content_type) {
+        r.headers_mut().insert(header::CONTENT_TYPE, v);
+    }
+    r
+}
+
+/// The status of the node: the camera, the laser, the speed and the temperature of the spindle and the protect output, as it answers them.
+async fn head_status(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+) -> Result<Response, ApiError> {
+    need(&who, Role::Viewer)?;
+    let (address, token) = head_of(&s, &id)?;
+    let (status, ct, body) = head::fetch(&address, &token, "GET", "/api/status")
+        .await
+        .map_err(head_error)?;
+    if status != 200 {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "head_refused",
+            format!("the node answered {status}"),
+        ));
+    }
+    Ok(pass_on(200, ct, body))
+}
+
+#[derive(Deserialize)]
+struct MeasureQuery {
+    samples: Option<u32>,
+}
+
+/// One measure of the table under the head (the laser): the node's own answer, with its status code, so that a refused measure says why.
+async fn head_measure(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+    Query(q): Query<MeasureQuery>,
+) -> Result<Response, ApiError> {
+    need(&who, Role::Operator)?;
+    let (address, token) = head_of(&s, &id)?;
+    let path = match q.samples {
+        Some(n) if (1..=31).contains(&n) => format!("/api/measure?samples={n}"),
+        Some(_) => {
+            return Err(ApiError::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "bad_samples",
+                "samples is from 1 to 31",
+            ))
+        }
+        None => "/api/measure".to_string(),
+    };
+    let (status, ct, body) = head::fetch(&address, &token, "POST", &path)
+        .await
+        .map_err(head_error)?;
+    Ok(pass_on(status, ct, body))
+}
+
+/// The camera of the node as the node sends it (MJPEG), handed on while it comes. The token may be in the address because a browser cannot set a header on a picture.
+async fn head_stream(
+    State(s): State<Shared>,
+    parts: Parts,
+    Path(id): Path<String>,
+    Query(q): Query<TokenQuery>,
+) -> Result<Response, ApiError> {
+    let token = bearer(&parts).or(q.token).ok_or_else(|| {
+        ApiError::new(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "send the token in the address or in Authorization",
+        )
+    })?;
+    let who = s
+        .auth
+        .lock()
+        .expect("auth lock")
+        .identify(&token, now())
+        .ok_or_else(|| ApiError::new(StatusCode::UNAUTHORIZED, "unauthorized", ""))?;
+    need(&who, Role::Viewer)?;
+    let (address, head_token) = head_of(&s, &id)?;
+    let answer = head::open(&address, &head_token, "GET", "/stream")
+        .await
+        .map_err(head_error)?;
+    if answer.status != 200 {
+        return Err(ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "head_refused",
+            format!("the node answered {}", answer.status),
+        ));
+    }
+    use tokio::io::AsyncReadExt;
+    let reader = std::io::Cursor::new(answer.rest).chain(answer.stream);
+    let body = axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(reader));
+    let mut r = Response::new(body);
+    if let Ok(v) = header::HeaderValue::from_str(&answer.content_type) {
+        r.headers_mut().insert(header::CONTENT_TYPE, v);
+    }
+    Ok(r)
+}
 
 #[derive(Deserialize)]
 struct TokenQuery {

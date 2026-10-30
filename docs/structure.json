@@ -114,7 +114,8 @@
             "zh": "服务的更新",
             "ja": "サービスの更新"
           },
-          "name": "updates.rs"
+          "name": "updates.rs  head.rs",
+          "tree_name": "updates.rs  head.rs"
         }
       ],
       "sub": {
