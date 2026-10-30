@@ -1,0 +1,60 @@
+name: Release binaries
+
+# Builds the server for Linux (x86_64 and aarch64, the CM5), Windows and macOS and keeps the packages as artifacts of the run. The release itself is published from the
+# maintainer's machine, which downloads these artifacts, so that the notes and the assets of every repository of the ecosystem are made the same way. The Linux
+# packages are the ones the update helper of the server (deploy/eh3d-update.py) takes from the release. Run it by hand: Actions > Release binaries > Run workflow.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, label: linux-x86_64, ext: "", archive: tar.gz }
+          - { os: ubuntu-24.04-arm, label: linux-aarch64, ext: "", archive: tar.gz }
+          - { os: windows-latest, label: windows-x86_64, ext: ".exe", archive: zip }
+          - { os: macos-latest, label: macos-arm64, ext: "", archive: tar.gz }
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check out the siblings (path dependencies)
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/JuanenRac/EH3D-COMMON.git ../EH3D-COMMON
+          git clone --depth 1 https://github.com/JuanenRac/EH3D-DRILLPRO.git ../EH3D-DRILLPRO
+          git clone --depth 1 https://github.com/JuanenRac/EH3D-ROUTEPRO.git ../EH3D-ROUTEPRO
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal
+      - name: Build
+        run: cargo build --release
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(python3 -c "import json;print(json.load(open('eh3d.project.json'))['version'])")
+          arch=$(echo "${{ matrix.label }}" | sed 's/^[a-z]*-//')
+          os=$(echo "${{ matrix.label }}" | sed 's/-.*//')
+          name="eh3d-server-${version}-${os}-${arch}"
+          mkdir -p dist "$name"
+          cp "target/release/eh3d-server${{ matrix.ext }}" "$name/"
+          cp LICENSE README.md CHANGELOG.md server.cfg.example "$name/"
+          cp -r deploy "$name/deploy"
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            7z a -tzip "dist/${name}.zip" "$name" >/dev/null
+            asset="dist/${name}.zip"
+          else
+            tar -czf "dist/${name}.tar.gz" "$name"
+            asset="dist/${name}.tar.gz"
+          fi
+          if command -v sha256sum >/dev/null; then sha256sum "$asset" | sed 's#dist/##' > "${asset}.sha256"; else shasum -a 256 "$asset" | sed 's#dist/##' > "${asset}.sha256"; fi
+      - uses: actions/upload-artifact@v5
+        with:
+          name: eh3d-server-${{ matrix.label }}
+          path: dist/*

@@ -26,6 +26,8 @@ pub struct AppState {
     pub runs: Mutex<HashMap<String, Arc<RealRun>>>,
     /// Every change, as a JSON text, for the clients that listen (the websocket).
     pub events: broadcast::Sender<String>,
+    /// The updates of the installed services, when the settings give the folder for them.
+    pub updates: Option<crate::updates::Updates>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -47,6 +49,9 @@ impl AppState {
         let machines = Machines::open(&cfg.data_dir)?;
         let jobs = JobBook::open(&cfg.data_dir, cfg.keep_jobs)?;
         let (events, _) = broadcast::channel(256);
+        let updates = cfg.updates_dir.clone().map(|d| {
+            crate::updates::Updates::new(d, env!("CARGO_PKG_VERSION"), cfg.studio_dir.clone())
+        });
         Ok(Arc::new(AppState {
             cfg,
             auth: Mutex::new(auth),
@@ -54,6 +59,7 @@ impl AppState {
             jobs: Mutex::new(jobs),
             runs: Mutex::new(HashMap::new()),
             events,
+            updates,
         }))
     }
 

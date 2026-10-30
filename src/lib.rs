@@ -11,3 +11,4 @@ pub mod machines;
 pub mod plan;
 pub mod state;
 pub mod store;
+pub mod updates;

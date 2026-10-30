@@ -159,6 +159,9 @@ pub fn router(state: Shared) -> Router {
         .route("/api/v1/jobs/:id/start", post(start_job))
         .route("/api/v1/jobs/:id/confirm", post(confirm_job))
         .route("/api/v1/jobs/:id/cancel", post(cancel_job))
+        .route("/api/v1/updates", get(updates_view))
+        .route("/api/v1/updates/check", post(updates_check))
+        .route("/api/v1/updates/apply", post(updates_apply))
         .route("/api/v1/events", get(events))
         .layer(DefaultBodyLimit::max(limit))
         .with_state(state);
@@ -259,6 +262,56 @@ async fn change_password(
     })
     .await
     .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))??;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// The updates of the installed services: what is installed, what the last check found and what the helper is doing.
+async fn updates_view(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
+    need(&who, Role::Admin)?;
+    Ok(Json(match &s.updates {
+        Some(u) => u.view(),
+        None => {
+            json!({ "enabled": false, "components": [], "state": "idle", "message": "", "log": [], "pending": false })
+        }
+    }))
+}
+
+fn updates_of(s: &Shared) -> Result<&crate::updates::Updates, ApiError> {
+    s.updates.as_ref().ok_or_else(|| {
+        ApiError::new(
+            StatusCode::NOT_IMPLEMENTED,
+            "updates_off",
+            "the updates are not set up on this server (updates_dir in server.cfg)",
+        )
+    })
+}
+
+fn updates_fail(e: String) -> ApiError {
+    ApiError::new(StatusCode::CONFLICT, "update_refused", e)
+}
+
+async fn updates_check(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
+    need(&who, Role::Admin)?;
+    updates_of(&s)?
+        .request("check", &[])
+        .map_err(updates_fail)?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+struct ApplyBody {
+    components: Vec<String>,
+}
+
+async fn updates_apply(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Json(b): Json<ApplyBody>,
+) -> ApiResult {
+    need(&who, Role::Admin)?;
+    updates_of(&s)?
+        .request("apply", &b.components)
+        .map_err(updates_fail)?;
     Ok(Json(json!({ "ok": true })))
 }
 

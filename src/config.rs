@@ -19,6 +19,8 @@ pub struct ServerConfig {
     /// A folder with the pages of EH3D-STUDIO: when it is set the server serves them at `/` (on the same address, so the pages need no
     /// cross-origin permission). Not set: the server answers only the API.
     pub studio_dir: Option<PathBuf>,
+    /// The folder where the server and the update helper meet (see `updates`). Not set: the updates are not offered.
+    pub updates_dir: Option<PathBuf>,
 }
 
 impl Default for ServerConfig {
@@ -30,6 +32,7 @@ impl Default for ServerConfig {
             max_body_mb: 8,
             keep_jobs: 200,
             studio_dir: None,
+            updates_dir: None,
         }
     }
 }
@@ -75,6 +78,13 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
             "keep_jobs" => c.keep_jobs = number(&key, value, 10, 100_000).map_err(at)? as usize,
             "studio_dir" => {
                 c.studio_dir = if value.is_empty() {
+                    None
+                } else {
+                    Some(PathBuf::from(value))
+                }
+            }
+            "updates_dir" => {
+                c.updates_dir = if value.is_empty() {
                     None
                 } else {
                     Some(PathBuf::from(value))

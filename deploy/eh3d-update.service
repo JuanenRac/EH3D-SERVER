@@ -1,0 +1,11 @@
+[Unit]
+Description=EH3D update helper: updates the installed EH3D services from the releases of GitHub, when the server asks
+Documentation=https://github.com/JuanenRac/EH3D-SERVER
+
+[Service]
+Type=oneshot
+# the shared folder is the updates_dir of server.cfg; the helper runs as root because it replaces /opt/eh3d-* and restarts the server
+ExecStart=/usr/bin/python3 /usr/local/lib/eh3d/eh3d-update.py --dir /var/lib/eh3d-updates
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true

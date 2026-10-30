@@ -984,3 +984,103 @@ async fn the_pages_of_studio_are_served_at_the_root_when_the_folder_is_set() {
     plain.stop_all();
     let _ = std::fs::remove_dir_all(&base);
 }
+
+#[tokio::test]
+async fn the_updates_are_offered_to_an_administrator_when_the_server_has_a_folder_for_them() {
+    // without the folder the server says it does not offer them
+    let off = server("updates-off");
+    let token = admin(&off).await;
+    let (status, body) = call(&off, Method::GET, "/api/v1/updates", Some(&token), None).await;
+    assert_eq!(
+        (status, body["enabled"].clone()),
+        (StatusCode::OK, json!(false))
+    );
+    let (status, body) = call(
+        &off,
+        Method::POST,
+        "/api/v1/updates/check",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].clone()),
+        (StatusCode::NOT_IMPLEMENTED, json!("updates_off"))
+    );
+
+    // with it
+    let dir = std::env::temp_dir().join(format!("eh3d-server-api-updates-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let folder = dir.join("meet");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("components.json"),
+        r#"[{"id":"server","latest":"9.9.9","url":"https://example.org/r"}]"#,
+    )
+    .unwrap();
+    let cfg = ServerConfig {
+        data_dir: dir.join("data"),
+        updates_dir: Some(folder.clone()),
+        ..ServerConfig::default()
+    };
+    let state = AppState::open(cfg).unwrap();
+    let on = Server {
+        app: router(state.clone()),
+        state,
+        dir: dir.clone(),
+    };
+    // nobody gets in without a login
+    let (status, _) = call(&on, Method::GET, "/api/v1/updates", None, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let token = admin(&on).await;
+    let (status, body) = call(&on, Method::GET, "/api/v1/updates", Some(&token), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["enabled"], json!(true));
+    let server_row = &body["components"][0];
+    assert_eq!(
+        (
+            server_row["id"].as_str(),
+            server_row["latest"].as_str(),
+            server_row["newer"].as_bool()
+        ),
+        (Some("server"), Some("9.9.9"), Some(true))
+    );
+    // a check and an update are asked for through the folder; what cannot be updated is refused
+    let (status, _) = call(
+        &on,
+        Method::POST,
+        "/api/v1/updates/apply",
+        Some(&token),
+        Some(json!({"components": ["kernel"]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (status, _) = call(
+        &on,
+        Method::POST,
+        "/api/v1/updates/apply",
+        Some(&token),
+        Some(json!({"components": ["server", "studio"]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let request: Value =
+        serde_json::from_str(&std::fs::read_to_string(folder.join("request.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        (request["action"].clone(), request["components"].clone()),
+        (json!("apply"), json!(["server", "studio"]))
+    );
+    // one request at a time
+    let (status, _) = call(
+        &on,
+        Method::POST,
+        "/api/v1/updates/check",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (_, body) = call(&on, Method::GET, "/api/v1/updates", Some(&token), None).await;
+    assert_eq!(body["pending"], json!(true));
+}

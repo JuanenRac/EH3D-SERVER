@@ -53,3 +53,17 @@ The unit stops the running jobs when the service stops (the server stops the mac
 - The server is for the house or a VPN into it. It does not terminate TLS yet: put a reverse proxy with HTTPS in front before anything outside the network reaches it.
 - The data folder holds the users (Argon2 hashes), the tokens (SHA-256 hashes), the machines with the tokens of their nodes, and the jobs. Back it up and keep it private.
 - A job never starts by itself, and the node stops on its own when its link goes quiet (unless its setting for finishing a held job is on), so a crashed server does not leave a machine moving.
+
+## Updates from GitHub
+
+With `updates_dir` in `server.cfg` the Studio (Updates page, for an administrator) checks the releases of GitHub for newer versions of the server and of the Studio and updates them. The server does not talk to GitHub and does not replace itself: it leaves a request in a shared folder, and a small helper started by systemd does the rest.
+
+```bash
+sudo install -d -o eh3d /var/lib/eh3d-updates                      # the shared folder: updates_dir = /var/lib/eh3d-updates
+sudo install -d /usr/local/lib/eh3d
+sudo install deploy/eh3d-update.py /usr/local/lib/eh3d/
+sudo install deploy/eh3d-update.service deploy/eh3d-update.path /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now eh3d-update.path
+```
+
+The helper runs as root (it replaces `/opt/eh3d-server` and `/opt/eh3d-studio` and restarts the service), takes the file of the release (`eh3d-server-VERSION-linux-ARCH.tar.gz`, `eh3d-studio-VERSION.tar.gz`), checks it against the SHA-256 that the release publishes beside it, refuses an archive with names outside its folder, and keeps the old folder as `.previous` so that a bad update can be put back by hand. `python3 -I tests/test_update_helper.py` tests it without network or systemd.

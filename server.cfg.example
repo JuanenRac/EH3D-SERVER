@@ -12,3 +12,5 @@ max_body_mb = 8
 keep_jobs = 200
 # A folder with the pages of EH3D-STUDIO to serve at / (the configuration panel of this server). Empty: only the API.
 studio_dir =
+# The folder where the server and the update helper (deploy/eh3d-update.py) meet; with it the Studio can check GitHub for newer releases and update. Empty: no updates.
+updates_dir =

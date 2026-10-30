@@ -1,0 +1,9 @@
+[Unit]
+Description=Watches for a request of the EH3D server to check or to update the EH3D services
+
+[Path]
+PathExists=/var/lib/eh3d-updates/request.json
+Unit=eh3d-update.service
+
+[Install]
+WantedBy=multi-user.target
