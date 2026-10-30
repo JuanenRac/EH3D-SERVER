@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.0.1] - First release: the server of the machines, the fleet, the pages of Studio and the updates from GitHub
+
 - **Updates from GitHub:** with `updates_dir` the server offers (`GET /api/v1/updates`, `POST /api/v1/updates/check` and `/apply`, administrator only) the check of the latest releases and the update of the server and of Studio; a small helper started by systemd (`deploy/eh3d-update.py`) does the downloading, checks the SHA-256, replaces the installed folder (keeping the old one) and restarts the service. A workflow builds the packages of the server for Linux (x86_64 and aarch64), Windows and macOS.
 - **The pages of Studio from the server:** the setting `studio_dir` names a folder with the pages of EH3D-STUDIO and the server serves it at `/` on its own address (a page that is not a file is the start page, so a reload works); without it the server answers only the API.
 - **Several machines and stations at once:** a machine has a `station` (the bench, the room or the workshop it belongs to), and `GET /api/v1/fleet` answers for every machine in one request, grouped by station, with what each one is doing (free, busy, waiting for the operator), its job with the progress and the number of jobs ready; the machines run at the same time, one job on each (a test runs jobs on two machines of two stations together).
