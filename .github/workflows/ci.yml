@@ -39,6 +39,10 @@ jobs:
           path: EH3D-SERVER
       - uses: actions/checkout@v5
         with:
+          repository: JuanenRac/EH3D-COMMON
+          path: EH3D-COMMON
+      - uses: actions/checkout@v5
+        with:
           repository: JuanenRac/EH3D-DRILLPRO
           path: EH3D-DRILLPRO
       - uses: actions/checkout@v5
