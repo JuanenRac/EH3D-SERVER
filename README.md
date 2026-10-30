@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.0.1` |
 | Maturity | Scaffolding |
-| Tests | 43 |
+| Tests | 47 |
 | Stack | Rust (axum, tokio) |
 | On real hardware | No: tested against the simulator; nothing has run on a real machine through the server yet |
 
@@ -45,7 +45,7 @@ Each line is one part of this repository and the light says how far it is today.
 | Area | State | What it means here |
 |---|---|---|
 | Software | 🟡 | A Rust server (axum) keeps users, machines and jobs, plans drilling and routing jobs with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview and runs the job with operator dialogs and a stop. |
-| Tests | 🟢 | 43 tests pass (`cargo test`): 29 in the modules and 14 on the interface end to end, with jobs running on the simulator (8 in `tests/api.rs`, 5 with the real programs in `tests/programs.rs`). |
+| Tests | 🟢 | 47 tests pass (`cargo test`): 29 in the modules and 14 on the interface end to end, with jobs running on the simulator (8 in `tests/api.rs`, 5 with the real programs in `tests/programs.rs`). |
 | Interface for clients (API) | 🟡 | The REST requests and the websocket events are written down in `docs/API.md` and covered by the tests; only the programs' own server connection uses them so far. |
 | Clients | 🔴 | The Android app, the Studio and the touch panel next to the machine do not exist yet. |
 | Security | 🟡 | Every request needs a token with one of three roles, passwords are Argon2 hashes and wrong passwords are slowed down; the server does not terminate TLS (put HTTPS in front) and has had no independent review. |
@@ -87,6 +87,7 @@ How the parts of this repository fit together: who uses it, what it holds and wh
 * **Calibration in one place:** the configuration files and the tuned values of each machine are kept on the server, so every client plans with the same numbers.
 * **A job that was running when the server stopped is marked failed:** nobody knows where the machine was, so nothing resumes by itself.
 * **Safe files:** users, tokens, machines and jobs are JSON files written through a temporary file; a damaged file is an error, never a silent restart from nothing.
+* **Updates from GitHub:** with `updates_dir` the server offers, to an administrator, the check of the latest releases of itself and of EH3D-STUDIO and their update (`/api/v1/updates`); a small helper started by systemd (`deploy/eh3d-update.py`) does the downloading, checks the SHA-256 of each file, refuses an archive with names outside its folder, replaces the installed folder (the old one is kept as `.previous`) and restarts the service. It has been tested with GitHub and systemd replaced by stand-ins, never on a real installation.
 
 ## 🔒 Security & Safety
 
@@ -110,7 +111,7 @@ How the parts of this repository fit together: who uses it, what it holds and wh
 
 | Interface | What it is | Where |
 |---|---|---|
-| REST | `/api/v1/`: `health`, `setup`, `login`, `logout`, `session`, `account`, `users`, `tokens`, `fleet`, `fleet`, `machines` (with `preview` and `jobs`), `jobs` (with `start`, `confirm`, `cancel`); JSON in and out, errors as `{"error","detail"}` | [docs/API.md](docs/API.md), `src/api.rs` |
+| REST | `/api/v1/`: `health`, `setup`, `login`, `logout`, `session`, `account`, `users`, `tokens`, `updates`, `fleet`, `fleet`, `machines` (with `preview` and `jobs`), `jobs` (with `start`, `confirm`, `cancel`); JSON in and out, errors as `{"error","detail"}` | [docs/API.md](docs/API.md), `src/api.rs` |
 | Websocket | `GET /api/v1/events?token=...`: a `hello` with the summaries of the jobs, then `job` and `job_removed` for every change | [docs/API.md](docs/API.md) |
 | To the machine | a machine's `connection` is `node` (an EH3D-NODE-BUNGARD at an address with its token) or `demo` (the simulator) | [docs/API.md](docs/API.md), `src/machines.rs` |
 | Command line | `eh3d-server [--config FILE]`; `--help` lists it | `src/main.rs` |
@@ -146,7 +147,7 @@ Run it with `run.bat` (Windows) or `./run.sh` (Linux); it builds first if needed
 
 ## 🧪 Testing
 
-The suite has 43 tests (`cargo test`, run on Windows and Linux in the CI with COMMON, DRILLPRO and ROUTEPRO checked out next to the server): 29 in the modules (settings and their ranges, users, roles, tokens, the slowdown on wrong passwords, the files and the job book, planning), 8 on the interface end to end through the real router (`tests/api.rs`), and 5 with the real programs sending their jobs to a real server on a real port, with the machine on the simulator (`tests/programs.rs`). The CI also runs `cargo fmt --all --check`, `cargo clippy` with warnings as errors and `python -I tools/ci_validate.py`. Nothing here has been tested against a real node or machine.
+The suite has 47 tests (`cargo test`, run on Windows and Linux in the CI with COMMON, DRILLPRO and ROUTEPRO checked out next to the server): 29 in the modules (settings and their ranges, users, roles, tokens, the slowdown on wrong passwords, the files and the job book, planning), 8 on the interface end to end through the real router (`tests/api.rs`), and 5 with the real programs sending their jobs to a real server on a real port, with the machine on the simulator (`tests/programs.rs`). The CI also runs `cargo fmt --all --check`, `cargo clippy` with warnings as errors and `python -I tools/ci_validate.py`. Nothing here has been tested against a real node or machine. The helper that does the updates has 10 more tests of its own (`python -I tests/test_update_helper.py`, with GitHub and systemd replaced by stand-ins).
 
 ## 🏗️ Build & Release
 
@@ -169,7 +170,8 @@ EH3D-SERVER/
 │   ├── plan.rs                                  from the request to the items the machine runs
 │   ├── jobs.rs state.rs                         the jobs and what the server is made of while it runs
 │   ├── machines.rs store.rs                     the machines, and the files written through a temporary file
-│   └── config.rs lib.rs main.rs                 the settings file, the library root and the program
+│   ├── config.rs lib.rs main.rs                 the settings file, the library root and the program
+│   └── updates.rs                               the updates of the services
 ├── tests/                                       the interface end to end on the simulator, and the real programs against a real server
 ├── docs/                                        the API, the guide to running the server and the data of the two pictures
 ├── deploy/                                      the systemd unit of the service

@@ -88,6 +88,18 @@ The **view** is what a client draws and follows:
 
 States: `ready` → `connecting` → `running` ⇄ `waiting_operator` → `done`, `cancelled` or `failed` (`message` says why). A job that was running when the server stopped is marked `failed`: nobody knows where the machine was. While it waits, `pause` is `{"kind":"tool_change","tool":2}` (put the tool in and confirm) or `{"kind":"spindle_start"}` (confirm the spindle start). A job has `items_done` of `items_total` and `holes_done` of `holes_total` (a routing job counts paths).
 
+## Updates
+
+For an administrator, when `updates_dir` is set in `server.cfg` (see `docs/DEPLOY.md`). The server does not talk to GitHub: it leaves a request in the folder and the helper `deploy/eh3d-update.py` does the rest.
+
+| Request | What it does |
+|---|---|
+| `GET /api/v1/updates` | `{ "enabled", "pending", "state", "message", "log", "components": [{ "id", "name", "installed", "latest", "newer", "url", "published" }] }`; `state` is `idle`, `checking`, `updating`, `done` or `error`. Without `updates_dir`: `{ "enabled": false, ... }`. |
+| `POST /api/v1/updates/check` | Asks the helper to look at the latest releases on GitHub. 501 `updates_off` without `updates_dir`; 409 `update_refused` when a request waits or the helper is working. |
+| `POST /api/v1/updates/apply` | Body `{ "components": ["server", "studio"] }`: asks the helper to update those components (the ones that are not newer are not touched by the Studio, which sends only the newer). 409 for a component that cannot be updated or for a request that is already waiting. |
+
+The components are `server` (EH3D-SERVER, installed as `/opt/eh3d-server`) and `studio` (EH3D-STUDIO, the folder of its pages). The helper checks the SHA-256 of each file against the one the release publishes, and keeps the old folder as `.previous`.
+
 ## What happens, as it happens
 
 `GET /events?token=<token>` upgrades to a websocket (a browser cannot set headers on one, so the token goes in the address). The first text is `{"type":"hello","jobs":[...]}` with the summaries of the jobs; after it every change arrives as `{"type":"job","job":{...}}`, `{"type":"job_removed","id":"..."}` or `{"type":"machine","id":"..."}`.

@@ -30,7 +30,7 @@
 |---|---|
 | Versão | `0.0.1` |
 | Maturidade | Estrutura inicial |
-| Testes | 43 |
+| Testes | 47 |
 | Tecnologias | Rust (axum, tokio) |
 | Em hardware real | Não: testado contra o simulador; ainda nada correu numa máquina real através do servidor |
 
@@ -45,7 +45,7 @@ Cada linha é uma parte deste repositório e a luz diz até onde chega hoje. É 
 | Área | Estado | O que significa aqui |
 |---|---|---|
 | Software | 🟡 | Um servidor em Rust (axum) guarda utilizadores, máquinas e trabalhos, planeia trabalhos de furação e fresagem com as bibliotecas do EH3D-DRILLPRO e do EH3D-ROUTEPRO, mostra uma pré-visualização e executa o trabalho com diálogos de operador e uma paragem. |
-| Testes | 🟢 | Passam 43 testes (`cargo test`): 29 nos módulos e 14 sobre a interface de ponta a ponta, com trabalhos no simulador (8 em `tests/api.rs`, 4 com os programas reais em `tests/programs.rs`). |
+| Testes | 🟢 | Passam 47 testes (`cargo test`): 29 nos módulos e 14 sobre a interface de ponta a ponta, com trabalhos no simulador (8 em `tests/api.rs`, 4 com os programas reais em `tests/programs.rs`). |
 | Interface para clientes (API) | 🟡 | Os pedidos REST e os eventos websocket estão descritos em `docs/API.md` e cobertos pelos testes; até agora só a ligação ao servidor dos próprios programas os usa. |
 | Clientes | 🔴 | A app Android, o Studio e o painel tátil junto à máquina ainda não existem. |
 | Segurança | 🟡 | Cada pedido precisa de um token com um de três papéis, as palavras-passe são hashes Argon2 e as palavras-passe erradas são abrandadas; o servidor não termina TLS (ponha HTTPS à frente) e não teve revisão independente. |
@@ -87,6 +87,7 @@ Como as partes deste repositório se encaixam: quem o usa, o que contém e de qu
 * **Calibração num só sítio:** os ficheiros de configuração e os valores afinados de cada máquina ficam no servidor, por isso todos os clientes planeiam com os mesmos números.
 * **Um trabalho que corria quando o servidor parou é marcado como falhado:** ninguém sabe onde estava a máquina, por isso nada retoma sozinho.
 * **Ficheiros seguros:** utilizadores, tokens, máquinas e trabalhos são ficheiros JSON escritos através de um temporário; um ficheiro danificado é um erro, nunca um reinício silencioso do zero.
+* **Atualizações a partir do GitHub:** com `updates_dir` o servidor oferece a um administrador a verificação das últimas versões de si próprio e do EH3D-STUDIO e a sua atualização (`/api/v1/updates`); um pequeno ajudante lançado pelo systemd (`deploy/eh3d-update.py`) descarrega, verifica o SHA-256 de cada ficheiro, recusa um arquivo com nomes fora da sua pasta, substitui a pasta instalada (a anterior fica como `.previous`) e reinicia o serviço. Foi testado com o GitHub e o systemd substituídos por simulações, nunca numa instalação real.
 
 ## 🔒 Segurança e proteção
 
@@ -110,7 +111,7 @@ Como as partes deste repositório se encaixam: quem o usa, o que contém e de qu
 
 | Interface | O que é | Onde |
 |---|---|---|
-| REST | `/api/v1/`: `health`, `setup`, `login`, `logout`, `session`, `account`, `users`, `tokens`, `machines` (com `preview` e `jobs`), `jobs` (com `start`, `confirm`, `cancel`); JSON à entrada e à saída, erros como `{"error","detail"}` | [docs/API.md](docs/API.md), `src/api.rs` |
+| REST | `/api/v1/`: `health`, `setup`, `login`, `logout`, `session`, `account`, `users`, `tokens`, `updates`, `machines` (com `preview` e `jobs`), `jobs` (com `start`, `confirm`, `cancel`); JSON à entrada e à saída, erros como `{"error","detail"}` | [docs/API.md](docs/API.md), `src/api.rs` |
 | Websocket | `GET /api/v1/events?token=...`: um `hello` com os resumos dos trabalhos, depois `job` e `job_removed` a cada alteração | [docs/API.md](docs/API.md) |
 | Para a máquina | a `connection` de uma máquina é `node` (um EH3D-NODE-BUNGARD num endereço com o seu token) ou `demo` (o simulador) | [docs/API.md](docs/API.md), `src/machines.rs` |
 | Linha de comandos | `eh3d-server [--config FICHEIRO]`; `--help` lista-a | `src/main.rs` |
@@ -146,7 +147,7 @@ Execute-o com `run.bat` (Windows) ou `./run.sh` (Linux); compila primeiro se for
 
 ## 🧪 Testes
 
-A suite tem 43 testes (`cargo test`, executados em Windows e Linux na CI com o COMMON, DRILLPRO e o ROUTEPRO descarregados junto ao servidor): 29 nos módulos (definições e as suas gamas, utilizadores, papéis, tokens, o abrandamento perante palavras-passe erradas, os ficheiros e o livro de trabalhos, o planeamento), 8 sobre a interface de ponta a ponta através do router real (`tests/api.rs`) e 5 com os programas reais a enviar os seus trabalhos a um servidor real numa porta real, com a máquina no simulador (`tests/programs.rs`). A CI executa também `cargo fmt --all --check`, `cargo clippy` com avisos como erros e `python -I tools/ci_validate.py`. Nada disto foi testado contra um nó ou uma máquina reais.
+A suite tem 47 testes (`cargo test`, executados em Windows e Linux na CI com o COMMON, DRILLPRO e o ROUTEPRO descarregados junto ao servidor): 29 nos módulos (definições e as suas gamas, utilizadores, papéis, tokens, o abrandamento perante palavras-passe erradas, os ficheiros e o livro de trabalhos, o planeamento), 8 sobre a interface de ponta a ponta através do router real (`tests/api.rs`) e 5 com os programas reais a enviar os seus trabalhos a um servidor real numa porta real, com a máquina no simulador (`tests/programs.rs`). A CI executa também `cargo fmt --all --check`, `cargo clippy` com avisos como erros e `python -I tools/ci_validate.py`. Nada disto foi testado contra um nó ou uma máquina reais. O ajudante que faz as atualizações tem mais 10 testes próprios (`python -I tests/test_update_helper.py`, com o GitHub e o systemd substituídos por simulações).
 
 ## 🏗️ Compilação e publicação
 
@@ -169,7 +170,8 @@ EH3D-SERVER/
 │   ├── plan.rs                                  do pedido aos elementos que a máquina executa
 │   ├── jobs.rs state.rs                         os trabalhos e aquilo de que o servidor é feito enquanto corre
 │   ├── machines.rs store.rs                     as máquinas e os ficheiros escritos através de um temporário
-│   └── config.rs lib.rs main.rs                 o ficheiro de definições, a raiz da biblioteca e o programa
+│   ├── config.rs lib.rs main.rs                 o ficheiro de definições, a raiz da biblioteca e o programa
+│   └── updates.rs                               as atualizações dos serviços
 ├── tests/                                       a interface de ponta a ponta no simulador e os programas reais contra um servidor real
 ├── docs/                                        a API, o guia para executar o servidor e os dados das duas imagens
 ├── deploy/                                      a unidade systemd do serviço

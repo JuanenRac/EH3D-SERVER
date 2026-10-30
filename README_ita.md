@@ -30,7 +30,7 @@
 |---|---|
 | Versione | `0.0.1` |
 | Maturità | Impalcatura |
-| Test | 43 |
+| Test | 47 |
 | Stack tecnologico | Rust (axum, tokio) |
 | Su hardware reale | No: provato contro il simulatore; finora nulla è stato eseguito su una macchina reale tramite il server |
 
@@ -45,7 +45,7 @@ Ogni riga è una parte di questo repository e il semaforo dice a che punto è og
 | Area | Stato | Cosa significa qui |
 |---|---|---|
 | Software | 🟡 | Un server Rust (axum) tiene utenti, macchine e lavori, pianifica lavori di foratura e fresatura con le librerie di EH3D-DRILLPRO ed EH3D-ROUTEPRO, mostra un'anteprima ed esegue il lavoro con dialoghi dell'operatore e uno stop. |
-| Test | 🟢 | Passano 43 test (`cargo test`): 29 nei moduli e 14 sull'interfaccia end to end, con lavori sul simulatore (8 in `tests/api.rs`, 4 con i programmi reali in `tests/programs.rs`). |
+| Test | 🟢 | Passano 47 test (`cargo test`): 29 nei moduli e 14 sull'interfaccia end to end, con lavori sul simulatore (8 in `tests/api.rs`, 4 con i programmi reali in `tests/programs.rs`). |
 | Interfaccia per i client (API) | 🟡 | Le richieste REST e gli eventi websocket sono descritti in `docs/API.md` e coperti dai test; finora li usa solo la connessione al server dei programmi stessi. |
 | Client | 🔴 | L'app Android, lo Studio e il pannello touch accanto alla macchina non esistono ancora. |
 | Sicurezza | 🟡 | Ogni richiesta richiede un token con uno di tre ruoli, le password sono hash Argon2 e le password sbagliate vengono rallentate; il server non termina il TLS (metti HTTPS davanti) e non ha avuto una revisione indipendente. |
@@ -87,6 +87,7 @@ Come si incastrano le parti di questo repository: chi lo usa, che cosa contiene 
 * **Calibrazione in un solo posto:** i file di configurazione e i valori tarati di ogni macchina sono tenuti sul server, quindi tutti i client pianificano con gli stessi numeri.
 * **Un lavoro in corso quando il server si è fermato è segnato come fallito:** nessuno sa dov'era la macchina, quindi nulla riprende da solo.
 * **File sicuri:** utenti, token, macchine e lavori sono file JSON scritti tramite uno temporaneo; un file danneggiato è un errore, mai un riavvio silenzioso da zero.
+* **Aggiornamenti da GitHub:** con `updates_dir` il server offre a un amministratore il controllo delle ultime release di sé stesso e di EH3D-STUDIO e il loro aggiornamento (`/api/v1/updates`); un piccolo helper avviato da systemd (`deploy/eh3d-update.py`) scarica, verifica lo SHA-256 di ogni file, rifiuta un archivio con nomi fuori dalla sua cartella, sostituisce la cartella installata (la precedente resta come `.previous`) e riavvia il servizio. È stato provato con GitHub e systemd sostituiti da simulazioni, mai su un'installazione reale.
 
 ## 🔒 Sicurezza e protezione
 
@@ -110,7 +111,7 @@ Come si incastrano le parti di questo repository: chi lo usa, che cosa contiene 
 
 | Interfaccia | Che cos'è | Dove |
 |---|---|---|
-| REST | `/api/v1/`: `health`, `setup`, `login`, `logout`, `session`, `account`, `users`, `tokens`, `machines` (con `preview` e `jobs`), `jobs` (con `start`, `confirm`, `cancel`); JSON in entrata e in uscita, errori come `{"error","detail"}` | [docs/API.md](docs/API.md), `src/api.rs` |
+| REST | `/api/v1/`: `health`, `setup`, `login`, `logout`, `session`, `account`, `users`, `tokens`, `updates`, `machines` (con `preview` e `jobs`), `jobs` (con `start`, `confirm`, `cancel`); JSON in entrata e in uscita, errori come `{"error","detail"}` | [docs/API.md](docs/API.md), `src/api.rs` |
 | Websocket | `GET /api/v1/events?token=...`: un `hello` con i riepiloghi dei lavori, poi `job` e `job_removed` a ogni cambiamento | [docs/API.md](docs/API.md) |
 | Verso la macchina | la `connection` di una macchina è `node` (un EH3D-NODE-BUNGARD a un indirizzo con il suo token) o `demo` (il simulatore) | [docs/API.md](docs/API.md), `src/machines.rs` |
 | Riga di comando | `eh3d-server [--config FILE]`; `--help` la elenca | `src/main.rs` |
@@ -146,7 +147,7 @@ Avvialo con `run.bat` (Windows) o `./run.sh` (Linux); compila prima se serve. Fi
 
 ## 🧪 Test
 
-La suite ha 43 test (`cargo test`, eseguiti su Windows e Linux nella CI con COMMON, DRILLPRO e ROUTEPRO scaricati accanto al server): 29 nei moduli (impostazioni e loro intervalli, utenti, ruoli, token, il rallentamento sulle password sbagliate, i file e il registro dei lavori, la pianificazione), 8 sull'interfaccia end to end attraverso il vero router (`tests/api.rs`) e 5 con i programmi reali che inviano i loro lavori a un vero server su una vera porta, con la macchina sul simulatore (`tests/programs.rs`). La CI esegue anche `cargo fmt --all --check`, `cargo clippy` con gli avvisi come errori e `python -I tools/ci_validate.py`. Nulla di questo è stato provato contro un nodo o una macchina reali.
+La suite ha 47 test (`cargo test`, eseguiti su Windows e Linux nella CI con COMMON, DRILLPRO e ROUTEPRO scaricati accanto al server): 29 nei moduli (impostazioni e loro intervalli, utenti, ruoli, token, il rallentamento sulle password sbagliate, i file e il registro dei lavori, la pianificazione), 8 sull'interfaccia end to end attraverso il vero router (`tests/api.rs`) e 5 con i programmi reali che inviano i loro lavori a un vero server su una vera porta, con la macchina sul simulatore (`tests/programs.rs`). La CI esegue anche `cargo fmt --all --check`, `cargo clippy` con gli avvisi come errori e `python -I tools/ci_validate.py`. Nulla di questo è stato provato contro un nodo o una macchina reali. L'helper che fa gli aggiornamenti ha altri 10 test propri (`python -I tests/test_update_helper.py`, con GitHub e systemd sostituiti da simulazioni).
 
 ## 🏗️ Compilazione e rilascio
 
@@ -169,7 +170,8 @@ EH3D-SERVER/
 │   ├── plan.rs                                  dalla richiesta agli elementi che la macchina esegue
 │   ├── jobs.rs state.rs                         i lavori e di cosa è fatto il server mentre gira
 │   ├── machines.rs store.rs                     le macchine e i file scritti tramite uno temporaneo
-│   └── config.rs lib.rs main.rs                 il file delle impostazioni, la radice della libreria e il programma
+│   ├── config.rs lib.rs main.rs                 il file delle impostazioni, la radice della libreria e il programma
+│   └── updates.rs                               gli aggiornamenti dei servizi
 ├── tests/                                       l'interfaccia end to end sul simulatore e i programmi reali contro un vero server
 ├── docs/                                        l'API, la guida per eseguire il server e i dati delle due immagini
 ├── deploy/                                      l'unità systemd del servizio

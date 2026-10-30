@@ -102,6 +102,19 @@
           },
           "name": "config.rs  lib.rs  main.rs",
           "tree_name": "config.rs lib.rs main.rs"
+        },
+        {
+          "desc": {
+            "en": "the updates of the services",
+            "es": "las actualizaciones de los servicios",
+            "it": "gli aggiornamenti dei servizi",
+            "de": "die Aktualisierungen der Dienste",
+            "fr": "les mises à jour des services",
+            "pt": "as atualizações dos serviços",
+            "zh": "服务的更新",
+            "ja": "サービスの更新"
+          },
+          "name": "updates.rs"
         }
       ],
       "sub": {
@@ -145,6 +158,19 @@
             "pt": "DRILLPRO e ROUTEPRO a enviar trabalhos a um servidor real"
           },
           "name": "programs.rs"
+        },
+        {
+          "desc": {
+            "en": "the update helper with stand-ins",
+            "es": "el ayudante de actualización con simulaciones",
+            "it": "l'helper di aggiornamento con simulazioni",
+            "de": "der Aktualisierungshelfer mit Attrappen",
+            "fr": "l'assistant de mise à jour avec des doublures",
+            "pt": "o ajudante de atualização com simulações",
+            "zh": "更新辅助程序（替身）",
+            "ja": "更新ヘルパー（代役）"
+          },
+          "name": "test_update_helper.py"
         }
       ],
       "tree": {
