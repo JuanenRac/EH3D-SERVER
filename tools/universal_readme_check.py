@@ -484,7 +484,7 @@ def strict_requested(default: bool = False) -> bool:
 
 
 # Whether the check fails (True) or only warns (False) in the CI of each family. A family changes to True, in this one line, when all of its repositories follow the layout.
-FAMILY_STRICT = {"ARMOR": False, "URTC": False, "HYDRA": False, "EH3D": False}
+FAMILY_STRICT = {"ARMOR": True, "URTC": True, "HYDRA": True, "EH3D": True}
 
 
 def family_of(root: Path) -> str:
