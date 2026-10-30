@@ -29,6 +29,8 @@ eh3d-drillpro = { path = "../EH3D-DRILLPRO" }
 eh3d-routepro = { path = "../EH3D-ROUTEPRO" }
 
 [dev-dependencies]
+# the test of the programs reads the fleet the way a program does
+eh3d-fleet = { path = "../EH3D-COMMON/crates/fleet" }
 tower = { version = "0.4", features = ["util"] }
 http-body-util = "0.1"
 

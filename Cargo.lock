@@ -266,6 +266,7 @@ dependencies = [
  "eh3d-archive",
  "eh3d-bungard-formats",
  "eh3d-drillpro-protocol",
+ "eh3d-fleet",
  "serde_json",
 ]
 
@@ -274,6 +275,13 @@ name = "eh3d-drillpro-protocol"
 version = "0.0.1"
 dependencies = [
  "serialport",
+]
+
+[[package]]
+name = "eh3d-fleet"
+version = "0.0.1"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -300,6 +308,7 @@ dependencies = [
  "argon2",
  "axum",
  "eh3d-drillpro",
+ "eh3d-fleet",
  "eh3d-routepro",
  "hex",
  "http-body-util",

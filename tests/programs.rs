@@ -275,3 +275,27 @@ async fn the_program_can_stop_a_job_on_the_server_and_closing_the_program_does_n
         last.state
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_program_reads_the_fleet_of_the_real_server() {
+    let server = start_server("fleet").await;
+    let token = prepare(&server).await;
+    let address = server.address.clone();
+    let fleet = tokio::task::spawn_blocking(move || {
+        Client {
+            address,
+            token,
+            machine: String::new(),
+        }
+        .fleet()
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(fleet.machines.len(), 1);
+    let m = fleet.find("bungard").unwrap();
+    assert_eq!(m.state, eh3d_fleet::MachineState::Idle);
+    assert_eq!(m.connection, "demo");
+    assert_eq!(fleet.summary().idle, 1);
+    assert_eq!(fleet.pick_free("").unwrap().id, "bungard");
+}
