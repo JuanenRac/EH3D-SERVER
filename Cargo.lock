@@ -261,12 +261,13 @@ version = "0.0.1"
 
 [[package]]
 name = "eh3d-drillpro"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "eh3d-archive",
  "eh3d-bungard-formats",
  "eh3d-drillpro-protocol",
  "eh3d-fleet",
+ "eh3d-levelling",
  "serde_json",
 ]
 
@@ -285,11 +286,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "eh3d-levelling"
+version = "0.0.1"
+
+[[package]]
 name = "eh3d-routepro"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "eh3d-bungard-formats",
  "eh3d-drillpro",
+ "eh3d-levelling",
  "eh3d-routepro-protocol",
  "serde_json",
 ]
