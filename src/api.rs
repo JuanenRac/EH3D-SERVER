@@ -152,6 +152,7 @@ pub fn router(state: Shared) -> Router {
         )
         .route("/api/v1/machines/:id/preview", post(preview))
         .route("/api/v1/machines/:id/jobs", post(create_job))
+        .route("/api/v1/fleet", get(fleet))
         .route("/api/v1/jobs", get(list_jobs))
         .route("/api/v1/jobs/:id", get(get_job).delete(delete_job))
         .route("/api/v1/jobs/:id/start", post(start_job))
@@ -380,6 +381,66 @@ async fn list_machines(State(s): State<Shared>, Authed(who, _): Authed) -> ApiRe
         .map(MachineRecord::public)
         .collect();
     Ok(Json(Value::Array(list)))
+}
+
+/// Every machine with what it is doing, grouped by station: the one view a central screen needs to follow all of them at once.
+async fn fleet(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
+    need(&who, Role::Viewer)?;
+    let machines = s.machines.lock().expect("machines lock");
+    let jobs = s.jobs.lock().expect("jobs lock");
+    let mut list = Vec::new();
+    let mut stations: Vec<(String, Vec<String>)> = Vec::new();
+    let (mut idle, mut busy, mut waiting) = (0usize, 0usize, 0usize);
+    for m in machines.list() {
+        let public = m.public();
+        let mine = jobs.list().iter().filter(|j| j.machine == m.id);
+        let active = mine.clone().find(|j| j.state.active());
+        let ready = mine
+            .clone()
+            .filter(|j| j.state == crate::jobs::JobState::Ready)
+            .count();
+        let state = match active.map(|j| j.state) {
+            Some(crate::jobs::JobState::WaitingOperator) => {
+                waiting += 1;
+                "waiting"
+            }
+            Some(_) => {
+                busy += 1;
+                "busy"
+            }
+            None => {
+                idle += 1;
+                "idle"
+            }
+        };
+        let job = active.map(|j| {
+            let percent = (j.items_done * 100)
+                .checked_div(j.items_total)
+                .map_or(0, |p| p.min(100));
+            json!({
+                "id": j.id, "name": j.name, "kind": j.kind, "state": j.state, "by": j.by,
+                "items_done": j.items_done, "items_total": j.items_total,
+                "holes_done": j.holes_done, "holes_total": j.holes_total,
+                "percent": percent, "pause": j.pause, "estimate_s": j.view.estimate_s,
+            })
+        });
+        match stations.iter_mut().find(|(id, _)| *id == m.station) {
+            Some((_, ids)) => ids.push(m.id.clone()),
+            None => stations.push((m.station.clone(), vec![m.id.clone()])),
+        }
+        list.push(json!({
+            "id": m.id, "name": m.name, "model": m.model, "station": m.station,
+            "connection": public["connection"]["kind"], "state": state, "job": job, "ready": ready,
+        }));
+    }
+    // the machines of a named station first, those without one at the end
+    stations.sort_by(|a, b| a.0.is_empty().cmp(&b.0.is_empty()).then(a.0.cmp(&b.0)));
+    let station_count = stations.iter().filter(|(id, _)| !id.is_empty()).count();
+    Ok(Json(json!({
+        "stations": stations.into_iter().map(|(id, ids)| json!({"id": id, "machines": ids})).collect::<Vec<_>>(),
+        "machines": list,
+        "summary": {"machines": idle + busy + waiting, "idle": idle, "busy": busy, "waiting": waiting, "stations": station_count},
+    })))
 }
 
 async fn add_machine(

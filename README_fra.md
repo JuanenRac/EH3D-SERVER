@@ -18,7 +18,7 @@
 
 ---
 
-**Vérification d'honnêteté - ce qui tourne aujourd'hui :** un serveur Rust (axum) avec une interface REST et websocket qui garde utilisateurs, machines et travaux, planifie un travail de perçage ou de défonçage (trous et parcours, ou un fichier Excellon ou HP-GL avec sa table d'outils) avec les bibliothèques d'EH3D-DRILLPRO et d'EH3D-ROUTEPRO, montre un aperçu et l'exécute sur une machine par son EH3D-NODE-BUNGARD ou sur un simulateur, avec les dialogues de l'opérateur, un arrêt et chaque changement annoncé au fur et à mesure. 39 tests tournent sur un ordinateur, les travaux contre le simulateur. **Rien n'a encore tourné sur une vraie machine par son intermédiaire**, il ne termine pas le TLS, et les clients qui l'utiliseront en plus des programmes (l'application Android, le Studio, le panneau à côté de la machine) n'existent pas encore.
+**Vérification d'honnêteté - ce qui tourne aujourd'hui :** un serveur Rust (axum) avec une interface REST et websocket qui garde utilisateurs, machines et travaux, planifie un travail de perçage ou de défonçage (trous et parcours, ou un fichier Excellon ou HP-GL avec sa table d'outils) avec les bibliothèques d'EH3D-DRILLPRO et d'EH3D-ROUTEPRO, montre un aperçu et l'exécute sur une machine par son EH3D-NODE-BUNGARD ou sur un simulateur, avec les dialogues de l'opérateur, un arrêt et chaque changement annoncé au fur et à mesure. 40 tests tournent sur un ordinateur, les travaux contre le simulateur. **Rien n'a encore tourné sur une vraie machine par son intermédiaire**, il ne termine pas le TLS, et les clients qui l'utiliseront en plus des programmes (l'application Android, le Studio, le panneau à côté de la machine) n'existent pas encore.
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.0.1` |
 | Maturité | Échafaudage |
-| Tests | 39 |
+| Tests | 40 |
 | Pile technique | Rust (axum, tokio) |
 | Sur du matériel réel | Non : testé contre le simulateur ; rien n'a encore tourné sur une vraie machine par le serveur |
 
@@ -45,7 +45,7 @@ Chaque ligne est une partie de ce dépôt et le feu dit où elle en est aujourd'
 | Domaine | État | Ce que cela veut dire ici |
 |---|---|---|
 | Logiciel | 🟡 | Un serveur Rust (axum) garde utilisateurs, machines et travaux, planifie des travaux de perçage et de défonçage avec les bibliothèques d'EH3D-DRILLPRO et d'EH3D-ROUTEPRO, montre un aperçu et exécute le travail avec des dialogues d'opérateur et un arrêt. |
-| Tests | 🟢 | 39 tests réussissent (`cargo test`) : 28 dans les modules et 11 sur l'interface de bout en bout, avec des travaux sur le simulateur (7 dans `tests/api.rs`, 4 avec les vrais programmes dans `tests/programs.rs`). |
+| Tests | 🟢 | 40 tests réussissent (`cargo test`) : 28 dans les modules et 12 sur l'interface de bout en bout, avec des travaux sur le simulateur (8 dans `tests/api.rs`, 4 avec les vrais programmes dans `tests/programs.rs`). |
 | Interface pour les clients (API) | 🟡 | Les requêtes REST et les événements websocket sont décrits dans `docs/API.md` et couverts par les tests ; seule la connexion au serveur des programmes eux-mêmes les utilise pour l'instant. |
 | Clients | 🔴 | L'application Android, le Studio et le panneau tactile à côté de la machine n'existent pas encore. |
 | Sécurité | 🟡 | Chaque requête exige un jeton avec l'un de trois rôles, les mots de passe sont des hachages Argon2 et les mauvais mots de passe sont ralentis ; le serveur ne termine pas le TLS (mets du HTTPS devant) et n'a pas eu de revue indépendante. |
@@ -60,6 +60,7 @@ Chaque ligne est une partie de ce dépôt et le feu dit où elle en est aujourd'
 * L'**aperçu** : le travail dans l'ordre où la machine le fait, les outils avec leur nombre, la boîte englobante, une estimation du temps et l'élément auquel chaque trou est terminé - ce dont un écran a besoin pour dessiner la carte et suivre le travail.
 * L'**exécution** : un travail est prêt jusqu'à ce qu'une personne le démarre ; il tourne sur la bibliothèque des programmes (la poignée de main, l'armement, la référence, les trous, l'arrêt), attend aux dialogues de l'opérateur (changer l'outil, confirmer la broche) jusqu'à ce que quelqu'un confirme, et peut être arrêté ; la machine s'arrête drivers coupés.
 * Les **machines** : pour chacune, comment l'atteindre (un EH3D-NODE-BUNGARD par le réseau, ou le simulateur), le texte de ses fichiers de configuration et les valeurs réglées dessus, de sorte que l'étalonnage d'une machine vit à un seul endroit pour tous les clients.
+* La **flotte et les stations** : chaque machine appartient à une station (l'établi, la salle, l'atelier) et `GET /api/v1/fleet` répond pour toutes à la fois, groupées par station, avec ce que fait chacune (libre, occupée, en attente de l'opérateur), son travail avec la progression et le nombre de travaux prêts ; les machines travaillent en même temps, un travail sur chacune.
 * Les **personnes et les programmes** : des utilisateurs avec trois rôles, des jetons pour les programmes montrés une seule fois, un ralentissement sur mauvais mot de passe et un code de mise en service sur la console pour le premier administrateur.
 * Les **événements** : un websocket qui envoie chaque changement d'un travail au fur et à mesure.
 * Le **service** : un binaire et un petit fichier de réglages texte, sur le port 18200 par défaut (pas celui d'ARMOR ni d'HYDRA-UMC), avec une unité systemd pour la CM5.
@@ -145,7 +146,7 @@ Lance-le avec `run.bat` (Windows) ou `./run.sh` (Linux) ; il compile d'abord si 
 
 ## 🧪 Tests
 
-La suite compte 39 tests (`cargo test`, exécutés sous Windows et Linux dans la CI avec DRILLPRO et ROUTEPRO récupérés à côté du serveur) : 28 dans les modules (réglages et leurs plages, utilisateurs, rôles, jetons, le ralentissement sur mauvais mot de passe, les fichiers et le registre des travaux, la planification), 7 sur l'interface de bout en bout par le vrai routeur (`tests/api.rs`) et 4 avec les vrais programmes envoyant leurs travaux à un vrai serveur sur un vrai port, la machine étant sur le simulateur (`tests/programs.rs`). La CI exécute aussi `cargo fmt --all --check`, `cargo clippy` avec les avertissements en erreurs et `python -I tools/ci_validate.py`. Rien de tout cela n'a été testé contre un vrai nœud ou une vraie machine.
+La suite compte 40 tests (`cargo test`, exécutés sous Windows et Linux dans la CI avec COMMON, DRILLPRO et ROUTEPRO récupérés à côté du serveur) : 28 dans les modules (réglages et leurs plages, utilisateurs, rôles, jetons, le ralentissement sur mauvais mot de passe, les fichiers et le registre des travaux, la planification), 8 sur l'interface de bout en bout par le vrai routeur (`tests/api.rs`) et 4 avec les vrais programmes envoyant leurs travaux à un vrai serveur sur un vrai port, la machine étant sur le simulateur (`tests/programs.rs`). La CI exécute aussi `cargo fmt --all --check`, `cargo clippy` avec les avertissements en erreurs et `python -I tools/ci_validate.py`. Rien de tout cela n'a été testé contre un vrai nœud ou une vraie machine.
 
 ## 🏗️ Compilation et publication
 

@@ -819,3 +819,110 @@ async fn machines_keep_their_node_token_secret_and_survive_a_restart_of_the_serv
     assert_eq!(again.machines.lock().unwrap().list().len(), 1);
     assert!(!again.auth.lock().unwrap().needs_setup());
 }
+
+#[tokio::test]
+async fn several_machines_in_several_stations_run_at_once_and_the_fleet_shows_them_all() {
+    let s = server("fleet");
+    let token = admin(&s).await;
+    // three machines: two in the station of the bench, one in the room, one without a station
+    for (id, station) in [
+        ("bench-1", "bench"),
+        ("bench-2", "bench"),
+        ("room-1", "room"),
+        ("spare", ""),
+    ] {
+        let (status, body) = call(
+            &s,
+            Method::POST,
+            "/api/v1/machines",
+            Some(&token),
+            Some(json!({"id": id, "name": id, "station": station, "connection": {"kind": "demo"}})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["station"], station);
+    }
+    // a station is named like an id
+    let (status, body) = call(&s, Method::POST, "/api/v1/machines", Some(&token), Some(json!({"id": "bad", "name": "bad", "station": "Not Ok!", "connection": {"kind": "demo"}}))).await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_station"))
+    );
+    let (_, fleet) = call(&s, Method::GET, "/api/v1/fleet", Some(&token), None).await;
+    assert_eq!(
+        fleet["summary"],
+        json!({"machines": 4, "idle": 4, "busy": 0, "waiting": 0, "stations": 2})
+    );
+    // the stations come first, in order, and the machines without one at the end
+    let ids: Vec<&str> = fleet["stations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, vec!["bench", "room", ""]);
+    // a job on each of two machines: both run at the same time
+    let mut jobs = Vec::new();
+    for m in ["bench-1", "room-1"] {
+        let (_, job) = call(
+            &s,
+            Method::POST,
+            &format!("/api/v1/machines/{m}/jobs"),
+            Some(&token),
+            Some(drill_job()),
+        )
+        .await;
+        let id = job["id"].as_str().unwrap().to_string();
+        let (status, _) = call(
+            &s,
+            Method::POST,
+            &format!("/api/v1/jobs/{id}/start"),
+            Some(&token),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        jobs.push(id);
+    }
+    for id in &jobs {
+        wait_for(&s, &token, id, &["waiting_operator"], false).await;
+    }
+    let (_, fleet) = call(&s, Method::GET, "/api/v1/fleet", Some(&token), None).await;
+    assert_eq!(
+        fleet["summary"],
+        json!({"machines": 4, "idle": 2, "busy": 0, "waiting": 2, "stations": 2})
+    );
+    let by_id = |id: &str| {
+        fleet["machines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["id"] == id)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(by_id("bench-1")["state"], "waiting");
+    assert_eq!(by_id("bench-1")["job"]["id"], jobs[0].as_str());
+    assert_eq!(by_id("room-1")["job"]["id"], jobs[1].as_str());
+    assert_eq!(by_id("bench-2")["state"], "idle");
+    assert!(by_id("bench-2")["job"].is_null());
+    // a viewer can look, nobody without a login can
+    assert_eq!(
+        call(&s, Method::GET, "/api/v1/fleet", None, None).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    // and the machines that were running stop independently of each other
+    for id in &jobs {
+        call(
+            &s,
+            Method::POST,
+            &format!("/api/v1/jobs/{id}/cancel"),
+            Some(&token),
+            None,
+        )
+        .await;
+        wait_for(&s, &token, id, &["cancelled"], false).await;
+    }
+    let (_, fleet) = call(&s, Method::GET, "/api/v1/fleet", Some(&token), None).await;
+    assert_eq!(fleet["summary"]["idle"], 4);
+}

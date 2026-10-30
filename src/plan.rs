@@ -601,6 +601,7 @@ mod tests {
             id: "m".into(),
             name: "M".into(),
             model: String::new(),
+            station: String::new(),
             connection: Connection::Demo,
             dcf: String::new(),
             rcf: String::new(),

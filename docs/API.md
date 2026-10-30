@@ -39,7 +39,8 @@ A machine is how to reach it (a node over the network, or the simulator), the te
 
 | Request | Role | What it does |
 |---|---|---|
-| `GET /machines`, `GET /machines/:id` | viewer | the machines |
+| `GET /machines`, `GET /machines/:id` | viewer | the machines (each with its `station`, the short name of the bench, the room or the workshop it belongs to; empty when it has none) |
+| `GET /fleet` | viewer | every machine at once, grouped by station: `stations` (`id` and the `machines` in it), `machines` (`id`, `name`, `model`, `station`, `connection`, `state`: `idle`, `busy` or `waiting` for the operator, the active `job` with `percent`, `items_done`, `items_total`, `pause`, and the number of jobs `ready`) and a `summary` with the counts |
 | `POST /machines` | admin | creates one |
 | `PUT /machines/:id`, `DELETE /machines/:id` | admin | changes or removes one (not while a job runs on it: `409 machine_busy`) |
 | `POST /machines/:id/preview` | operator | plans a job and answers its view, creating nothing |

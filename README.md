@@ -18,7 +18,7 @@
 
 ---
 
-**Honesty check - what actually runs today:** a Rust server (axum) with a REST and websocket interface that keeps users, machines and jobs, plans a drilling or routing job (holes and paths, or an Excellon or HP-GL file with its tool table) with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator, a stop and every change told as it happens. 39 tests run on a computer, the jobs against the simulator. **Nothing has run on a real machine through it yet**, it does not terminate TLS, and the clients that will use it besides the programs (the Android app, the Studio, the panel next to the machine) do not exist yet.
+**Honesty check - what actually runs today:** a Rust server (axum) with a REST and websocket interface that keeps users, machines and jobs, plans a drilling or routing job (holes and paths, or an Excellon or HP-GL file with its tool table) with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator, a stop and every change told as it happens. 40 tests run on a computer, the jobs against the simulator. **Nothing has run on a real machine through it yet**, it does not terminate TLS, and the clients that will use it besides the programs (the Android app, the Studio, the panel next to the machine) do not exist yet.
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.0.1` |
 | Maturity | Scaffolding |
-| Tests | 39 |
+| Tests | 40 |
 | Stack | Rust (axum, tokio) |
 | On real hardware | No: tested against the simulator; nothing has run on a real machine through the server yet |
 
@@ -45,7 +45,7 @@ Each line is one part of this repository and the light says how far it is today.
 | Area | State | What it means here |
 |---|---|---|
 | Software | 🟡 | A Rust server (axum) keeps users, machines and jobs, plans drilling and routing jobs with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview and runs the job with operator dialogs and a stop. |
-| Tests | 🟢 | 39 tests pass (`cargo test`): 28 in the modules and 11 on the interface end to end, with jobs running on the simulator (7 in `tests/api.rs`, 4 with the real programs in `tests/programs.rs`). |
+| Tests | 🟢 | 40 tests pass (`cargo test`): 28 in the modules and 12 on the interface end to end, with jobs running on the simulator (8 in `tests/api.rs`, 4 with the real programs in `tests/programs.rs`). |
 | Interface for clients (API) | 🟡 | The REST requests and the websocket events are written down in `docs/API.md` and covered by the tests; only the programs' own server connection uses them so far. |
 | Clients | 🔴 | The Android app, the Studio and the touch panel next to the machine do not exist yet. |
 | Security | 🟡 | Every request needs a token with one of three roles, passwords are Argon2 hashes and wrong passwords are slowed down; the server does not terminate TLS (put HTTPS in front) and has had no independent review. |
@@ -60,6 +60,7 @@ Each line is one part of this repository and the light says how far it is today.
 * The **preview**: the work in the order the machine does it, the tools with their count, the bounding box, an estimate of the time and the item at which each hole is finished - what a screen needs to draw the board and follow the job.
 * The **run**: a job is ready until a person starts it; it runs on the library of the programs (the handshake, the arming, the reference run, the holes, the stop), waits at the dialogs of the operator (change the tool, confirm the spindle) until someone confirms, and can be stopped; the machine stops with the drivers off.
 * The **machines**: for each one how to reach it (an EH3D-NODE-BUNGARD over the network, or the simulator), the text of its configuration files and the values tuned on it, so the calibration of a machine lives in one place for every client.
+* The **fleet and the stations**: every machine belongs to a station (the bench, the room, the workshop) and `GET /api/v1/fleet` answers all of them at once, grouped by station, with what each one is doing (free, busy, waiting for the operator), its job with the progress and the number of jobs ready; the machines run at the same time, one job on each.
 * The **people and the programs**: users with three roles, tokens for programs shown once, a slowdown on wrong passwords, and a set-up code on the console for the first administrator.
 * The **events**: a websocket that sends every change of a job as it happens.
 * The **service**: one binary and a small text file of settings, on port 18200 by default (not ARMOR's nor HYDRA-UMC's), with a systemd unit for the CM5.
@@ -109,7 +110,7 @@ How the parts of this repository fit together: who uses it, what it holds and wh
 
 | Interface | What it is | Where |
 |---|---|---|
-| REST | `/api/v1/`: `health`, `setup`, `login`, `logout`, `session`, `account`, `users`, `tokens`, `machines` (with `preview` and `jobs`), `jobs` (with `start`, `confirm`, `cancel`); JSON in and out, errors as `{"error","detail"}` | [docs/API.md](docs/API.md), `src/api.rs` |
+| REST | `/api/v1/`: `health`, `setup`, `login`, `logout`, `session`, `account`, `users`, `tokens`, `fleet`, `fleet`, `machines` (with `preview` and `jobs`), `jobs` (with `start`, `confirm`, `cancel`); JSON in and out, errors as `{"error","detail"}` | [docs/API.md](docs/API.md), `src/api.rs` |
 | Websocket | `GET /api/v1/events?token=...`: a `hello` with the summaries of the jobs, then `job` and `job_removed` for every change | [docs/API.md](docs/API.md) |
 | To the machine | a machine's `connection` is `node` (an EH3D-NODE-BUNGARD at an address with its token) or `demo` (the simulator) | [docs/API.md](docs/API.md), `src/machines.rs` |
 | Command line | `eh3d-server [--config FILE]`; `--help` lists it | `src/main.rs` |
@@ -145,7 +146,7 @@ Run it with `run.bat` (Windows) or `./run.sh` (Linux); it builds first if needed
 
 ## 🧪 Testing
 
-The suite has 39 tests (`cargo test`, run on Windows and Linux in the CI with DRILLPRO and ROUTEPRO checked out next to the server): 28 in the modules (settings and their ranges, users, roles, tokens, the slowdown on wrong passwords, the files and the job book, planning), 7 on the interface end to end through the real router (`tests/api.rs`), and 4 with the real programs sending their jobs to a real server on a real port, with the machine on the simulator (`tests/programs.rs`). The CI also runs `cargo fmt --all --check`, `cargo clippy` with warnings as errors and `python -I tools/ci_validate.py`. Nothing here has been tested against a real node or machine.
+The suite has 40 tests (`cargo test`, run on Windows and Linux in the CI with COMMON, DRILLPRO and ROUTEPRO checked out next to the server): 28 in the modules (settings and their ranges, users, roles, tokens, the slowdown on wrong passwords, the files and the job book, planning), 8 on the interface end to end through the real router (`tests/api.rs`), and 4 with the real programs sending their jobs to a real server on a real port, with the machine on the simulator (`tests/programs.rs`). The CI also runs `cargo fmt --all --check`, `cargo clippy` with warnings as errors and `python -I tools/ci_validate.py`. Nothing here has been tested against a real node or machine.
 
 ## 🏗️ Build & Release
 

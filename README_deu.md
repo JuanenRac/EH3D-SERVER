@@ -18,7 +18,7 @@
 
 ---
 
-**Ehrlichkeitscheck - was heute tatsächlich läuft:** ein Rust-Server (axum) mit REST- und Websocket-Schnittstelle, der Benutzer, Maschinen und Aufträge verwaltet, einen Bohr- oder Fräsauftrag (Bohrungen und Pfade oder eine Excellon- oder HP-GL-Datei mit ihrer Werkzeugtabelle) mit den Bibliotheken von EH3D-DRILLPRO und EH3D-ROUTEPRO plant, eine Vorschau zeigt und ihn über den EH3D-NODE-BUNGARD oder in einem Simulator auf einer Maschine ausführt, mit den Dialogen des Bedieners, einem Stopp und jeder Änderung, die sofort gemeldet wird. 39 Tests laufen auf einem Computer, die Aufträge gegen den Simulator. **Über ihn lief noch nichts auf einer echten Maschine**, er beendet kein TLS, und die Clients, die ihn neben den Programmen nutzen sollen (die Android-App, das Studio, das Panel an der Maschine), gibt es noch nicht.
+**Ehrlichkeitscheck - was heute tatsächlich läuft:** ein Rust-Server (axum) mit REST- und Websocket-Schnittstelle, der Benutzer, Maschinen und Aufträge verwaltet, einen Bohr- oder Fräsauftrag (Bohrungen und Pfade oder eine Excellon- oder HP-GL-Datei mit ihrer Werkzeugtabelle) mit den Bibliotheken von EH3D-DRILLPRO und EH3D-ROUTEPRO plant, eine Vorschau zeigt und ihn über den EH3D-NODE-BUNGARD oder in einem Simulator auf einer Maschine ausführt, mit den Dialogen des Bedieners, einem Stopp und jeder Änderung, die sofort gemeldet wird. 40 Tests laufen auf einem Computer, die Aufträge gegen den Simulator. **Über ihn lief noch nichts auf einer echten Maschine**, er beendet kein TLS, und die Clients, die ihn neben den Programmen nutzen sollen (die Android-App, das Studio, das Panel an der Maschine), gibt es noch nicht.
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.0.1` |
 | Reifegrad | Gerüst |
-| Tests | 39 |
+| Tests | 40 |
 | Technologie-Stack | Rust (axum, tokio) |
 | Auf echter Hardware | Nein: gegen den Simulator getestet; über den Server lief noch nichts auf einer echten Maschine |
 
@@ -45,7 +45,7 @@ Jede Zeile ist ein Teil dieses Repositorys, und die Ampel sagt, wie weit er heut
 | Bereich | Stand | Was das hier bedeutet |
 |---|---|---|
 | Software | 🟡 | Ein Rust-Server (axum) verwaltet Benutzer, Maschinen und Aufträge, plant Bohr- und Fräsaufträge mit den Bibliotheken von EH3D-DRILLPRO und EH3D-ROUTEPRO, zeigt eine Vorschau und führt den Auftrag mit Bedienerdialogen und einem Stopp aus. |
-| Tests | 🟢 | 39 Tests bestehen (`cargo test`): 28 in den Modulen und 11 an der Schnittstelle von Ende zu Ende, mit Aufträgen im Simulator (7 in `tests/api.rs`, 4 mit den echten Programmen in `tests/programs.rs`). |
+| Tests | 🟢 | 40 Tests bestehen (`cargo test`): 28 in den Modulen und 12 an der Schnittstelle von Ende zu Ende, mit Aufträgen im Simulator (8 in `tests/api.rs`, 4 mit den echten Programmen in `tests/programs.rs`). |
 | Schnittstelle für Clients (API) | 🟡 | Die REST-Anfragen und die Websocket-Ereignisse sind in `docs/API.md` beschrieben und von den Tests abgedeckt; bisher nutzt sie nur die Serververbindung der Programme selbst. |
 | Clients | 🔴 | Die Android-App, das Studio und das Touch-Panel an der Maschine gibt es noch nicht. |
 | Sicherheit | 🟡 | Jede Anfrage braucht ein Token mit einer von drei Rollen, Passwörter sind Argon2-Hashes und falsche Passwörter werden ausgebremst; der Server beendet kein TLS (setze HTTPS davor) und wurde nicht unabhängig geprüft. |
@@ -60,6 +60,7 @@ Jede Zeile ist ein Teil dieses Repositorys, und die Ampel sagt, wie weit er heut
 * Die **Vorschau**: die Arbeit in der Reihenfolge, in der die Maschine sie ausführt, die Werkzeuge mit ihrer Anzahl, der Hüllquader, eine Zeitschätzung und das Element, bei dem jede Bohrung fertig ist - was ein Bildschirm braucht, um die Platine zu zeichnen und den Auftrag zu verfolgen.
 * Der **Lauf**: Ein Auftrag ist bereit, bis eine Person ihn startet; er läuft auf der Bibliothek der Programme (Handshake, Scharfschalten, Referenzfahrt, Bohrungen, Stopp), wartet an den Dialogen des Bedieners (Werkzeug wechseln, Spindel bestätigen), bis jemand bestätigt, und kann gestoppt werden; die Maschine stoppt mit abgeschalteten Treibern.
 * Die **Maschinen**: zu jeder, wie man sie erreicht (ein EH3D-NODE-BUNGARD über das Netz oder der Simulator), der Text ihrer Konfigurationsdateien und die an ihr abgestimmten Werte, sodass die Kalibrierung einer Maschine für alle Clients an einer Stelle liegt.
+* Die **Flotte und die Stationen**: jede Maschine gehört zu einer Station (die Werkbank, der Raum, die Werkstatt), und `GET /api/v1/fleet` antwortet für alle auf einmal, nach Stationen gruppiert, mit dem, was jede tut (frei, beschäftigt, wartet auf den Bediener), ihrem Auftrag mit dem Fortschritt und der Zahl der bereiten Aufträge; die Maschinen laufen gleichzeitig, ein Auftrag auf jeder.
 * Die **Menschen und die Programme**: Benutzer mit drei Rollen, Tokens für Programme, die nur einmal angezeigt werden, eine Bremse bei falschen Passwörtern und ein Einrichtungscode auf der Konsole für den ersten Administrator.
 * Die **Ereignisse**: ein Websocket, der jede Änderung eines Auftrags sofort sendet.
 * Der **Dienst**: eine Binärdatei und eine kleine Einstellungsdatei, standardmäßig auf Port 18200 (nicht der von ARMOR oder HYDRA-UMC), mit einer systemd-Unit für die CM5.
@@ -145,7 +146,7 @@ Starte ihn mit `run.bat` (Windows) oder `./run.sh` (Linux); bei Bedarf baut er z
 
 ## 🧪 Tests
 
-Die Suite hat 39 Tests (`cargo test`, in der CI unter Windows und Linux mit DRILLPRO und ROUTEPRO neben dem Server ausgeführt): 28 in den Modulen (Einstellungen und ihre Bereiche, Benutzer, Rollen, Tokens, die Bremse bei falschen Passwörtern, die Dateien und das Auftragsbuch, die Planung), 7 an der Schnittstelle von Ende zu Ende über den echten Router (`tests/api.rs`) und 4 mit den echten Programmen, die ihre Aufträge an einen echten Server auf einem echten Port schicken, mit der Maschine im Simulator (`tests/programs.rs`). Die CI führt außerdem `cargo fmt --all --check`, `cargo clippy` mit Warnungen als Fehlern und `python -I tools/ci_validate.py` aus. Nichts davon wurde gegen einen echten Knoten oder eine echte Maschine getestet.
+Die Suite hat 40 Tests (`cargo test`, in der CI unter Windows und Linux mit COMMON, DRILLPRO und ROUTEPRO neben dem Server ausgeführt): 28 in den Modulen (Einstellungen und ihre Bereiche, Benutzer, Rollen, Tokens, die Bremse bei falschen Passwörtern, die Dateien und das Auftragsbuch, die Planung), 8 an der Schnittstelle von Ende zu Ende über den echten Router (`tests/api.rs`) und 4 mit den echten Programmen, die ihre Aufträge an einen echten Server auf einem echten Port schicken, mit der Maschine im Simulator (`tests/programs.rs`). Die CI führt außerdem `cargo fmt --all --check`, `cargo clippy` mit Warnungen als Fehlern und `python -I tools/ci_validate.py` aus. Nichts davon wurde gegen einen echten Knoten oder eine echte Maschine getestet.
 
 ## 🏗️ Build und Veröffentlichung
 

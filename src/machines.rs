@@ -27,6 +27,9 @@ pub struct MachineRecord {
     /// What it is, in free text (for example `ccd-mtc`).
     #[serde(default)]
     pub model: String,
+    /// The station (the workshop, the room or the bench) the machine belongs to, as a short name like an id; empty when it has none.
+    #[serde(default)]
+    pub station: String,
     pub connection: Connection,
     /// The text of `DRILLPRO.DCF`: the machine constants of the drilling program.
     #[serde(default)]
@@ -43,6 +46,8 @@ pub struct MachineRecord {
 pub enum MachineError {
     BadId,
     BadName,
+    /// The name of a station is written like an id.
+    BadStation,
     Exists,
     Unknown,
     /// A node needs its address.
@@ -58,6 +63,7 @@ impl MachineError {
         match self {
             MachineError::BadId => "bad_id",
             MachineError::BadName => "bad_name",
+            MachineError::BadStation => "bad_station",
             MachineError::Exists => "machine_exists",
             MachineError::Unknown => "unknown_machine",
             MachineError::BadAddress => "bad_address",
@@ -102,6 +108,9 @@ impl MachineRecord {
         if self.name.trim().is_empty() || self.name.len() > 64 {
             return Err(MachineError::BadName);
         }
+        if !self.station.is_empty() && !valid_id(&self.station) {
+            return Err(MachineError::BadStation);
+        }
         if let Connection::Node { address, .. } = &self.connection {
             if address.trim().is_empty() || !address.contains(':') {
                 return Err(MachineError::BadAddress);
@@ -127,7 +136,7 @@ impl MachineRecord {
             Connection::Node { address, token } => ("node", address.clone(), !token.is_empty()),
         };
         serde_json::json!({
-            "id": self.id, "name": self.name, "model": self.model,
+            "id": self.id, "name": self.name, "model": self.model, "station": self.station,
             "connection": { "kind": kind, "address": address, "token_set": token_set },
             "dcf": self.dcf, "rcf": self.rcf, "cfg": self.cfg,
         })
@@ -209,6 +218,7 @@ mod tests {
             id: id.into(),
             name: "Bungard".into(),
             model: "ccd-mtc".into(),
+            station: String::new(),
             connection: Connection::Demo,
             dcf: String::new(),
             rcf: String::new(),
