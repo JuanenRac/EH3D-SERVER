@@ -13,7 +13,7 @@ async fn main() {
         match arg.as_str() {
             "--config" => path = args.next().map(PathBuf::from),
             "--help" | "-h" => {
-                println!("eh3d-server [--config FILE]\n\nReads server.cfg (or FILE): listen, data_dir, session_hours, max_body_mb, keep_jobs.");
+                println!("eh3d-server [--config FILE]\n\nReads server.cfg (or FILE): listen, data_dir, session_hours, max_body_mb, keep_jobs, studio_dir.");
                 return;
             }
             other => {

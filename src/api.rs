@@ -134,7 +134,8 @@ impl FromRequestParts<Shared> for Authed {
 
 pub fn router(state: Shared) -> Router {
     let limit = state.cfg.max_body_mb * 1024 * 1024;
-    Router::new()
+    let studio = state.cfg.studio_dir.clone();
+    let app = Router::new()
         .route("/api/v1/health", get(health))
         .route("/api/v1/setup", get(setup_status).post(setup))
         .route("/api/v1/login", post(login))
@@ -160,7 +161,18 @@ pub fn router(state: Shared) -> Router {
         .route("/api/v1/jobs/:id/cancel", post(cancel_job))
         .route("/api/v1/events", get(events))
         .layer(DefaultBodyLimit::max(limit))
-        .with_state(state)
+        .with_state(state);
+    match studio {
+        // the pages of Studio: a file that is not there is the start page, so a reload on any page of the application works
+        Some(dir) => {
+            let index = dir.join("index.html");
+            app.fallback_service(
+                tower_http::services::ServeDir::new(dir)
+                    .fallback(tower_http::services::ServeFile::new(index)),
+            )
+        }
+        None => app,
+    }
 }
 
 // ---- who is who -----------------------------------------------------------------------------------------------------------------------

@@ -926,3 +926,61 @@ async fn several_machines_in_several_stations_run_at_once_and_the_fleet_shows_th
     let (_, fleet) = call(&s, Method::GET, "/api/v1/fleet", Some(&token), None).await;
     assert_eq!(fleet["summary"]["idle"], 4);
 }
+
+async fn raw_get(app: axum::Router, path: &str) -> (StatusCode, String) {
+    let response = app
+        .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    (status, String::from_utf8_lossy(&bytes).into_owned())
+}
+
+#[tokio::test]
+async fn the_pages_of_studio_are_served_at_the_root_when_the_folder_is_set() {
+    let base = std::env::temp_dir().join(format!("eh3d-server-studio-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let pages = base.join("pages");
+    std::fs::create_dir_all(pages.join("assets")).unwrap();
+    std::fs::write(pages.join("index.html"), "<title>Studio</title>").unwrap();
+    std::fs::write(pages.join("assets").join("app.js"), "console.log(1)").unwrap();
+    let state = AppState::open(ServerConfig {
+        data_dir: base.join("data"),
+        studio_dir: Some(pages.clone()),
+        ..ServerConfig::default()
+    })
+    .unwrap();
+    let app = router(state.clone());
+    assert_eq!(
+        raw_get(app.clone(), "/").await,
+        (StatusCode::OK, "<title>Studio</title>".into())
+    );
+    assert_eq!(
+        raw_get(app.clone(), "/assets/app.js").await.1,
+        "console.log(1)"
+    );
+    // a page of the application that is not a file is the start page, so a reload works
+    assert_eq!(
+        raw_get(app.clone(), "/machines").await.1,
+        "<title>Studio</title>"
+    );
+    // the API is still the API
+    let (status, body) = raw_get(app.clone(), "/api/v1/health").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("eh3d-server"));
+    state.stop_all();
+
+    // without the folder the server answers only the API
+    let plain = AppState::open(ServerConfig {
+        data_dir: base.join("data2"),
+        ..ServerConfig::default()
+    })
+    .unwrap();
+    assert_eq!(
+        raw_get(router(plain.clone()), "/").await.0,
+        StatusCode::NOT_FOUND
+    );
+    plain.stop_all();
+    let _ = std::fs::remove_dir_all(&base);
+}

@@ -10,3 +10,5 @@ session_hours = 12
 max_body_mb = 8
 # How many finished jobs the list keeps.
 keep_jobs = 200
+# A folder with the pages of EH3D-STUDIO to serve at / (the configuration panel of this server). Empty: only the API.
+studio_dir =

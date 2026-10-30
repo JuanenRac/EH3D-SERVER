@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.0.1` |
 | Maturity | Scaffolding |
-| Tests | 41 |
+| Tests | 43 |
 | Stack | Rust (axum, tokio) |
 | On real hardware | No: tested against the simulator; nothing has run on a real machine through the server yet |
 
@@ -45,7 +45,7 @@ Each line is one part of this repository and the light says how far it is today.
 | Area | State | What it means here |
 |---|---|---|
 | Software | 🟡 | A Rust server (axum) keeps users, machines and jobs, plans drilling and routing jobs with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview and runs the job with operator dialogs and a stop. |
-| Tests | 🟢 | 41 tests pass (`cargo test`): 28 in the modules and 13 on the interface end to end, with jobs running on the simulator (8 in `tests/api.rs`, 5 with the real programs in `tests/programs.rs`). |
+| Tests | 🟢 | 43 tests pass (`cargo test`): 29 in the modules and 14 on the interface end to end, with jobs running on the simulator (8 in `tests/api.rs`, 5 with the real programs in `tests/programs.rs`). |
 | Interface for clients (API) | 🟡 | The REST requests and the websocket events are written down in `docs/API.md` and covered by the tests; only the programs' own server connection uses them so far. |
 | Clients | 🔴 | The Android app, the Studio and the touch panel next to the machine do not exist yet. |
 | Security | 🟡 | Every request needs a token with one of three roles, passwords are Argon2 hashes and wrong passwords are slowed down; the server does not terminate TLS (put HTTPS in front) and has had no independent review. |
@@ -146,7 +146,7 @@ Run it with `run.bat` (Windows) or `./run.sh` (Linux); it builds first if needed
 
 ## 🧪 Testing
 
-The suite has 41 tests (`cargo test`, run on Windows and Linux in the CI with COMMON, DRILLPRO and ROUTEPRO checked out next to the server): 28 in the modules (settings and their ranges, users, roles, tokens, the slowdown on wrong passwords, the files and the job book, planning), 8 on the interface end to end through the real router (`tests/api.rs`), and 5 with the real programs sending their jobs to a real server on a real port, with the machine on the simulator (`tests/programs.rs`). The CI also runs `cargo fmt --all --check`, `cargo clippy` with warnings as errors and `python -I tools/ci_validate.py`. Nothing here has been tested against a real node or machine.
+The suite has 43 tests (`cargo test`, run on Windows and Linux in the CI with COMMON, DRILLPRO and ROUTEPRO checked out next to the server): 29 in the modules (settings and their ranges, users, roles, tokens, the slowdown on wrong passwords, the files and the job book, planning), 8 on the interface end to end through the real router (`tests/api.rs`), and 5 with the real programs sending their jobs to a real server on a real port, with the machine on the simulator (`tests/programs.rs`). The CI also runs `cargo fmt --all --check`, `cargo clippy` with warnings as errors and `python -I tools/ci_validate.py`. Nothing here has been tested against a real node or machine.
 
 ## 🏗️ Build & Release
 

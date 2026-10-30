@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.0.1` |
 | Maturité | Échafaudage |
-| Tests | 41 |
+| Tests | 43 |
 | Pile technique | Rust (axum, tokio) |
 | Sur du matériel réel | Non : testé contre le simulateur ; rien n'a encore tourné sur une vraie machine par le serveur |
 
@@ -45,7 +45,7 @@ Chaque ligne est une partie de ce dépôt et le feu dit où elle en est aujourd'
 | Domaine | État | Ce que cela veut dire ici |
 |---|---|---|
 | Logiciel | 🟡 | Un serveur Rust (axum) garde utilisateurs, machines et travaux, planifie des travaux de perçage et de défonçage avec les bibliothèques d'EH3D-DRILLPRO et d'EH3D-ROUTEPRO, montre un aperçu et exécute le travail avec des dialogues d'opérateur et un arrêt. |
-| Tests | 🟢 | 41 tests réussissent (`cargo test`) : 28 dans les modules et 13 sur l'interface de bout en bout, avec des travaux sur le simulateur (8 dans `tests/api.rs`, 4 avec les vrais programmes dans `tests/programs.rs`). |
+| Tests | 🟢 | 43 tests réussissent (`cargo test`) : 29 dans les modules et 14 sur l'interface de bout en bout, avec des travaux sur le simulateur (8 dans `tests/api.rs`, 4 avec les vrais programmes dans `tests/programs.rs`). |
 | Interface pour les clients (API) | 🟡 | Les requêtes REST et les événements websocket sont décrits dans `docs/API.md` et couverts par les tests ; seule la connexion au serveur des programmes eux-mêmes les utilise pour l'instant. |
 | Clients | 🔴 | L'application Android, le Studio et le panneau tactile à côté de la machine n'existent pas encore. |
 | Sécurité | 🟡 | Chaque requête exige un jeton avec l'un de trois rôles, les mots de passe sont des hachages Argon2 et les mauvais mots de passe sont ralentis ; le serveur ne termine pas le TLS (mets du HTTPS devant) et n'a pas eu de revue indépendante. |
@@ -146,7 +146,7 @@ Lance-le avec `run.bat` (Windows) ou `./run.sh` (Linux) ; il compile d'abord si 
 
 ## 🧪 Tests
 
-La suite compte 41 tests (`cargo test`, exécutés sous Windows et Linux dans la CI avec COMMON, DRILLPRO et ROUTEPRO récupérés à côté du serveur) : 28 dans les modules (réglages et leurs plages, utilisateurs, rôles, jetons, le ralentissement sur mauvais mot de passe, les fichiers et le registre des travaux, la planification), 8 sur l'interface de bout en bout par le vrai routeur (`tests/api.rs`) et 5 avec les vrais programmes envoyant leurs travaux à un vrai serveur sur un vrai port, la machine étant sur le simulateur (`tests/programs.rs`). La CI exécute aussi `cargo fmt --all --check`, `cargo clippy` avec les avertissements en erreurs et `python -I tools/ci_validate.py`. Rien de tout cela n'a été testé contre un vrai nœud ou une vraie machine.
+La suite compte 43 tests (`cargo test`, exécutés sous Windows et Linux dans la CI avec COMMON, DRILLPRO et ROUTEPRO récupérés à côté du serveur) : 29 dans les modules (réglages et leurs plages, utilisateurs, rôles, jetons, le ralentissement sur mauvais mot de passe, les fichiers et le registre des travaux, la planification), 8 sur l'interface de bout en bout par le vrai routeur (`tests/api.rs`) et 5 avec les vrais programmes envoyant leurs travaux à un vrai serveur sur un vrai port, la machine étant sur le simulateur (`tests/programs.rs`). La CI exécute aussi `cargo fmt --all --check`, `cargo clippy` avec les avertissements en erreurs et `python -I tools/ci_validate.py`. Rien de tout cela n'a été testé contre un vrai nœud ou une vraie machine.
 
 ## 🏗️ Compilation et publication
 

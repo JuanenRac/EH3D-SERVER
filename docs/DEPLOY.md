@@ -44,6 +44,10 @@ sudo systemctl enable --now eh3d-server
 
 The unit stops the running jobs when the service stops (the server stops the machines first), restarts the server if it dies, and keeps it from writing anywhere but its data folder.
 
+## The pages of Studio
+
+`studio_dir = /opt/eh3d-studio` in `server.cfg` makes the server serve the pages of EH3D-STUDIO (its `dist` folder) at `/` of the same address, so the configuration panel opens at `http://cm5:18200/` with no other server and no cross-origin setting. The API stays under `/api/v1/`.
+
 ## Safety of the deployment
 
 - The server is for the house or a VPN into it. It does not terminate TLS yet: put a reverse proxy with HTTPS in front before anything outside the network reaches it.

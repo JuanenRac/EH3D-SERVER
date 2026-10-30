@@ -16,6 +16,9 @@ pub struct ServerConfig {
     pub max_body_mb: usize,
     /// How many finished jobs are kept in the list.
     pub keep_jobs: usize,
+    /// A folder with the pages of EH3D-STUDIO: when it is set the server serves them at `/` (on the same address, so the pages need no
+    /// cross-origin permission). Not set: the server answers only the API.
+    pub studio_dir: Option<PathBuf>,
 }
 
 impl Default for ServerConfig {
@@ -26,6 +29,7 @@ impl Default for ServerConfig {
             session_hours: 12,
             max_body_mb: 8,
             keep_jobs: 200,
+            studio_dir: None,
         }
     }
 }
@@ -69,6 +73,13 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
             "session_hours" => c.session_hours = number(&key, value, 1, 720).map_err(at)? as u32,
             "max_body_mb" => c.max_body_mb = number(&key, value, 1, 256).map_err(at)? as usize,
             "keep_jobs" => c.keep_jobs = number(&key, value, 10, 100_000).map_err(at)? as usize,
+            "studio_dir" => {
+                c.studio_dir = if value.is_empty() {
+                    None
+                } else {
+                    Some(PathBuf::from(value))
+                }
+            }
             other => return Err(at(format!("unknown key '{other}'"))),
         }
     }
@@ -93,6 +104,29 @@ pub fn load(path: Option<&Path>) -> Result<ServerConfig, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_studio_folder_is_optional() {
+        assert_eq!(parse("").unwrap().studio_dir, None);
+        assert_eq!(
+            parse(
+                "studio_dir =
+"
+            )
+            .unwrap()
+            .studio_dir,
+            None
+        );
+        assert_eq!(
+            parse(
+                "studio_dir = /opt/eh3d-studio
+"
+            )
+            .unwrap()
+            .studio_dir,
+            Some(PathBuf::from("/opt/eh3d-studio"))
+        );
+    }
 
     #[test]
     fn the_defaults_are_the_servers_own_port_and_a_data_folder() {

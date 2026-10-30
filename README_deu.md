@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.0.1` |
 | Reifegrad | Gerüst |
-| Tests | 41 |
+| Tests | 43 |
 | Technologie-Stack | Rust (axum, tokio) |
 | Auf echter Hardware | Nein: gegen den Simulator getestet; über den Server lief noch nichts auf einer echten Maschine |
 
@@ -45,7 +45,7 @@ Jede Zeile ist ein Teil dieses Repositorys, und die Ampel sagt, wie weit er heut
 | Bereich | Stand | Was das hier bedeutet |
 |---|---|---|
 | Software | 🟡 | Ein Rust-Server (axum) verwaltet Benutzer, Maschinen und Aufträge, plant Bohr- und Fräsaufträge mit den Bibliotheken von EH3D-DRILLPRO und EH3D-ROUTEPRO, zeigt eine Vorschau und führt den Auftrag mit Bedienerdialogen und einem Stopp aus. |
-| Tests | 🟢 | 41 Tests bestehen (`cargo test`): 28 in den Modulen und 13 an der Schnittstelle von Ende zu Ende, mit Aufträgen im Simulator (8 in `tests/api.rs`, 4 mit den echten Programmen in `tests/programs.rs`). |
+| Tests | 🟢 | 43 Tests bestehen (`cargo test`): 29 in den Modulen und 14 an der Schnittstelle von Ende zu Ende, mit Aufträgen im Simulator (8 in `tests/api.rs`, 4 mit den echten Programmen in `tests/programs.rs`). |
 | Schnittstelle für Clients (API) | 🟡 | Die REST-Anfragen und die Websocket-Ereignisse sind in `docs/API.md` beschrieben und von den Tests abgedeckt; bisher nutzt sie nur die Serververbindung der Programme selbst. |
 | Clients | 🔴 | Die Android-App, das Studio und das Touch-Panel an der Maschine gibt es noch nicht. |
 | Sicherheit | 🟡 | Jede Anfrage braucht ein Token mit einer von drei Rollen, Passwörter sind Argon2-Hashes und falsche Passwörter werden ausgebremst; der Server beendet kein TLS (setze HTTPS davor) und wurde nicht unabhängig geprüft. |
@@ -146,7 +146,7 @@ Starte ihn mit `run.bat` (Windows) oder `./run.sh` (Linux); bei Bedarf baut er z
 
 ## 🧪 Tests
 
-Die Suite hat 41 Tests (`cargo test`, in der CI unter Windows und Linux mit COMMON, DRILLPRO und ROUTEPRO neben dem Server ausgeführt): 28 in den Modulen (Einstellungen und ihre Bereiche, Benutzer, Rollen, Tokens, die Bremse bei falschen Passwörtern, die Dateien und das Auftragsbuch, die Planung), 8 an der Schnittstelle von Ende zu Ende über den echten Router (`tests/api.rs`) und 5 mit den echten Programmen, die ihre Aufträge an einen echten Server auf einem echten Port schicken, mit der Maschine im Simulator (`tests/programs.rs`). Die CI führt außerdem `cargo fmt --all --check`, `cargo clippy` mit Warnungen als Fehlern und `python -I tools/ci_validate.py` aus. Nichts davon wurde gegen einen echten Knoten oder eine echte Maschine getestet.
+Die Suite hat 43 Tests (`cargo test`, in der CI unter Windows und Linux mit COMMON, DRILLPRO und ROUTEPRO neben dem Server ausgeführt): 29 in den Modulen (Einstellungen und ihre Bereiche, Benutzer, Rollen, Tokens, die Bremse bei falschen Passwörtern, die Dateien und das Auftragsbuch, die Planung), 8 an der Schnittstelle von Ende zu Ende über den echten Router (`tests/api.rs`) und 5 mit den echten Programmen, die ihre Aufträge an einen echten Server auf einem echten Port schicken, mit der Maschine im Simulator (`tests/programs.rs`). Die CI führt außerdem `cargo fmt --all --check`, `cargo clippy` mit Warnungen als Fehlern und `python -I tools/ci_validate.py` aus. Nichts davon wurde gegen einen echten Knoten oder eine echte Maschine getestet.
 
 ## 🏗️ Build und Veröffentlichung
 
