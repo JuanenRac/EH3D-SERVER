@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "ecosystem": "EH3D",
   "name": "EH3D-SERVER",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "role": "api",
   "stack": "rust",
   "technologies": [
@@ -17,7 +17,7 @@
   "family": "CNC Workflow Tools",
   "parent": null,
   "build": "cargo build --release; cargo test",
-  "notes": "Scaffolding v0.0.1: the center of the EH3D programs. EH3D-DRILLPRO, EH3D-ROUTEPRO and, later, the Android app, the Studio and the panel next to the machine send it jobs (holes and paths, or an Excellon or HP-GL file with its tool table); it plans them with the libraries of the programs, using the constants and the tuning of the machine they are for, shows a preview, and runs them on the machine through its node (or a simulator), with the dialogs of the operator, a stop, and every change told over a websocket. Users with three roles, tokens for programs, one job at a time on a machine, and a job never starts by itself. Tested on a computer against the simulator; nothing has run on a real machine through it, and it does not terminate TLS yet.",
+  "notes": "Scaffolding v0.0.2: the center of the EH3D programs. EH3D-DRILLPRO, EH3D-ROUTEPRO and, later, the Android app, the Studio and the panel next to the machine send it jobs (holes and paths, or an Excellon or HP-GL file with its tool table); it plans them with the libraries of the programs, using the constants and the tuning of the machine they are for, shows a preview, and runs them on the machine through its node (or a simulator), with the dialogs of the operator, a stop, and every change told over a websocket. Users with three roles, tokens for programs, one job at a time on a machine, and a job never starts by itself. Tested on a computer against the simulator; nothing has run on a real machine through it, and it does not terminate TLS yet.",
   "native_version": {
     "file": "Cargo.toml",
     "pattern": "^version\\s*=\\s*\"(\\d+\\.\\d+\\.\\d+)\""

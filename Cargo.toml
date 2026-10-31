@@ -1,6 +1,6 @@
 [package]
 name = "eh3d-server"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 description = "The EH3D server: takes jobs from the EH3D programs and runs them on the machines through their nodes"
 license = "GPL-3.0-or-later"
