@@ -299,3 +299,47 @@ async fn the_program_reads_the_fleet_of_the_real_server() {
     assert_eq!(fleet.summary().idle, 1);
     assert_eq!(fleet.pick_free("").unwrap().id, "bungard");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_drilling_and_a_routing_job_in_a_row_on_the_server_never_ask_for_the_tools_that_are_off()
+{
+    let server = start_server("sequence").await;
+    let token = prepare(&server).await;
+    let drill = json!({
+        "kind": "drill", "name": "board.ncd", "skip_tools": [2],
+        "tools": [{"number": 1, "feed_mm_min": 1000, "spindle_rpm": 24000}, {"number": 2, "feed_mm_min": 800, "spindle_rpm": 24000}],
+        "holes": [{"tool": 1, "x_mm": 10, "y_mm": 10}, {"tool": 2, "x_mm": 20, "y_mm": 10}, {"tool": 1, "x_mm": 30, "y_mm": 20}]
+    });
+    let route = json!({
+        "kind": "route", "name": "outline.plt", "skip_tools": [3],
+        "tools": [
+            {"number": 1, "depth_mm": 1.7, "iterations": 1, "feed_xy_mm_min": 800, "feed_z_mm_min": 300, "spindle_rpm": 24000},
+            {"number": 3, "depth_mm": 0.3, "iterations": 1, "feed_xy_mm_min": 800, "feed_z_mm_min": 300, "spindle_rpm": 24000}],
+        "paths": [{"pen": 1, "points_mm": [[10, 10], [40, 10], [40, 30], [10, 10]]}, {"pen": 3, "points_mm": [[12, 12], [20, 12]]}]
+    });
+    // the drilling first, then the routing, as the window of the programs does with the queue of the job
+    let first = RealRun::start_on_server(config(&server, &token, "bungard"), drill, Vec::new(), 30);
+    let (state, dialogs) = finish(&first).await;
+    assert_eq!(state, RunState::Done, "{:?}", first.state());
+    assert!(dialogs.contains(&Pause::ToolChange { tool: 1 }));
+    assert!(
+        !dialogs.contains(&Pause::ToolChange { tool: 2 }),
+        "{dialogs:?}"
+    );
+    let second =
+        RealRun::start_on_server(config(&server, &token, "bungard"), route, Vec::new(), 40);
+    let (state, dialogs) = finish(&second).await;
+    assert_eq!(state, RunState::Done, "{:?}", second.state());
+    assert!(dialogs.contains(&Pause::ToolChange { tool: 1 }));
+    assert!(
+        !dialogs.contains(&Pause::ToolChange { tool: 3 }),
+        "{dialogs:?}"
+    );
+    let jobs = server.state.jobs.lock().unwrap();
+    assert_eq!(jobs.list().len(), 2);
+    for job in jobs.list() {
+        assert_eq!(job.state, eh3d_server::jobs::JobState::Done);
+        assert_eq!(job.holes_done, job.holes_total);
+        assert_eq!(job.view.skipped, 1, "{}", job.name);
+    }
+}

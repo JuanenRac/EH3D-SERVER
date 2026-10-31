@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **Tools switched off and jobs that go on, in the job request:** a drilling or routing job takes `skip_tools` (the tools or pens that are off: their holes or paths are left out and they need not be in the tool table) and `skip` (how many holes, in the order the machine drills them, or paths are already done), and the view tells what was left out (`skipped_tools`, `skipped`); a job with nothing left is refused with `no_work`. A drilling job and a routing job one after the other, each with its tools off, run on the simulator through the real programs. 7 tests.
+
 ## [0.0.2] - The quality check through the camera of the drill head
 
 - **The quality check through the camera of the head:** `GET` and `POST /api/v1/machines/:id/head/light` (the ring of LEDs), `GET .../head/snapshot` (one picture), `POST .../head/inspect` (the light, the picture, the analysis with the profile of the machine and the colour of the ring that says how it went), `GET .../head/inspect` (the last check), `GET` and `PUT .../head/inspect/profile` (tolerances and presets) and `POST .../head/inspect/calibrate` (the scale from the hole that was measured). The profile of each machine is kept by the server; a query for the ring that has signs the node does not use is refused (`422 bad_light`).

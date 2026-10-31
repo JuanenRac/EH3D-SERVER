@@ -63,6 +63,8 @@ A job request is a drilling job or a routing job, with the work as data or as th
 { "kind": "route", "files": { "plt": "<the text of the HP-GL file>", "rtd": "<the text of the tool table>" } }
 ```
 
+Both kinds of job take two more fields. `skip_tools` is a list of tool numbers (pens for a routing job) that are switched off: their holes or paths are left out of the job, and a tool that is off does not have to be in the tool table. `skip` is how many holes (counted in the order the machine drills them, tool by tool) or paths (in the order sent) are already done, so a job that goes on after a stop does only the rest. A job whose work is all left out by them is refused with `no_work`, and the view says what was left out in `skipped_tools` and `skipped`. A program that sends the job of a window (DRILLPRO, ROUTEPRO, BUNGARD-GUI) sends the holes it chose together with `skip_tools`, so the server and the window agree; a drilling job and a routing job in a row are two jobs, started one after the other on the machine.
+
 The holes or the files, not both. With files the holes are ordered as the program does (`sorting`: `none`, `x`, `y` or `special`; by default the machine's configuration says) and their units come from the machine's configuration file. A job is refused with a code before it exists: `no_work`, `both_sources`, `unknown_tool` (a tool the work uses is not in the table), `bad_tool`, `bad_board`, `out_of_table` (a hole or a point outside the course of the machine), `bad_ncd`, `too_big`, `bad_request`.
 
 The **view** is what a client draws and follows:
@@ -72,7 +74,8 @@ The **view** is what a client draws and follows:
   "tools": [ { "number": 1, "spindle_rpm": 24000, "count": 2, "feed_mm_min": 1000, "depth_mm": null, "iterations": null } ],
   "holes": [ { "tool": 1, "x_mm": 10.0, "y_mm": 10.0 } ],
   "paths": [], "bounds_mm": [10.0, 10.0, 30.0, 20.0],
-  "items": 34, "hole_ends": [14, 17, 24], "estimate_s": 28.8, "travel_mm": 10.0 }
+  "items": 34, "hole_ends": [14, 17, 24], "estimate_s": 28.8, "travel_mm": 10.0,
+  "skipped_tools": [], "skipped": 0 }
 ```
 
 `holes` are in the order the machine drills them (by tool in order of first use). `hole_ends[i]` is the item at which the hole `i` is finished, so a client that knows the item the job has reached knows how many holes are done. `estimate_s` is the time of the movements without the dialogs of the operator.

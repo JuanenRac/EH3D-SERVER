@@ -44,6 +44,12 @@ pub struct DrillRequest {
     pub tools: Option<Vec<DrillToolIn>>,
     pub holes: Option<Vec<HoleIn>>,
     pub files: Option<DrillFiles>,
+    /// Tools that are switched off: their holes are left out of the job.
+    #[serde(default)]
+    pub skip_tools: Vec<u8>,
+    /// How many holes, counted in the order the machine drills them, are already done: a job that goes on after a stop leaves them out.
+    #[serde(default)]
+    pub skip: usize,
 }
 
 #[derive(Deserialize, Debug)]
@@ -55,7 +61,7 @@ pub struct DrillToolIn {
     pub spindle_rpm: u32,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct HoleIn {
     pub tool: u8,
     pub x_mm: f64,
@@ -76,6 +82,12 @@ pub struct RouteRequest {
     pub tools: Option<Vec<RouteToolIn>>,
     pub paths: Option<Vec<PathIn>>,
     pub files: Option<RouteFiles>,
+    /// Pens (tools) that are switched off: their paths are left out of the job.
+    #[serde(default)]
+    pub skip_tools: Vec<u8>,
+    /// How many paths, in the order they are sent, are already done: a job that goes on after a stop leaves them out.
+    #[serde(default)]
+    pub skip: usize,
 }
 
 #[derive(Deserialize, Debug)]
@@ -131,6 +143,11 @@ pub struct JobView {
     /// An estimate of how long the movements take, in seconds, without the dialogs of the operator.
     pub estimate_s: f64,
     pub travel_mm: f64,
+    /// The tools that were switched off for this job and how many holes or paths were left out (by them or because they were already done).
+    #[serde(default)]
+    pub skipped_tools: Vec<u8>,
+    #[serde(default)]
+    pub skipped: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -316,8 +333,33 @@ fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, Pl
             })
             .collect();
     }
+    let before = holes.len();
+    holes.retain(|h| !req.skip_tools.contains(&h.tool));
+    if req.skip > 0 {
+        // the holes already done are counted in the order the machine drills them: by tool in order of first use
+        let mut order: Vec<u8> = Vec::new();
+        for h in &holes {
+            if !order.contains(&h.tool) {
+                order.push(h.tool);
+            }
+        }
+        let mut ordered: Vec<HoleIn> = Vec::with_capacity(holes.len());
+        for &number in &order {
+            ordered.extend(holes.iter().filter(|h| h.tool == number).cloned());
+        }
+        ordered.drain(..req.skip.min(ordered.len()));
+        holes = ordered;
+    }
+    let skipped = before - holes.len();
     if holes.is_empty() {
-        return fail("no_work", "the job has no holes");
+        return fail(
+            "no_work",
+            if before > 0 {
+                "every hole is left out by the tools that are switched off or by the holes already done"
+            } else {
+                "the job has no holes"
+            },
+        );
     }
     if holes.len() > MAX_POINTS {
         return fail(
@@ -421,6 +463,8 @@ fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, Pl
         hole_ends: hole_end_indexes(&items),
         estimate_s: estimate_seconds(&items),
         travel_mm: travel,
+        skipped_tools: req.skip_tools.clone(),
+        skipped,
     };
     Ok(Planned { items, view })
 }
@@ -485,8 +529,19 @@ fn plan_route(machine: &MachineRecord, req: &RouteRequest) -> Result<Planned, Pl
             .collect();
     }
     paths.retain(|p| !p.points.is_empty());
+    let before = paths.len();
+    paths.retain(|p| !req.skip_tools.contains(&p.pen));
+    paths.drain(..req.skip.min(paths.len()));
+    let skipped = before - paths.len();
     if paths.is_empty() {
-        return fail("no_work", "the job has no paths");
+        return fail(
+            "no_work",
+            if before > 0 {
+                "every path is left out by the tools that are switched off or by the paths already done"
+            } else {
+                "the job has no paths"
+            },
+        );
     }
     let points: usize = paths.iter().map(|p| p.points.len()).sum();
     if points > MAX_POINTS {
@@ -587,6 +642,8 @@ fn plan_route(machine: &MachineRecord, req: &RouteRequest) -> Result<Planned, Pl
         hole_ends: Vec::new(),
         estimate_s: estimate_seconds(&items),
         travel_mm: length,
+        skipped_tools: req.skip_tools.clone(),
+        skipped,
     };
     Ok(Planned { items, view })
 }
@@ -786,5 +843,102 @@ mod tests {
         let planned = plan(&machine(), &serde_json::from_str(&request).unwrap()).unwrap();
         // 400 plotter units are 10 mm
         assert_eq!(planned.view.bounds_mm, Some([10.0, 10.0, 40.0, 30.0]));
+    }
+
+    #[test]
+    fn the_tools_switched_off_leave_their_holes_out_and_the_view_says_so() {
+        let mut v: serde_json::Value = serde_json::from_str(TWO_TOOLS).unwrap();
+        v["skip_tools"] = serde_json::json!([2]);
+        let planned = plan(&machine(), &serde_json::from_value(v).unwrap()).unwrap();
+        let view = &planned.view;
+        assert_eq!(
+            view.holes.iter().map(|h| h.tool).collect::<Vec<_>>(),
+            vec![1, 1]
+        );
+        assert_eq!(
+            view.tools.iter().map(|t| t.number).collect::<Vec<_>>(),
+            vec![1]
+        );
+        assert_eq!((view.skipped_tools.clone(), view.skipped), (vec![2], 1));
+        // the machine is never asked for the tool that is off: one change of tool less
+        let all = plan(&machine(), &serde_json::from_str(TWO_TOOLS).unwrap()).unwrap();
+        assert!(planned.items.len() < all.items.len());
+        assert_eq!(view.hole_ends.len(), 2);
+    }
+
+    #[test]
+    fn a_tool_that_is_off_does_not_have_to_be_in_the_tool_table() {
+        let json = r#"{"kind":"drill","skip_tools":[7],"tools":[{"number":1,"feed_mm_min":1000,"spindle_rpm":24000}],
+            "holes":[{"tool":1,"x_mm":10,"y_mm":10},{"tool":7,"x_mm":20,"y_mm":10}]}"#;
+        let planned = plan(&machine(), &serde_json::from_str(json).unwrap()).unwrap();
+        assert_eq!(planned.view.holes.len(), 1);
+        let without = json.replace(r#""skip_tools":[7],"#, "");
+        assert_eq!(
+            plan(&machine(), &serde_json::from_str(&without).unwrap())
+                .err()
+                .map(|e| e.code),
+            Some("unknown_tool")
+        );
+    }
+
+    #[test]
+    fn a_job_that_goes_on_after_a_stop_leaves_out_the_holes_already_done_in_the_machines_order() {
+        let mut v: serde_json::Value = serde_json::from_str(TWO_TOOLS).unwrap();
+        // the machine drills tool 1 (two holes, at x 10 and 30) and then tool 2 (x 20): two done leaves the hole of tool 2
+        v["skip"] = serde_json::json!(2);
+        let planned = plan(&machine(), &serde_json::from_value(v.clone()).unwrap()).unwrap();
+        assert_eq!(
+            planned
+                .view
+                .holes
+                .iter()
+                .map(|h| (h.tool, h.x_mm))
+                .collect::<Vec<_>>(),
+            vec![(2, 20.0)]
+        );
+        assert_eq!(planned.view.skipped, 2);
+        // all of it done is refused with a code instead of running nothing
+        v["skip"] = serde_json::json!(3);
+        assert_eq!(
+            plan(&machine(), &serde_json::from_value(v).unwrap())
+                .err()
+                .map(|e| e.code),
+            Some("no_work")
+        );
+    }
+
+    #[test]
+    fn every_hole_off_is_refused_with_a_code() {
+        let mut v: serde_json::Value = serde_json::from_str(TWO_TOOLS).unwrap();
+        v["skip_tools"] = serde_json::json!([1, 2]);
+        assert_eq!(
+            plan(&machine(), &serde_json::from_value(v).unwrap())
+                .err()
+                .map(|e| e.code),
+            Some("no_work")
+        );
+    }
+
+    #[test]
+    fn the_pens_switched_off_leave_their_paths_out_of_a_routing_job() {
+        let json = r#"{"kind":"route","skip_tools":[2],
+            "tools":[{"number":1,"depth_mm":1.7,"iterations":1,"feed_xy_mm_min":800,"feed_z_mm_min":300,"spindle_rpm":24000},
+                     {"number":2,"depth_mm":0.3,"iterations":1,"feed_xy_mm_min":800,"feed_z_mm_min":300,"spindle_rpm":24000}],
+            "paths":[{"pen":1,"points_mm":[[10,10],[40,10]]},{"pen":2,"points_mm":[[10,20],[40,20]]},{"pen":1,"points_mm":[[10,30],[40,30]]}]}"#;
+        let planned = plan(&machine(), &serde_json::from_str(json).unwrap()).unwrap();
+        let v = &planned.view;
+        assert_eq!(
+            v.paths.iter().map(|p| p.pen).collect::<Vec<_>>(),
+            vec![1, 1]
+        );
+        assert_eq!(
+            v.tools.iter().map(|t| t.number).collect::<Vec<_>>(),
+            vec![1]
+        );
+        assert_eq!((v.skipped_tools.clone(), v.skipped), (vec![2], 1));
+        let resumed = json.replace(r#""skip_tools":[2],"#, r#""skip":1,"#);
+        let planned = plan(&machine(), &serde_json::from_str(&resumed).unwrap()).unwrap();
+        assert_eq!(planned.view.paths.len(), 2);
+        assert_eq!(planned.view.skipped, 1);
     }
 }

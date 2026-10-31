@@ -728,6 +728,107 @@ async fn one_job_at_a_time_on_a_machine_and_a_running_job_can_be_cancelled() {
 }
 
 #[tokio::test]
+async fn two_programs_queued_on_a_machine_keep_their_tools_off_and_a_resumed_one_leaves_the_done_holes_out(
+) {
+    let s = server("queue");
+    let token = admin(&s).await;
+    demo_machine(&s, &token, "m1").await;
+    // the drilling goes on after a stop: the first hole of tool 1 was done and tool 2 is off
+    let mut drill = drill_job();
+    drill["skip_tools"] = json!([2]);
+    drill["skip"] = json!(1);
+    let route = json!({"kind": "route", "name": "outline", "skip_tools": [2],
+        "tools": [
+            {"number": 1, "depth_mm": 1.7, "iterations": 1, "feed_xy_mm_min": 800, "feed_z_mm_min": 300, "spindle_rpm": 24000},
+            {"number": 2, "depth_mm": 0.3, "iterations": 1, "feed_xy_mm_min": 800, "feed_z_mm_min": 300, "spindle_rpm": 24000}],
+        "paths": [{"pen": 1, "points_mm": [[10, 10], [40, 10], [40, 30], [10, 10]]}, {"pen": 2, "points_mm": [[12, 12], [20, 12]]}]});
+    let mut ids = Vec::new();
+    for body in [drill, route] {
+        let (status, job) = call(
+            &s,
+            Method::POST,
+            "/api/v1/machines/m1/jobs",
+            Some(&token),
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{job}");
+        // what the job will do is what is left: the tools that are off and the holes already done are not in it
+        assert_eq!(job["holes_total"], 1, "{job}");
+        assert_eq!(
+            job["view"]["skipped"],
+            if job["kind"] == "drill" { 2 } else { 1 },
+            "{job}"
+        );
+        assert_eq!(job["view"]["skipped_tools"], json!([2]));
+        ids.push(job["id"].as_str().unwrap().to_string());
+    }
+    // the fleet shows both ready; they run one after the other, each with the dialogs of the tools that are on
+    let (_, fleet) = call(&s, Method::GET, "/api/v1/fleet", Some(&token), None).await;
+    assert_eq!(fleet["machines"][0]["ready"], 2, "{fleet}");
+    for id in &ids {
+        let (status, body) = call(
+            &s,
+            Method::POST,
+            &format!("/api/v1/jobs/{id}/start"),
+            Some(&token),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let mut tools = Vec::new();
+        let limit = Instant::now() + Duration::from_secs(60);
+        loop {
+            let (_, now) = call(
+                &s,
+                Method::GET,
+                &format!("/api/v1/jobs/{id}"),
+                Some(&token),
+                None,
+            )
+            .await;
+            match now["state"].as_str().unwrap() {
+                "done" => break,
+                "waiting_operator" => {
+                    if now["pause"]["kind"] == "tool_change" {
+                        tools.push(now["pause"]["tool"].as_u64().unwrap());
+                    }
+                    call(
+                        &s,
+                        Method::POST,
+                        &format!("/api/v1/jobs/{id}/confirm"),
+                        Some(&token),
+                        None,
+                    )
+                    .await;
+                }
+                "failed" => panic!("failed: {now}"),
+                _ => {}
+            }
+            assert!(Instant::now() < limit, "timeout: {now}");
+            tokio::time::sleep(Duration::from_millis(40)).await;
+        }
+        tools.dedup();
+        assert_eq!(tools, vec![1], "only tool 1 is asked for");
+    }
+    // a request whose list of tools off is not a list of numbers is refused
+    let mut bad = drill_job();
+    bad["skip_tools"] = json!("2");
+    let (status, body) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines/m1/jobs",
+        Some(&token),
+        Some(bad),
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_request"))
+    );
+}
+
+#[tokio::test]
 async fn a_job_can_come_as_files_and_a_routing_job_runs_too() {
     let s = server("files");
     let token = admin(&s).await;

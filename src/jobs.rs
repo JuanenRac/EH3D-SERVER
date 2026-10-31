@@ -213,6 +213,8 @@ mod tests {
                 hole_ends: vec![],
                 estimate_s: 1.0,
                 travel_mm: 0.0,
+                skipped_tools: vec![],
+                skipped: 0,
             },
         }
     }
