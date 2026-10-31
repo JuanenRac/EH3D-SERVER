@@ -19,6 +19,19 @@ pub enum Connection {
     Demo,
     /// An EH3D-NODE-BUNGARD on the network.
     Node { address: String, token: String },
+    /// A GRBL controller on a serial port of the computer the server runs on: it takes free G-code jobs (needs a server built with the `serial` feature).
+    Grbl {
+        port: String,
+        #[serde(default = "default_baud")]
+        baud: u32,
+    },
+}
+
+/// The baud rate of GRBL 1.1.
+pub const GRBL_BAUD: u32 = 115_200;
+
+fn default_baud() -> u32 {
+    GRBL_BAUD
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -112,8 +125,23 @@ impl MachineRecord {
                 c.node_address = address.clone();
                 c.node_token = token.clone();
             }
+            Connection::Grbl { .. } => {
+                // a GRBL machine takes no drilling or routing job (the planning refuses them); this keeps the tuning text valid
+                c.kind = Kind::Demo;
+                c.home_signal = false;
+            }
         }
         Ok(c)
+    }
+
+    /// Whether the machine takes drilling and routing jobs (the Bungard ones, through a node or the simulator).
+    pub fn takes_drill_and_route(&self) -> bool {
+        !matches!(self.connection, Connection::Grbl { .. })
+    }
+
+    /// Whether the machine takes free G-code jobs (the simulator and GRBL; a node of a Bungard machine takes only its own jobs).
+    pub fn takes_gcode(&self) -> bool {
+        !matches!(self.connection, Connection::Node { .. })
     }
 
     pub fn validate(&self) -> Result<(), MachineError> {
@@ -128,6 +156,14 @@ impl MachineRecord {
         }
         if let Connection::Node { address, .. } = &self.connection {
             if address.trim().is_empty() || !address.contains(':') {
+                return Err(MachineError::BadAddress);
+            }
+        }
+        if let Connection::Grbl { port, baud } = &self.connection {
+            if port.trim().is_empty()
+                || port.contains(['@', ' '])
+                || !(1200..=2_000_000).contains(baud)
+            {
                 return Err(MachineError::BadAddress);
             }
         }
@@ -197,10 +233,17 @@ impl MachineRecord {
         let (kind, address, token_set) = match &self.connection {
             Connection::Demo => ("demo", String::new(), false),
             Connection::Node { address, token } => ("node", address.clone(), !token.is_empty()),
+            Connection::Grbl { port, .. } => ("grbl", port.clone(), false),
         };
+        let mut connection =
+            serde_json::json!({ "kind": kind, "address": address, "token_set": token_set });
+        if let Connection::Grbl { port, baud } = &self.connection {
+            connection["port"] = serde_json::json!(port);
+            connection["baud"] = serde_json::json!(baud);
+        }
         serde_json::json!({
             "id": self.id, "name": self.name, "model": self.model, "station": self.station,
-            "connection": { "kind": kind, "address": address, "token_set": token_set },
+            "connection": connection,
             "dcf": self.dcf, "rcf": self.rcf, "cfg": self.cfg,
             "spindle": self.spindle, "spindle_guard": self.spindle_guard,
             "spindle_original": self.spindle_original, "spindle_vfd": self.spindle_vfd,

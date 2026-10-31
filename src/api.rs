@@ -22,7 +22,7 @@ use crate::inspect::{self, InspectError};
 use crate::jobs::{new_id, now, JobRecord, JobState};
 use crate::machines::{MachineError, MachineRecord};
 use crate::plan::{self, JobRequest};
-use crate::state::{AppState, StartError};
+use crate::state::{AppState, PauseError, StartError};
 
 pub type Shared = Arc<AppState>;
 
@@ -185,6 +185,8 @@ pub fn router(state: Shared) -> Router {
         .route("/api/v1/jobs/:id/start", post(start_job))
         .route("/api/v1/jobs/:id/confirm", post(confirm_job))
         .route("/api/v1/jobs/:id/cancel", post(cancel_job))
+        .route("/api/v1/jobs/:id/pause", post(pause_job))
+        .route("/api/v1/jobs/:id/resume", post(resume_job))
         .route("/api/v1/updates", get(updates_view))
         .route("/api/v1/updates/check", post(updates_check))
         .route("/api/v1/updates/apply", post(updates_apply))
@@ -746,12 +748,13 @@ async fn create_job(
         by: who.name,
         items_total: view.items,
         items_done: 0,
-        holes_total: if view.kind == "drill" {
-            view.holes.len()
-        } else {
-            view.paths.len()
+        holes_total: match view.kind.as_str() {
+            "drill" => view.holes.len(),
+            "route" => view.paths.len(),
+            _ => 0,
         },
         holes_done: 0,
+        line: 0,
         message: String::new(),
         pause: None,
         request: body,
@@ -875,6 +878,44 @@ async fn cancel_job(
             "the job is not ready or running",
         ))
     }
+}
+
+fn pause_error(e: PauseError) -> ApiError {
+    match e {
+        PauseError::UnknownJob => ApiError::new(StatusCode::NOT_FOUND, "unknown_job", ""),
+        PauseError::NotGcode => ApiError::new(
+            StatusCode::CONFLICT,
+            "not_pausable",
+            "only a G-code job can be held; a drilling or routing job is stopped with cancel",
+        ),
+        PauseError::NotInState => ApiError::new(
+            StatusCode::CONFLICT,
+            "not_in_state",
+            "a job is held while it runs and resumed while it is held",
+        ),
+    }
+}
+
+/// Holds a running G-code job where it is: the controller is told to hold its movement and no line goes out until `resume`.
+async fn pause_job(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+) -> ApiResult {
+    need(&who, Role::Operator)?;
+    s.pause_job(&id).map_err(pause_error)?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// Lets a held G-code job go on (also the wait of a job that goes on after a stop, before its first move).
+async fn resume_job(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+) -> ApiResult {
+    need(&who, Role::Operator)?;
+    s.resume_job(&id).map_err(pause_error)?;
+    Ok(Json(json!({ "ok": true })))
 }
 
 async fn delete_job(

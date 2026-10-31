@@ -133,6 +133,20 @@
         },
         {
           "desc": {
+            "en": "free G-code: cleaning, reading and the run on the simulator or on GRBL",
+            "es": "G-code libre: limpieza, lectura y ejecución en el simulador o en GRBL",
+            "de": "freier G-Code: Bereinigen, Lesen und Ausführen am Simulator oder an GRBL",
+            "fr": "G-code libre : nettoyage, lecture et exécution sur le simulateur ou sur GRBL",
+            "it": "G-code libero: pulizia, lettura ed esecuzione sul simulatore o su GRBL",
+            "ja": "自由な G コード：整形、解析、シミュレーターまたは GRBL での実行",
+            "zh": "自由 G 代码：清理、解析，以及在模拟器或 GRBL 上运行",
+            "pt": "G-code livre: limpeza, leitura e execução no simulador ou no GRBL"
+          },
+          "name": "gcode.rs  gcode_run.rs",
+          "tree_name": "gcode.rs gcode_run.rs"
+        },
+        {
+          "desc": {
             "en": "the spindle of a machine, its limits and the safety switch",
             "es": "el husillo de una máquina, sus límites y el interruptor de seguridad",
             "it": "il mandrino di una macchina, i suoi limiti e l'interruttore di sicurezza",

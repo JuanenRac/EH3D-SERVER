@@ -18,7 +18,7 @@
 
 ---
 
-**Honesty check - what actually runs today:** a Rust server (axum) with a REST and websocket interface that keeps users, machines and jobs, plans a drilling or routing job (holes and paths, or an Excellon or HP-GL file with its tool table) with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator, a stop and every change told as it happens. 75 tests run on a computer, the jobs against the simulator. **Nothing has run on a real machine through it yet**, it does not terminate TLS, and of the clients besides the programs, EH3D-STUDIO exists (never tried against a real machine) and the Android app and the panel next to the machine do not exist yet.
+**Honesty check - what actually runs today:** a Rust server (axum) with a REST and websocket interface that keeps users, machines and jobs, plans a drilling or routing job (holes and paths, or an Excellon or HP-GL file with its tool table) with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator, a stop and every change told as it happens. 95 tests run on a computer, the jobs against the simulator. **Nothing has run on a real machine through it yet**, it does not terminate TLS, and of the clients besides the programs, EH3D-STUDIO exists (never tried against a real machine) and the Android app and the panel next to the machine do not exist yet.
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.0.3` |
 | Maturity | Scaffolding |
-| Tests | 75 |
+| Tests | 95 |
 | Stack | Rust (axum, tokio) |
 | On real hardware | No: tested against the simulator; nothing has run on a real machine through the server yet |
 
@@ -45,7 +45,7 @@ Each line is one part of this repository and the light says how far it is today.
 | Area | State | What it means here |
 |---|---|---|
 | Software | 🟡 | A Rust server (axum) keeps users, machines and jobs, plans drilling and routing jobs with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview and runs the job with operator dialogs and a stop. |
-| Tests | 🟢 | 75 tests pass (`cargo test`): 49 in the modules and 26 on the interface end to end, with jobs running on the simulator (20 in `tests/api.rs`, 6 with the real programs in `tests/programs.rs`). |
+| Tests | 🟢 | 95 tests pass (`cargo test`): 64 in the modules and 31 on the interface end to end, with jobs running on the simulator (24 in `tests/api.rs`, 7 with the real programs in `tests/programs.rs`). |
 | Interface for clients (API) | 🟡 | The REST requests and the websocket events are written down in `docs/API.md` and covered by the tests; only the programs' own server connection uses them so far. |
 | Clients | 🔴 | EH3D-STUDIO uses it (never tried against a real machine); the Android app and the touch panel next to the machine do not exist yet. |
 | Security | 🟡 | Every request needs a token with one of three roles, passwords are Argon2 hashes and wrong passwords are slowed down; the server does not terminate TLS (put HTTPS in front) and has had no independent review. |
@@ -57,6 +57,7 @@ Each line is one part of this repository and the light says how far it is today.
 ## 🎯 Overview
 
 * The **jobs**: a drilling job (holes and tools, or a `.NCD` file with its tool table) or a routing job (paths and tools, or a `.PLT` file with its tool table), planned with the libraries of the programs, so a client draws and a machine does exactly the same thing; refused with a code when a hole is outside the table or a tool is missing.
+* **Free G-code jobs:** a job of `kind: gcode` carries the text of a program; the server cleans it (no comments, no settings commands of the controller), judges its `S` and `F` against the spindle of the machine and runs it line by line on the simulator or on a GRBL controller on a serial port of the server (`connection.kind = grbl`, a build with `--features serial`). The job can be held (`pause`), released (`resume`), stopped (`cancel`), and one that stopped goes on from the line it reached: the codes in force are given back and the job waits for the operator before the first move. Tried on the simulator only, never on a real GRBL controller.
 * The **preview**: the work in the order the machine does it, the tools with their count, the bounding box, an estimate of the time and the item at which each hole is finished - what a screen needs to draw the board and follow the job.
 * The **run**: a job is ready until a person starts it; it runs on the library of the programs (the handshake, the arming, the reference run, the holes, the stop), waits at the dialogs of the operator (change the tool, confirm the spindle) until someone confirms, and can be stopped; the machine stops with the drivers off.
 * The **machines**: for each one how to reach it (an EH3D-NODE-BUNGARD over the network, or the simulator), the text of its configuration files and the values tuned on it, so the calibration of a machine lives in one place for every client.
@@ -151,7 +152,7 @@ Run it with `run.bat` (Windows) or `./run.sh` (Linux); it builds first if needed
 
 ## 🧪 Testing
 
-The suite has 75 tests (`cargo test`, run on Windows and Linux in the CI with COMMON, DRILLPRO and ROUTEPRO checked out next to the server): 49 in the modules (settings and their ranges, users, roles, tokens, the slowdown on wrong passwords, the files and the job book, planning), 20 on the interface end to end through the real router (`tests/api.rs`), and 6 with the real programs sending their jobs to a real server on a real port, with the machine on the simulator (`tests/programs.rs`). The CI also runs `cargo fmt --all --check`, `cargo clippy` with warnings as errors and `python -I tools/ci_validate.py`. Nothing here has been tested against a real node or machine. The helper that does the updates has 10 more tests of its own (`python -I tests/test_update_helper.py`, with GitHub and systemd replaced by stand-ins).
+The suite has 95 tests (`cargo test`, run on Windows and Linux in the CI with COMMON, DRILLPRO and ROUTEPRO checked out next to the server): 64 in the modules (settings and their ranges, users, roles, tokens, the slowdown on wrong passwords, the files and the job book, planning), 24 on the interface end to end through the real router (`tests/api.rs`), and 7 with the real programs sending their jobs to a real server on a real port, with the machine on the simulator (`tests/programs.rs`). The CI also runs `cargo fmt --all --check`, `cargo clippy` with warnings as errors and `python -I tools/ci_validate.py`. Nothing here has been tested against a real node or machine. The helper that does the updates has 10 more tests of its own (`python -I tests/test_update_helper.py`, with GitHub and systemd replaced by stand-ins).
 
 ## 🏗️ Build & Release
 
@@ -177,6 +178,7 @@ EH3D-SERVER/
 │   ├── config.rs lib.rs main.rs                 the settings file, the library root and the program
 │   ├── updates.rs  head.rs                      the updates of the services
 │   ├── inspect.rs                               the quality check through the camera of the head
+│   ├── gcode.rs gcode_run.rs                    free G-code: cleaning, reading and the run on the simulator or on GRBL
 │   └── spindle.rs                               the spindle of a machine, its limits and the safety switch
 ├── tests/                                       the interface end to end on the simulator, and the real programs against a real server
 ├── docs/                                        the API, the guide to running the server and the data of the two pictures

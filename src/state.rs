@@ -13,6 +13,7 @@ use tokio::sync::broadcast;
 
 use crate::auth::Auth;
 use crate::config::ServerConfig;
+use crate::gcode_run::{GState, GcodeRun, Hold};
 use crate::jobs::{now, JobBook, JobRecord, JobState, PauseView};
 use crate::machines::Machines;
 use crate::plan::{self, JobRequest};
@@ -24,6 +25,8 @@ pub struct AppState {
     pub jobs: Mutex<JobBook>,
     /// The jobs that are running, by the id of the job.
     pub runs: Mutex<HashMap<String, Arc<RealRun>>>,
+    /// The G-code jobs that are running, by the id of the job.
+    pub gcode_runs: Mutex<HashMap<String, Arc<GcodeRun>>>,
     /// Every change, as a JSON text, for the clients that listen (the websocket).
     pub events: broadcast::Sender<String>,
     /// The updates of the installed services, when the settings give the folder for them.
@@ -44,6 +47,15 @@ pub enum StartError {
     Plan(&'static str, String),
 }
 
+#[derive(Debug, PartialEq)]
+pub enum PauseError {
+    UnknownJob,
+    /// Only a G-code job can be held and resumed.
+    NotGcode,
+    /// The job is not in the state this needs (running to hold it, held to resume it).
+    NotInState,
+}
+
 impl AppState {
     pub fn open(cfg: ServerConfig) -> io::Result<Arc<AppState>> {
         std::fs::create_dir_all(&cfg.data_dir)?;
@@ -60,6 +72,7 @@ impl AppState {
             machines: Mutex::new(machines),
             jobs: Mutex::new(jobs),
             runs: Mutex::new(HashMap::new()),
+            gcode_runs: Mutex::new(HashMap::new()),
             events,
             updates,
             inspections: Mutex::new(HashMap::new()),
@@ -99,6 +112,9 @@ impl AppState {
             .map_err(|e| StartError::Plan("bad_request", e.to_string()))?;
         let planned =
             plan::plan(&machine, &request).map_err(|e| StartError::Plan(e.code, e.detail))?;
+        if let Some(program) = planned.gcode {
+            return self.start_gcode(id, &machine, planned.view, program);
+        }
         let config = machine.connection_config().map_err(|e| {
             StartError::Plan(e.code(), "the machine's tuning does not parse".into())
         })?;
@@ -131,6 +147,143 @@ impl AppState {
         let state = Arc::clone(self);
         let job_id = id.to_string();
         std::thread::spawn(move || state.follow(&job_id, run, &hole_ends));
+        Ok(())
+    }
+
+    /// Starts a G-code job: the thread of its run sends the lines and the server follows it.
+    fn start_gcode(
+        self: &Arc<Self>,
+        id: &str,
+        machine: &crate::machines::MachineRecord,
+        view: crate::plan::JobView,
+        program: crate::gcode::Program,
+    ) -> Result<(), StartError> {
+        {
+            let mut jobs = self.jobs.lock().expect("jobs lock");
+            if jobs.active_on(&machine.id).is_some() {
+                return Err(StartError::MachineBusy);
+            }
+            let job = jobs.get_mut(id).ok_or(StartError::UnknownJob)?;
+            job.state = JobState::Connecting;
+            job.started = Some(now());
+            job.items_total = view.items;
+            job.items_done = 0;
+            job.holes_done = 0;
+            job.line = 0;
+            job.view = view;
+            job.message.clear();
+            job.pause = None;
+            self.publish_job(job);
+            jobs.changed();
+        }
+        let run = GcodeRun::start(
+            machine.connection.clone(),
+            program.entries,
+            program.preamble,
+            program.raw_total,
+            program.resume,
+            Duration::from_secs(self.cfg.gcode_finish_wait_s),
+        );
+        self.gcode_runs
+            .lock()
+            .expect("gcode runs lock")
+            .insert(id.to_string(), run.clone());
+        let state = Arc::clone(self);
+        let job_id = id.to_string();
+        std::thread::spawn(move || state.follow_gcode(&job_id, run));
+        Ok(())
+    }
+
+    /// Watches a running G-code job and keeps the book and the clients up to date until it finishes.
+    fn follow_gcode(&self, id: &str, run: Arc<GcodeRun>) {
+        let mut last: Option<(JobState, usize, usize, Option<PauseView>, String)> = None;
+        loop {
+            let (state, message, pause) = match run.state() {
+                GState::Connecting => (JobState::Connecting, String::new(), None),
+                GState::Running => (JobState::Running, String::new(), None),
+                GState::Held(hold) => (
+                    JobState::WaitingOperator,
+                    String::new(),
+                    Some(PauseView {
+                        kind: match hold {
+                            Hold::Operator => "hold",
+                            Hold::Resume => "resume",
+                        }
+                        .into(),
+                        tool: None,
+                    }),
+                ),
+                GState::Done => (JobState::Done, String::new(), None),
+                GState::Cancelled => (JobState::Cancelled, String::new(), None),
+                GState::Failed(why) => (JobState::Failed, why, None),
+            };
+            let (done, total) = run.progress();
+            let items_done = if state == JobState::Done { total } else { done };
+            let line = run.line();
+            let now_view = (state, items_done, line, pause.clone(), message.clone());
+            if last.as_ref() != Some(&now_view) {
+                let mut jobs = self.jobs.lock().expect("jobs lock");
+                if let Some(job) = jobs.get_mut(id) {
+                    job.state = state;
+                    job.items_done = items_done;
+                    job.line = line;
+                    job.pause = pause;
+                    job.message = message;
+                    if state.finished() {
+                        job.finished = Some(now());
+                    }
+                    self.publish_job(job);
+                    if state != JobState::Running
+                        || last.as_ref().map(|l| l.0) != Some(JobState::Running)
+                    {
+                        jobs.changed();
+                    }
+                }
+                last = Some(now_view);
+            }
+            if state.finished() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(150));
+        }
+        self.gcode_runs.lock().expect("gcode runs lock").remove(id);
+        self.jobs.lock().expect("jobs lock").changed();
+    }
+
+    /// Holds a running G-code job where it is.
+    pub fn pause_job(&self, id: &str) -> Result<(), PauseError> {
+        self.hold_or_resume(id, true)
+    }
+
+    /// Lets a held G-code job go on.
+    pub fn resume_job(&self, id: &str) -> Result<(), PauseError> {
+        self.hold_or_resume(id, false)
+    }
+
+    fn hold_or_resume(&self, id: &str, hold: bool) -> Result<(), PauseError> {
+        let state = {
+            let jobs = self.jobs.lock().expect("jobs lock");
+            let job = jobs.get(id).ok_or(PauseError::UnknownJob)?;
+            if job.kind != "gcode" {
+                return Err(PauseError::NotGcode);
+            }
+            job.state
+        };
+        let wanted = if hold {
+            JobState::Running
+        } else {
+            JobState::WaitingOperator
+        };
+        if state != wanted {
+            return Err(PauseError::NotInState);
+        }
+        let runs = self.gcode_runs.lock().expect("gcode runs lock");
+        let run = runs.get(id).ok_or(PauseError::NotInState)?;
+        if hold {
+            run.pause();
+        } else {
+            run.resume();
+        }
         Ok(())
     }
 
@@ -209,6 +362,15 @@ impl AppState {
 
     /// The operator answers the dialog the job is waiting at.
     pub fn confirm_job(&self, id: &str) -> bool {
+        // the dialog of a G-code job is the hold: confirming it lets the job go on
+        if self
+            .gcode_runs
+            .lock()
+            .expect("gcode runs lock")
+            .contains_key(id)
+        {
+            return self.resume_job(id).is_ok();
+        }
         match self.runs.lock().expect("runs lock").get(id) {
             Some(run) => {
                 run.confirm();
@@ -220,6 +382,10 @@ impl AppState {
 
     /// Stops a running job (the machine stops with the drivers off); a job that is only ready is cancelled where it stands.
     pub fn cancel_job(&self, id: &str) -> bool {
+        if let Some(run) = self.gcode_runs.lock().expect("gcode runs lock").get(id) {
+            run.cancel();
+            return true;
+        }
         if let Some(run) = self.runs.lock().expect("runs lock").get(id) {
             run.cancel();
             return true;
@@ -246,11 +412,21 @@ impl AppState {
             .values()
             .cloned()
             .collect();
+        let gcode: Vec<Arc<GcodeRun>> = self
+            .gcode_runs
+            .lock()
+            .expect("gcode runs lock")
+            .values()
+            .cloned()
+            .collect();
         for run in &runs {
             run.cancel();
         }
+        for run in &gcode {
+            run.cancel();
+        }
         for _ in 0..50 {
-            if runs.iter().all(|r| r.finished()) {
+            if runs.iter().all(|r| r.finished()) && gcode.iter().all(|r| r.finished()) {
                 break;
             }
             std::thread::sleep(Duration::from_millis(100));

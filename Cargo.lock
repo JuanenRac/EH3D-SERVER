@@ -260,8 +260,15 @@ name = "eh3d-bungard-formats"
 version = "0.0.1"
 
 [[package]]
+name = "eh3d-controller"
+version = "0.0.1"
+dependencies = [
+ "serialport",
+]
+
+[[package]]
 name = "eh3d-drillpro"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "eh3d-archive",
  "eh3d-bungard-formats",
@@ -299,7 +306,7 @@ version = "0.0.1"
 
 [[package]]
 name = "eh3d-routepro"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "eh3d-bungard-formats",
  "eh3d-drillpro",
@@ -321,6 +328,7 @@ version = "0.0.3"
 dependencies = [
  "argon2",
  "axum",
+ "eh3d-controller",
  "eh3d-drillpro",
  "eh3d-fleet",
  "eh3d-inspect",

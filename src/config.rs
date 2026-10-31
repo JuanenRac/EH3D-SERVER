@@ -21,6 +21,9 @@ pub struct ServerConfig {
     pub studio_dir: Option<PathBuf>,
     /// The folder where the server and the update helper meet (see `updates`). Not set: the updates are not offered.
     pub updates_dir: Option<PathBuf>,
+    /// How long, in seconds, a G-code job waits for the machine to finish its last moves (the controller takes lines ahead of the movement)
+    /// before it is marked as failed.
+    pub gcode_finish_wait_s: u64,
 }
 
 impl Default for ServerConfig {
@@ -33,6 +36,7 @@ impl Default for ServerConfig {
             keep_jobs: 200,
             studio_dir: None,
             updates_dir: None,
+            gcode_finish_wait_s: 900,
         }
     }
 }
@@ -89,6 +93,9 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
                 } else {
                     Some(PathBuf::from(value))
                 }
+            }
+            "gcode_finish_wait_s" => {
+                c.gcode_finish_wait_s = number(&key, value, 1, 86_400).map_err(at)?
             }
             other => return Err(at(format!("unknown key '{other}'"))),
         }
@@ -152,6 +159,25 @@ mod tests {
         assert_eq!(c.listen, "127.0.0.1:18300".parse().unwrap());
         assert_eq!(c.data_dir, PathBuf::from("/var/lib/eh3d"));
         assert_eq!((c.session_hours, c.max_body_mb, c.keep_jobs), (4, 16, 50));
+    }
+
+    #[test]
+    fn the_wait_for_the_end_of_a_gcode_job_is_a_setting() {
+        assert_eq!(parse("").unwrap().gcode_finish_wait_s, 900);
+        assert_eq!(
+            parse(
+                "gcode_finish_wait_s = 60
+"
+            )
+            .unwrap()
+            .gcode_finish_wait_s,
+            60
+        );
+        assert!(parse(
+            "gcode_finish_wait_s = 0
+"
+        )
+        .is_err());
     }
 
     #[test]

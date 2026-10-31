@@ -7,6 +7,10 @@ license = "GPL-3.0-or-later"
 repository = "https://github.com/JuanenRac/EH3D-SERVER"
 readme = "README.md"
 
+[features]
+# GRBL controllers on a serial port of the computer the server runs on (machines of the kind `grbl`)
+serial = ["eh3d-controller/serial"]
+
 [lib]
 name = "eh3d_server"
 path = "src/lib.rs"
@@ -29,6 +33,7 @@ tower-http = { version = "0.5", features = ["limit", "fs"] }
 eh3d-drillpro = { path = "../EH3D-DRILLPRO" }
 eh3d-routepro = { path = "../EH3D-ROUTEPRO" }
 eh3d-inspect = { path = "../EH3D-COMMON/crates/inspect" }
+eh3d-controller = { path = "../EH3D-COMMON/crates/controller" }
 
 [dev-dependencies]
 # the test of the programs reads the fleet the way a program does

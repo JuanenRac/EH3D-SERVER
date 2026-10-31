@@ -6,6 +6,8 @@
 pub mod api;
 pub mod auth;
 pub mod config;
+pub mod gcode;
+pub mod gcode_run;
 pub mod head;
 pub mod inspect;
 pub mod jobs;

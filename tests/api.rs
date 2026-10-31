@@ -2027,3 +2027,330 @@ async fn a_ready_job_is_judged_again_when_it_starts_with_the_spindle_the_machine
     .await;
     assert_eq!(again["state"], "ready", "nothing ran");
 }
+
+// ---- free G-code ----------------------------------------------------------------------------------------------------------------------
+
+async fn post(s: &Server, token: &str, path: &str, body: Option<Value>) -> (StatusCode, Value) {
+    call(s, Method::POST, path, Some(token), body).await
+}
+
+async fn get(s: &Server, token: &str, path: &str) -> (StatusCode, Value) {
+    call(s, Method::GET, path, Some(token), None).await
+}
+
+/// Waits until the job is in one of the states (a failure is one of them only when asked for).
+async fn wait_state(s: &Server, token: &str, job: &str, wanted: &[&str]) -> Value {
+    let limit = Instant::now() + Duration::from_secs(60);
+    loop {
+        let (_, body) = get(s, token, &format!("/api/v1/jobs/{job}")).await;
+        let state = body["state"].as_str().unwrap_or("").to_string();
+        if wanted.contains(&state.as_str()) {
+            return body;
+        }
+        assert!(Instant::now() < limit, "timeout in state {state}: {body}");
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    }
+}
+
+fn gcode_job(text: &str) -> Value {
+    json!({"kind": "gcode", "name": "frame", "gcode": text})
+}
+
+#[tokio::test]
+async fn a_gcode_job_is_planned_runs_on_the_simulator_and_reports_its_progress() {
+    let s = server("gcode-run");
+    let token = admin(&s).await;
+    demo_machine(&s, &token, "m1").await;
+    let text = "(a frame)\nG21 G90\nG0 X10 Y10\nG1 X40 F300\nG1 Y30\nG0 X0 Y0\nM30\n";
+    let (status, view) = post(
+        &s,
+        &token,
+        "/api/v1/machines/m1/preview",
+        Some(gcode_job(text)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    assert_eq!(view["kind"], "gcode");
+    assert_eq!(
+        view["items"], 6,
+        "the lines that are sent, without the comment"
+    );
+    assert_eq!(view["bounds_mm"], json!([0.0, 0.0, 40.0, 30.0]));
+    assert!(view["estimate_s"].as_f64().unwrap() > 1.0);
+    assert_eq!(view["holes"], json!([]));
+
+    let (status, job) = post(
+        &s,
+        &token,
+        "/api/v1/machines/m1/jobs",
+        Some(gcode_job(text)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{job}");
+    assert_eq!(
+        (job["state"].as_str(), job["kind"].as_str()),
+        (Some("ready"), Some("gcode"))
+    );
+    assert_eq!(
+        (job["holes_total"].as_u64(), job["line"].as_u64()),
+        (Some(0), Some(0))
+    );
+    let id = job["id"].as_str().unwrap().to_string();
+    let (status, _) = post(&s, &token, &format!("/api/v1/jobs/{id}/start"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let done = wait_state(&s, &token, &id, &["done", "failed"]).await;
+    assert_eq!(done["state"], "done", "{done}");
+    assert_eq!(
+        (done["items_done"].as_u64(), done["items_total"].as_u64()),
+        (Some(6), Some(6))
+    );
+    assert_eq!(done["line"], 7, "the end of the text");
+    // the fleet counts it like any other job
+    let (_, fleet) = get(&s, &token, "/api/v1/fleet").await;
+    assert_eq!(fleet["machines"][0]["state"], "idle");
+    // a job that is not G-code cannot be held, and a job that does not run cannot be held either
+    let (_, drill) = post(&s, &token, "/api/v1/machines/m1/jobs", Some(drill_job())).await;
+    let did = drill["id"].as_str().unwrap();
+    let (status, body) = post(&s, &token, &format!("/api/v1/jobs/{did}/pause"), None).await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::CONFLICT, Some("not_pausable"))
+    );
+    let (status, body) = post(&s, &token, &format!("/api/v1/jobs/{id}/pause"), None).await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::CONFLICT, Some("not_in_state"))
+    );
+    let (status, _) = post(&s, &token, "/api/v1/jobs/jnothing/resume", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn what_is_not_gcode_and_the_wrong_kind_of_machine_are_refused_with_a_code() {
+    let s = server("gcode-refuse");
+    let token = admin(&s).await;
+    demo_machine(&s, &token, "m1").await;
+    for (text, code) in [
+        ("G0 X1\n$H\n", "bad_gcode"),
+        ("$100=250\n", "bad_gcode"),
+        ("(only a comment)\n\n", "no_work"),
+    ] {
+        let (status, body) = post(
+            &s,
+            &token,
+            "/api/v1/machines/m1/preview",
+            Some(gcode_job(text)),
+        )
+        .await;
+        assert_eq!(
+            (status, body["error"].as_str()),
+            (StatusCode::UNPROCESSABLE_ENTITY, Some(code)),
+            "{text}"
+        );
+    }
+    let (status, body) = post(
+        &s,
+        &token,
+        "/api/v1/machines/m1/preview",
+        Some(json!({"kind": "gcode", "gcode": "G0 X1", "skip": 9})),
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("no_work"))
+    );
+
+    // a machine with a node takes the Bungard jobs only; a GRBL machine takes G-code only
+    let (status, body) = post(&s, &token, "/api/v1/machines", Some(json!({"id": "node1", "name": "Node", "connection": {"kind": "node", "address": "127.0.0.1:1", "token": "t"}}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = post(
+        &s,
+        &token,
+        "/api/v1/machines/node1/preview",
+        Some(gcode_job("G0 X1")),
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("wrong_machine"))
+    );
+    let (status, body) = post(&s, &token, "/api/v1/machines", Some(json!({"id": "router", "name": "Router", "connection": {"kind": "grbl", "port": "/dev/ttyUSB0"}}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["connection"]["kind"], "grbl");
+    assert_eq!(
+        (
+            body["connection"]["port"].as_str(),
+            body["connection"]["baud"].as_u64()
+        ),
+        (Some("/dev/ttyUSB0"), Some(115_200))
+    );
+    let (status, body) = post(
+        &s,
+        &token,
+        "/api/v1/machines/router/preview",
+        Some(drill_job()),
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("wrong_machine"))
+    );
+    let (status, view) = post(
+        &s,
+        &token,
+        "/api/v1/machines/router/preview",
+        Some(gcode_job("G0 X1")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    // the port and the speed are checked
+    for bad in [
+        json!({"kind": "grbl", "port": ""}),
+        json!({"kind": "grbl", "port": "COM3", "baud": 5}),
+    ] {
+        let (status, body) = post(
+            &s,
+            &token,
+            "/api/v1/machines",
+            Some(json!({"id": "bad", "name": "Bad", "connection": bad})),
+        )
+        .await;
+        assert_eq!(
+            (status, body["error"].as_str()),
+            (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_address"))
+        );
+    }
+    let (_, fleet) = get(&s, &token, "/api/v1/fleet").await;
+    let kinds: Vec<&str> = fleet["machines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["connection"].as_str().unwrap())
+        .collect();
+    assert_eq!(kinds, ["demo", "node", "grbl"]);
+}
+
+#[tokio::test]
+async fn a_gcode_job_that_fails_says_where_and_one_that_goes_on_waits_for_the_operator() {
+    let s = server("gcode-resume");
+    let token = admin(&s).await;
+    demo_machine(&s, &token, "m1").await;
+    // the third line is refused by the controller
+    let text = "G21 G90\nG0 X1\nG2 X5 I1\nG0 X9\n";
+    let (_, job) = post(
+        &s,
+        &token,
+        "/api/v1/machines/m1/jobs",
+        Some(gcode_job(text)),
+    )
+    .await;
+    let id = job["id"].as_str().unwrap().to_string();
+    post(&s, &token, &format!("/api/v1/jobs/{id}/start"), None).await;
+    let failed = wait_state(&s, &token, &id, &["failed", "done"]).await;
+    assert_eq!(failed["state"], "failed", "{failed}");
+    assert!(
+        failed["message"].as_str().unwrap().contains("line 3"),
+        "{failed}"
+    );
+    assert_eq!(failed["items_done"], 2);
+    let line = failed["line"].as_u64().unwrap();
+    assert_eq!(
+        line, 2,
+        "the line that failed is where a job that goes on starts"
+    );
+
+    // the same program from there: the modal codes of the done lines come first and the job waits for a person before it moves
+    let fixed = "G21 G90\nG0 X1\nG0 X5\nG0 X9\n";
+    let (status, job) = post(
+        &s,
+        &token,
+        "/api/v1/machines/m1/jobs",
+        Some(json!({"kind": "gcode", "gcode": fixed, "skip": line})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{job}");
+    assert_eq!(
+        (
+            job["view"]["items"].as_u64(),
+            job["view"]["skipped"].as_u64()
+        ),
+        (Some(2), Some(2))
+    );
+    let id = job["id"].as_str().unwrap().to_string();
+    post(&s, &token, &format!("/api/v1/jobs/{id}/start"), None).await;
+    let held = wait_state(&s, &token, &id, &["waiting_operator", "done", "failed"]).await;
+    assert_eq!(held["state"], "waiting_operator", "{held}");
+    assert_eq!(held["pause"]["kind"], "resume");
+    assert_eq!(held["items_done"], 0, "nothing of the program went out");
+    let (_, fleet) = get(&s, &token, "/api/v1/fleet").await;
+    assert_eq!(fleet["machines"][0]["state"], "waiting");
+    let (status, _) = post(&s, &token, &format!("/api/v1/jobs/{id}/resume"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let done = wait_state(&s, &token, &id, &["done", "failed"]).await;
+    assert_eq!(done["state"], "done", "{done}");
+    assert_eq!(
+        (done["items_done"].as_u64(), done["line"].as_u64()),
+        (Some(2), Some(4))
+    );
+
+    // a held job can also be cancelled
+    let (_, job) = post(
+        &s,
+        &token,
+        "/api/v1/machines/m1/jobs",
+        Some(json!({"kind": "gcode", "gcode": fixed, "skip": 1})),
+    )
+    .await;
+    let id = job["id"].as_str().unwrap().to_string();
+    post(&s, &token, &format!("/api/v1/jobs/{id}/start"), None).await;
+    wait_state(&s, &token, &id, &["waiting_operator"]).await;
+    let (status, _) = post(&s, &token, &format!("/api/v1/jobs/{id}/cancel"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    wait_state(&s, &token, &id, &["cancelled"]).await;
+}
+
+#[tokio::test]
+async fn the_spindle_switch_judges_the_turns_and_the_feed_of_a_gcode_job_too() {
+    let s = server("gcode-spindle");
+    let token = admin(&s).await;
+    demo_machine(&s, &token, "m1").await;
+    let text = "G21 G90\nM3 S30000\nG1 X10 F2000\nM5\n";
+    // no spindle chosen: it goes as it always did
+    let (status, view) = post(
+        &s,
+        &token,
+        "/api/v1/machines/m1/preview",
+        Some(gcode_job(text)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    set_spindle(&s, &token, "m1", json!({"spindle": "vfd"})).await;
+    let (status, body) = post(
+        &s,
+        &token,
+        "/api/v1/machines/m1/preview",
+        Some(gcode_job(text)),
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("spindle_limit"))
+    );
+    set_spindle(&s, &token, "m1", json!({"guard": "warn"})).await;
+    let (status, view) = post(
+        &s,
+        &token,
+        "/api/v1/machines/m1/preview",
+        Some(gcode_job(text)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    let codes: Vec<&str> = view["spindle_warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|w| w["code"].as_str().unwrap())
+        .collect();
+    assert_eq!(codes, ["rpm_above_max", "feed_xy_above_max"]);
+    assert_eq!(view["spindle_warnings"][0]["limit"], 24000);
+}

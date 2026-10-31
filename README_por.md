@@ -30,7 +30,7 @@
 |---|---|
 | Versão | `0.0.3` |
 | Maturidade | Estrutura inicial |
-| Testes | 75 |
+| Testes | 95 |
 | Tecnologias | Rust (axum, tokio) |
 | Em hardware real | Não: testado contra o simulador; ainda nada correu numa máquina real através do servidor |
 
@@ -45,7 +45,7 @@ Cada linha é uma parte deste repositório e a luz diz até onde chega hoje. É 
 | Área | Estado | O que significa aqui |
 |---|---|---|
 | Software | 🟡 | Um servidor em Rust (axum) guarda utilizadores, máquinas e trabalhos, planeia trabalhos de furação e fresagem com as bibliotecas do EH3D-DRILLPRO e do EH3D-ROUTEPRO, mostra uma pré-visualização e executa o trabalho com diálogos de operador e uma paragem. |
-| Testes | 🟢 | Passam 75 testes (`cargo test`): 49 nos módulos e 26 sobre a interface de ponta a ponta, com trabalhos no simulador (20 em `tests/api.rs`, 6 com os programas reais em `tests/programs.rs`). |
+| Testes | 🟢 | Passam 95 testes (`cargo test`): 64 nos módulos e 31 sobre a interface de ponta a ponta, com trabalhos no simulador (24 em `tests/api.rs`, 7 com os programas reais em `tests/programs.rs`). |
 | Interface para clientes (API) | 🟡 | Os pedidos REST e os eventos websocket estão descritos em `docs/API.md` e cobertos pelos testes; até agora só a ligação ao servidor dos próprios programas os usa. |
 | Clientes | 🔴 | O EH3D-STUDIO usa-o (nunca experimentado com uma máquina real); a app Android e o painel tátil junto à máquina ainda não existem. |
 | Segurança | 🟡 | Cada pedido precisa de um token com um de três papéis, as palavras-passe são hashes Argon2 e as palavras-passe erradas são abrandadas; o servidor não termina TLS (ponha HTTPS à frente) e não teve revisão independente. |
@@ -57,6 +57,7 @@ Cada linha é uma parte deste repositório e a luz diz até onde chega hoje. É 
 ## 🎯 Visão geral
 
 * Os **trabalhos**: um trabalho de furação (furos e ferramentas, ou um ficheiro `.NCD` com a sua tabela de ferramentas) ou de fresagem (trajetórias e ferramentas, ou um ficheiro `.PLT` com a sua tabela de ferramentas), planeado com as bibliotecas dos programas, de modo que o cliente desenha e a máquina faz exatamente o mesmo; recusado com um código quando um furo fica fora da mesa ou falta uma ferramenta.
+* **Trabalhos de G-code livre:** um trabalho `kind: gcode` leva o texto de um programa; o servidor limpa-o (sem comentários nem comandos de definições do controlador), avalia o seu `S` e o seu `F` contra o fuso da máquina e executa-o linha a linha no simulador ou num controlador GRBL numa porta série do servidor (`connection.kind = grbl`, uma compilação com `--features serial`). O trabalho pode ser pausado (`pause`), libertado (`resume`) e parado (`cancel`), e um que parou continua a partir da linha a que chegou: os códigos em vigor são devolvidos e o trabalho espera pelo operador antes do primeiro movimento. Experimentado só no simulador, nunca num controlador GRBL real.
 * A **pré-visualização**: o trabalho na ordem em que a máquina o faz, as ferramentas com a sua contagem, a caixa envolvente, uma estimativa do tempo e o elemento em que cada furo termina - o que um ecrã precisa para desenhar a placa e seguir o trabalho.
 * A **execução**: um trabalho está pronto até uma pessoa o arrancar; corre na biblioteca dos programas (o handshake, o armamento, a referência, os furos, a paragem), espera nos diálogos do operador (mudar a ferramenta, confirmar o fuso) até alguém confirmar, e pode ser parado; a máquina pára com os drivers desligados.
 * As **máquinas**: de cada uma, como chegar a ela (um EH3D-NODE-BUNGARD pela rede, ou o simulador), o texto dos seus ficheiros de configuração e os valores afinados nela, de modo que a calibração de uma máquina vive num só sítio para todos os clientes.
@@ -151,7 +152,7 @@ Execute-o com `run.bat` (Windows) ou `./run.sh` (Linux); compila primeiro se for
 
 ## 🧪 Testes
 
-A suite tem 75 testes (`cargo test`, executados em Windows e Linux na CI com o COMMON, DRILLPRO e o ROUTEPRO descarregados junto ao servidor): 49 nos módulos (definições e as suas gamas, utilizadores, papéis, tokens, o abrandamento perante palavras-passe erradas, os ficheiros e o livro de trabalhos, o planeamento), 20 sobre a interface de ponta a ponta através do router real (`tests/api.rs`) e 6 com os programas reais a enviar os seus trabalhos a um servidor real numa porta real, com a máquina no simulador (`tests/programs.rs`). A CI executa também `cargo fmt --all --check`, `cargo clippy` com avisos como erros e `python -I tools/ci_validate.py`. Nada disto foi testado contra um nó ou uma máquina reais. O ajudante que faz as atualizações tem mais 10 testes próprios (`python -I tests/test_update_helper.py`, com o GitHub e o systemd substituídos por simulações).
+A suite tem 95 testes (`cargo test`, executados em Windows e Linux na CI com o COMMON, DRILLPRO e o ROUTEPRO descarregados junto ao servidor): 64 nos módulos (definições e as suas gamas, utilizadores, papéis, tokens, o abrandamento perante palavras-passe erradas, os ficheiros e o livro de trabalhos, o planeamento), 24 sobre a interface de ponta a ponta através do router real (`tests/api.rs`) e 7 com os programas reais a enviar os seus trabalhos a um servidor real numa porta real, com a máquina no simulador (`tests/programs.rs`). A CI executa também `cargo fmt --all --check`, `cargo clippy` com avisos como erros e `python -I tools/ci_validate.py`. Nada disto foi testado contra um nó ou uma máquina reais. O ajudante que faz as atualizações tem mais 10 testes próprios (`python -I tests/test_update_helper.py`, com o GitHub e o systemd substituídos por simulações).
 
 ## 🏗️ Compilação e publicação
 
@@ -177,6 +178,7 @@ EH3D-SERVER/
 │   ├── config.rs lib.rs main.rs                 o ficheiro de definições, a raiz da biblioteca e o programa
 │   ├── updates.rs  head.rs                      as atualizações dos serviços
 │   ├── inspect.rs                               a verificação de qualidade com a câmara da cabeça
+│   ├── gcode.rs gcode_run.rs                    G-code livre: limpeza, leitura e execução no simulador ou no GRBL
 │   └── spindle.rs                               o fuso de uma máquina, os seus limites e o interruptor de segurança
 ├── tests/                                       a interface de ponta a ponta no simulador e os programas reais contra um servidor real
 ├── docs/                                        a API, o guia para executar o servidor e os dados das duas imagens

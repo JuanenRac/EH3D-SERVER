@@ -42,7 +42,8 @@ impl JobState {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PauseView {
-    /// `tool_change` or `spindle_start`.
+    /// `tool_change` or `spindle_start` (a drilling or routing job); `hold` (a G-code job the operator paused) or `resume` (a G-code job that goes on
+    /// after a stop and waits for the operator before the first move).
     pub kind: String,
     pub tool: Option<u8>,
 }
@@ -63,6 +64,9 @@ pub struct JobRecord {
     pub items_done: usize,
     pub holes_total: usize,
     pub holes_done: usize,
+    /// A G-code job: the line of the program text it has got to, which is the one to start from again if the job stops (`skip` of a new job); 0 for the others.
+    #[serde(default)]
+    pub line: usize,
     /// Why it failed, in English.
     pub message: String,
     pub pause: Option<PauseView>,
@@ -78,7 +82,7 @@ impl JobRecord {
             "id": self.id, "machine": self.machine, "name": self.name, "kind": self.kind, "state": self.state,
             "created": self.created, "started": self.started, "finished": self.finished, "by": self.by,
             "items_total": self.items_total, "items_done": self.items_done, "holes_total": self.holes_total, "holes_done": self.holes_done,
-            "message": self.message, "pause": self.pause, "estimate_s": self.view.estimate_s,
+            "line": self.line, "message": self.message, "pause": self.pause, "estimate_s": self.view.estimate_s,
         })
     }
 
@@ -199,6 +203,7 @@ mod tests {
             items_done: 0,
             holes_total: 3,
             holes_done: 0,
+            line: 0,
             message: String::new(),
             pause: None,
             request: serde_json::json!({}),

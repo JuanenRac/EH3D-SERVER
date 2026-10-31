@@ -14,3 +14,5 @@ keep_jobs = 200
 studio_dir =
 # The folder where the server and the update helper (deploy/eh3d-update.py) meet; with it the Studio can check GitHub for newer releases and update. Empty: no updates.
 updates_dir =
+# How long, in seconds, a G-code job waits for the machine to finish its last moves (the controller takes lines ahead of the movement) before the job is marked as failed.
+gcode_finish_wait_s = 900

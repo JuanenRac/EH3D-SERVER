@@ -23,6 +23,8 @@ pub const MAX_POINTS: usize = 200_000;
 pub enum JobRequest {
     Drill(DrillRequest),
     Route(RouteRequest),
+    /// Free G-code, for the machines that take it (the simulator and GRBL).
+    Gcode(GcodeRequest),
 }
 
 impl JobRequest {
@@ -30,8 +32,23 @@ impl JobRequest {
         match self {
             JobRequest::Drill(d) => d.name.as_deref(),
             JobRequest::Route(r) => r.name.as_deref(),
+            JobRequest::Gcode(g) => g.name.as_deref(),
         }
     }
+}
+
+#[derive(Deserialize, Debug, Default)]
+pub struct GcodeRequest {
+    pub name: Option<String>,
+    /// The text of the program.
+    pub gcode: String,
+    /// How many lines of the text (counting the blank and the comment ones) are already done: a job that goes on after a stop does not send them
+    /// again, gives the codes they put in force back and waits for the operator before the first move.
+    #[serde(default)]
+    pub skip: usize,
+    /// When the job goes on after a stop, also start the spindle and the coolant again as they were. Off by default: starting a spindle is for a person to decide.
+    #[serde(default)]
+    pub restore_outputs: bool,
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -180,6 +197,8 @@ pub struct PathView {
 pub struct Planned {
     pub items: Vec<Item>,
     pub view: JobView,
+    /// The lines of a G-code job (`items` is empty then).
+    pub gcode: Option<crate::gcode::Program>,
 }
 
 fn finite(v: f64) -> bool {
@@ -280,9 +299,78 @@ fn spindle_verdict(
 
 pub fn plan(machine: &MachineRecord, request: &JobRequest) -> Result<Planned, PlanError> {
     match request {
+        JobRequest::Drill(_) | JobRequest::Route(_) if !machine.takes_drill_and_route() => fail(
+            "wrong_machine",
+            "this machine takes G-code jobs, not drilling or routing jobs",
+        ),
+        JobRequest::Gcode(_) if !machine.takes_gcode() => fail(
+            "wrong_machine",
+            "this machine takes drilling and routing jobs, not G-code",
+        ),
         JobRequest::Drill(d) => plan_drill(machine, d),
         JobRequest::Route(r) => plan_route(machine, r),
+        JobRequest::Gcode(g) => plan_gcode(machine, g),
     }
+}
+
+/// A G-code job: the lines that are sent, what they ask of the spindle judged against the machine's, and the view a client follows (no holes or paths: the
+/// program is the work; the bounds and the time are read from its straight moves).
+fn plan_gcode(machine: &MachineRecord, req: &GcodeRequest) -> Result<Planned, PlanError> {
+    let guard = machine.spindle_guard_for_jobs();
+    let mut program =
+        crate::gcode::parse(&req.gcode, req.skip, req.restore_outputs).map_err(|e| PlanError {
+            code: e.code,
+            detail: e.detail,
+        })?;
+    // the whole text is read, also the part that was done: its codes are given again when the job goes on
+    let all = crate::gcode::parse(&req.gcode, 0, false).map_err(|e| PlanError {
+        code: e.code,
+        detail: e.detail,
+    })?;
+    let rapid = guard
+        .as_ref()
+        .map_or(crate::gcode::DEFAULT_RAPID_MM_MIN, |g| {
+            f64::from(g.limits.max_xy_mm_min)
+        });
+    let reading = crate::gcode::read(&all.entries, rapid);
+    let excess = match &guard {
+        Some(g) => g.check(
+            0,
+            reading.max_rpm.round().min(f64::from(u32::MAX)) as u32,
+            Some(reading.max_feed_mm_min.round().min(f64::from(u32::MAX)) as u32)
+                .filter(|f| *f > 0),
+            None,
+        ),
+        None => Vec::new(),
+    };
+    let spindle_warnings = spindle_verdict(&guard, excess)?;
+    if let Some(g) = guard.filter(|g| g.mode == crate::spindle::Mode::Warn) {
+        let top = f64::from(g.limits.max_rpm);
+        for e in &mut program.entries {
+            e.text = crate::gcode::cut_speed(&e.text, top);
+        }
+    }
+    let work = program.work();
+    let view = JobView {
+        kind: "gcode".into(),
+        name: req.name.clone().unwrap_or_default(),
+        tools: Vec::new(),
+        holes: Vec::new(),
+        paths: Vec::new(),
+        bounds_mm: bounds_of(reading.points.iter().copied()),
+        items: work,
+        hole_ends: Vec::new(),
+        estimate_s: reading.estimate_s,
+        travel_mm: reading.travel_mm,
+        skipped_tools: Vec::new(),
+        skipped: req.skip,
+        spindle_warnings,
+    };
+    Ok(Planned {
+        items: Vec::new(),
+        view,
+        gcode: Some(program),
+    })
 }
 
 fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, PlanError> {
@@ -496,7 +584,11 @@ fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, Pl
         skipped,
         spindle_warnings,
     };
-    Ok(Planned { items, view })
+    Ok(Planned {
+        items,
+        view,
+        gcode: None,
+    })
 }
 
 fn bounds_of(points: impl Iterator<Item = (f64, f64)>) -> Option<[f64; 4]> {
@@ -694,7 +786,11 @@ fn plan_route(machine: &MachineRecord, req: &RouteRequest) -> Result<Planned, Pl
         skipped,
         spindle_warnings,
     };
-    Ok(Planned { items, view })
+    Ok(Planned {
+        items,
+        view,
+        gcode: None,
+    })
 }
 
 #[cfg(test)]

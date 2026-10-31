@@ -67,3 +67,13 @@ sudo systemctl daemon-reload && sudo systemctl enable --now eh3d-update.path
 ```
 
 The helper runs as root (it replaces `/opt/eh3d-server` and `/opt/eh3d-studio` and restarts the service), takes the file of the release (`eh3d-server-VERSION-linux-ARCH.tar.gz`, `eh3d-studio-VERSION.tar.gz`), checks it against the SHA-256 that the release publishes beside it, refuses an archive with names outside its folder, and keeps the old folder as `.previous` so that a bad update can be put back by hand. `python3 -I tests/test_update_helper.py` tests it without network or systemd.
+
+## A GRBL controller on a serial port
+
+A machine of the kind `grbl` (`{"kind":"grbl","port":"/dev/ttyUSB0","baud":115200}`) takes free G-code jobs through a serial port of the computer the server runs on. The release binary has no serial port support; build the server with it for such a machine:
+
+```bash
+cargo build --release --features serial
+```
+
+The user the service runs as must be allowed to open the port (on Linux the group `dialout`). Without the feature a G-code job for a `grbl` machine is marked failed when it starts, with a message that says so. `gcode_finish_wait_s` in `server.cfg` is how long a job waits for the machine to be still after its last line.

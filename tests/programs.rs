@@ -343,3 +343,32 @@ async fn a_drilling_and_a_routing_job_in_a_row_on_the_server_never_ask_for_the_t
         assert_eq!(job.view.skipped, 1, "{}", job.name);
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_excesses_of_the_spindle_the_server_cut_reach_the_program_and_the_head_is_let_go_when_there_is_none(
+) {
+    let server = start_server("spindle-notes").await;
+    let token = prepare(&server).await;
+    server
+        .state
+        .machines
+        .lock()
+        .unwrap()
+        .edit("bungard", |m| {
+            m.spindle = "vfd".into();
+            m.spindle_guard = "warn".into();
+        })
+        .unwrap();
+    let request = json!({
+        "kind": "drill", "name": "board.ncd",
+        "tools": [{"number": 1, "feed_mm_min": 1000, "spindle_rpm": 60000}],
+        "holes": [{"tool": 1, "x_mm": 10, "y_mm": 10}]
+    });
+    let run = RealRun::start_on_server(config(&server, &token, "bungard"), request, vec![5], 12);
+    let (state, _) = finish(&run).await;
+    assert_eq!(state, RunState::Done, "{:?}", run.state());
+    let notes = run.server_notes();
+    assert_eq!(notes.spindle_line().as_deref(), Some("T1 60000>24000 rpm"));
+    // the machine has no node of a head: nothing to say about it
+    assert_eq!(notes.head_line(), None);
+}
