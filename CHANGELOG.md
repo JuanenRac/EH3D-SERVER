@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **The quality check through the camera of the head:** `GET` and `POST /api/v1/machines/:id/head/light` (the ring of LEDs), `GET .../head/snapshot` (one picture), `POST .../head/inspect` (the light, the picture, the analysis with the profile of the machine and the colour of the ring that says how it went), `GET .../head/inspect` (the last check), `GET` and `PUT .../head/inspect/profile` (tolerances and presets) and `POST .../head/inspect/calibrate` (the scale from the hole that was measured). The profile of each machine is kept by the server; a query for the ring that has signs the node does not use is refused (`422 bad_light`).
+
 - **The node of the drill head through the server:** `GET /api/v1/machines/:id/head/status`, `POST .../head/measure` and `GET .../head/stream` hand on the status, a measure of the table and the camera (MJPEG) of the node that the machine's configuration names (`head_address`, `head_token`), with the roles viewer, operator and viewer; the token of the node never leaves the server. Tested against a stand-in node.
 
 ## [0.0.1] - First release: the server of the machines, the fleet, the pages of Studio and the updates from GitHub

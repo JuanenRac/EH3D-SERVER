@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.0.1` |
 | Reifegrad | Gerüst |
-| Tests | 51 |
+| Tests | 55 |
 | Technologie-Stack | Rust (axum, tokio) |
 | Auf echter Hardware | Nein: gegen den Simulator getestet; über den Server lief noch nichts auf einer echten Maschine |
 
@@ -45,7 +45,7 @@ Jede Zeile ist ein Teil dieses Repositorys, und die Ampel sagt, wie weit er heut
 | Bereich | Stand | Was das hier bedeutet |
 |---|---|---|
 | Software | 🟡 | Ein Rust-Server (axum) verwaltet Benutzer, Maschinen und Aufträge, plant Bohr- und Fräsaufträge mit den Bibliotheken von EH3D-DRILLPRO und EH3D-ROUTEPRO, zeigt eine Vorschau und führt den Auftrag mit Bedienerdialogen und einem Stopp aus. |
-| Tests | 🟢 | 51 Tests bestehen (`cargo test`): 35 in den Modulen und 16 an der Schnittstelle von Ende zu Ende, mit Aufträgen im Simulator (11 in `tests/api.rs`, 4 mit den echten Programmen in `tests/programs.rs`). |
+| Tests | 🟢 | 55 Tests bestehen (`cargo test`): 38 in den Modulen und 17 an der Schnittstelle von Ende zu Ende, mit Aufträgen im Simulator (12 in `tests/api.rs`, 4 mit den echten Programmen in `tests/programs.rs`). |
 | Schnittstelle für Clients (API) | 🟡 | Die REST-Anfragen und die Websocket-Ereignisse sind in `docs/API.md` beschrieben und von den Tests abgedeckt; bisher nutzt sie nur die Serververbindung der Programme selbst. |
 | Clients | 🔴 | EH3D-STUDIO nutzt ihn (nie an einer echten Maschine probiert); die Android-App und das Touch-Panel an der Maschine gibt es noch nicht. |
 | Sicherheit | 🟡 | Jede Anfrage braucht ein Token mit einer von drei Rollen, Passwörter sind Argon2-Hashes und falsche Passwörter werden ausgebremst; der Server beendet kein TLS (setze HTTPS davor) und wurde nicht unabhängig geprüft. |
@@ -89,6 +89,7 @@ Wie die Teile dieses Repositorys zusammenpassen: wer es nutzt, was es enthält u
 * **Sichere Dateien:** Benutzer, Tokens, Maschinen und Aufträge sind JSON-Dateien, die über eine temporäre Datei geschrieben werden; eine beschädigte Datei ist ein Fehler, nie ein stiller Neustart bei null.
 * **Aktualisierungen von GitHub:** mit `updates_dir` bietet der Server einem Administrator die Prüfung der neuesten Releases von sich selbst und von EH3D-STUDIO und deren Aktualisierung an (`/api/v1/updates`); ein kleiner, von systemd gestarteter Helfer (`deploy/eh3d-update.py`) lädt herunter, prüft den SHA-256 jeder Datei, lehnt ein Archiv mit Namen außerhalb seines Ordners ab, ersetzt den installierten Ordner (der alte bleibt als `.previous`) und startet den Dienst neu. Getestet mit durch Attrappen ersetzten GitHub und systemd, nie an einer echten Installation.
 * **Der Knoten am Bohrkopf über den Server:** nennt die Konfiguration einer Maschine den Knoten (`head_address`, `head_token`), reicht der Server seinen Status weiter (`GET /api/v1/machines/:id/head/status`), seine Kamera als MJPEG (`.../head/stream`, für einen Browser mit dem Token in der Adresse) und eine Messung des Tisches (`POST .../head/measure`, Bediener), sodass ein Programm in einem anderen Netz ihn mit derselben Anmeldung erreicht. Getestet mit einem Ersatzknoten, nie mit einem echten.
+* **Die Qualitätsprüfung mit der Kamera des Kopfes:** Der Server schaltet den LED-Ring ein, holt ein Bild vom Knoten, beurteilt es mit dem Analysator der Werkstatt (das Profil jeder Maschine verwahrt der Server), lässt den Ring zeigen, wie es ausging (grün oder rot blinkend), und behält die letzte Prüfung, damit der Bildschirm an der Maschine und die Telefone sie zeigen: `GET/POST .../head/light`, `GET .../head/snapshot`, `POST/GET .../head/inspect`, `GET/PUT .../head/inspect/profile` und `POST .../head/inspect/calibrate`.
 
 ## 🔒 Sicherheit und Schutz
 
@@ -148,7 +149,7 @@ Starte ihn mit `run.bat` (Windows) oder `./run.sh` (Linux); bei Bedarf baut er z
 
 ## 🧪 Tests
 
-Die Suite hat 51 Tests (`cargo test`, in der CI unter Windows und Linux mit COMMON, DRILLPRO und ROUTEPRO neben dem Server ausgeführt): 35 in den Modulen (Einstellungen und ihre Bereiche, Benutzer, Rollen, Tokens, die Bremse bei falschen Passwörtern, die Dateien und das Auftragsbuch, die Planung), 11 an der Schnittstelle von Ende zu Ende über den echten Router (`tests/api.rs`) und 5 mit den echten Programmen, die ihre Aufträge an einen echten Server auf einem echten Port schicken, mit der Maschine im Simulator (`tests/programs.rs`). Die CI führt außerdem `cargo fmt --all --check`, `cargo clippy` mit Warnungen als Fehlern und `python -I tools/ci_validate.py` aus. Nichts davon wurde gegen einen echten Knoten oder eine echte Maschine getestet. Der Helfer, der die Aktualisierungen macht, hat 10 weitere eigene Tests (`python -I tests/test_update_helper.py`, mit durch Attrappen ersetzten GitHub und systemd).
+Die Suite hat 55 Tests (`cargo test`, in der CI unter Windows und Linux mit COMMON, DRILLPRO und ROUTEPRO neben dem Server ausgeführt): 38 in den Modulen (Einstellungen und ihre Bereiche, Benutzer, Rollen, Tokens, die Bremse bei falschen Passwörtern, die Dateien und das Auftragsbuch, die Planung), 12 an der Schnittstelle von Ende zu Ende über den echten Router (`tests/api.rs`) und 5 mit den echten Programmen, die ihre Aufträge an einen echten Server auf einem echten Port schicken, mit der Maschine im Simulator (`tests/programs.rs`). Die CI führt außerdem `cargo fmt --all --check`, `cargo clippy` mit Warnungen als Fehlern und `python -I tools/ci_validate.py` aus. Nichts davon wurde gegen einen echten Knoten oder eine echte Maschine getestet. Der Helfer, der die Aktualisierungen macht, hat 10 weitere eigene Tests (`python -I tests/test_update_helper.py`, mit durch Attrappen ersetzten GitHub und systemd).
 
 ## 🏗️ Build und Veröffentlichung
 
@@ -172,7 +173,8 @@ EH3D-SERVER/
 │   ├── jobs.rs state.rs                         die Aufträge und woraus der Server im Betrieb besteht
 │   ├── machines.rs store.rs                     die Maschinen und die über eine temporäre Datei geschriebenen Dateien
 │   ├── config.rs lib.rs main.rs                 die Einstellungsdatei, die Bibliothekswurzel und das Programm
-│   └── updates.rs  head.rs                      die Aktualisierungen der Dienste
+│   ├── updates.rs  head.rs                      die Aktualisierungen der Dienste
+│   └── inspect.rs                               die Qualitätsprüfung mit der Kamera des Kopfes
 ├── tests/                                       die Schnittstelle von Ende zu Ende im Simulator und die echten Programme gegen einen echten Server
 ├── docs/                                        die API, die Anleitung zum Betrieb des Servers und die Daten der beiden Bilder
 ├── deploy/                                      die systemd-Unit des Dienstes

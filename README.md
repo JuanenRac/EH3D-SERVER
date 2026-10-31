@@ -18,7 +18,7 @@
 
 ---
 
-**Honesty check - what actually runs today:** a Rust server (axum) with a REST and websocket interface that keeps users, machines and jobs, plans a drilling or routing job (holes and paths, or an Excellon or HP-GL file with its tool table) with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator, a stop and every change told as it happens. 51 tests run on a computer, the jobs against the simulator. **Nothing has run on a real machine through it yet**, it does not terminate TLS, and of the clients besides the programs, EH3D-STUDIO exists (never tried against a real machine) and the Android app and the panel next to the machine do not exist yet.
+**Honesty check - what actually runs today:** a Rust server (axum) with a REST and websocket interface that keeps users, machines and jobs, plans a drilling or routing job (holes and paths, or an Excellon or HP-GL file with its tool table) with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator, a stop and every change told as it happens. 55 tests run on a computer, the jobs against the simulator. **Nothing has run on a real machine through it yet**, it does not terminate TLS, and of the clients besides the programs, EH3D-STUDIO exists (never tried against a real machine) and the Android app and the panel next to the machine do not exist yet.
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.0.1` |
 | Maturity | Scaffolding |
-| Tests | 51 |
+| Tests | 55 |
 | Stack | Rust (axum, tokio) |
 | On real hardware | No: tested against the simulator; nothing has run on a real machine through the server yet |
 
@@ -45,7 +45,7 @@ Each line is one part of this repository and the light says how far it is today.
 | Area | State | What it means here |
 |---|---|---|
 | Software | 🟡 | A Rust server (axum) keeps users, machines and jobs, plans drilling and routing jobs with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview and runs the job with operator dialogs and a stop. |
-| Tests | 🟢 | 51 tests pass (`cargo test`): 35 in the modules and 16 on the interface end to end, with jobs running on the simulator (11 in `tests/api.rs`, 5 with the real programs in `tests/programs.rs`). |
+| Tests | 🟢 | 55 tests pass (`cargo test`): 38 in the modules and 17 on the interface end to end, with jobs running on the simulator (12 in `tests/api.rs`, 5 with the real programs in `tests/programs.rs`). |
 | Interface for clients (API) | 🟡 | The REST requests and the websocket events are written down in `docs/API.md` and covered by the tests; only the programs' own server connection uses them so far. |
 | Clients | 🔴 | EH3D-STUDIO uses it (never tried against a real machine); the Android app and the touch panel next to the machine do not exist yet. |
 | Security | 🟡 | Every request needs a token with one of three roles, passwords are Argon2 hashes and wrong passwords are slowed down; the server does not terminate TLS (put HTTPS in front) and has had no independent review. |
@@ -89,6 +89,7 @@ How the parts of this repository fit together: who uses it, what it holds and wh
 * **Safe files:** users, tokens, machines and jobs are JSON files written through a temporary file; a damaged file is an error, never a silent restart from nothing.
 * **Updates from GitHub:** with `updates_dir` the server offers, to an administrator, the check of the latest releases of itself and of EH3D-STUDIO and their update (`/api/v1/updates`); a small helper started by systemd (`deploy/eh3d-update.py`) does the downloading, checks the SHA-256 of each file, refuses an archive with names outside its folder, replaces the installed folder (the old one is kept as `.previous`) and restarts the service. It has been tested with GitHub and systemd replaced by stand-ins, never on a real installation.
 * **The node of the drill head through the server:** when the configuration of a machine names the node (`head_address`, `head_token`), the server hands on its status (`GET /api/v1/machines/:id/head/status`), its camera as MJPEG (`.../head/stream`, with the token in the address for a browser) and a measure of the table (`POST .../head/measure`, operator), so a program on another network reaches it with the same login. Tested against a stand-in node, never against a real one.
+* **The quality check through the camera of the head:** the server turns the ring of LEDs on, takes a picture from the node, judges it with the analyser of the shop (the profile of each machine is kept by the server), makes the ring say how it went (green, or red blinking) and keeps the last check so the screen next to the machine and the phones show it: `GET/POST .../head/light`, `GET .../head/snapshot`, `POST/GET .../head/inspect`, `GET/PUT .../head/inspect/profile` and `POST .../head/inspect/calibrate`.
 
 ## 🔒 Security & Safety
 
@@ -148,7 +149,7 @@ Run it with `run.bat` (Windows) or `./run.sh` (Linux); it builds first if needed
 
 ## 🧪 Testing
 
-The suite has 51 tests (`cargo test`, run on Windows and Linux in the CI with COMMON, DRILLPRO and ROUTEPRO checked out next to the server): 35 in the modules (settings and their ranges, users, roles, tokens, the slowdown on wrong passwords, the files and the job book, planning), 11 on the interface end to end through the real router (`tests/api.rs`), and 5 with the real programs sending their jobs to a real server on a real port, with the machine on the simulator (`tests/programs.rs`). The CI also runs `cargo fmt --all --check`, `cargo clippy` with warnings as errors and `python -I tools/ci_validate.py`. Nothing here has been tested against a real node or machine. The helper that does the updates has 10 more tests of its own (`python -I tests/test_update_helper.py`, with GitHub and systemd replaced by stand-ins).
+The suite has 55 tests (`cargo test`, run on Windows and Linux in the CI with COMMON, DRILLPRO and ROUTEPRO checked out next to the server): 38 in the modules (settings and their ranges, users, roles, tokens, the slowdown on wrong passwords, the files and the job book, planning), 12 on the interface end to end through the real router (`tests/api.rs`), and 5 with the real programs sending their jobs to a real server on a real port, with the machine on the simulator (`tests/programs.rs`). The CI also runs `cargo fmt --all --check`, `cargo clippy` with warnings as errors and `python -I tools/ci_validate.py`. Nothing here has been tested against a real node or machine. The helper that does the updates has 10 more tests of its own (`python -I tests/test_update_helper.py`, with GitHub and systemd replaced by stand-ins).
 
 ## 🏗️ Build & Release
 
@@ -172,7 +173,8 @@ EH3D-SERVER/
 │   ├── jobs.rs state.rs                         the jobs and what the server is made of while it runs
 │   ├── machines.rs store.rs                     the machines, and the files written through a temporary file
 │   ├── config.rs lib.rs main.rs                 the settings file, the library root and the program
-│   └── updates.rs  head.rs                      the updates of the services
+│   ├── updates.rs  head.rs                      the updates of the services
+│   └── inspect.rs                               the quality check through the camera of the head
 ├── tests/                                       the interface end to end on the simulator, and the real programs against a real server
 ├── docs/                                        the API, the guide to running the server and the data of the two pictures
 ├── deploy/                                      the systemd unit of the service

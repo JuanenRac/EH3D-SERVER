@@ -28,6 +28,8 @@ pub struct AppState {
     pub events: broadcast::Sender<String>,
     /// The updates of the installed services, when the settings give the folder for them.
     pub updates: Option<crate::updates::Updates>,
+    /// The last check of the work through the camera of the drill head, by the id of the machine.
+    pub inspections: Mutex<HashMap<String, serde_json::Value>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -60,6 +62,7 @@ impl AppState {
             runs: Mutex::new(HashMap::new()),
             events,
             updates,
+            inspections: Mutex::new(HashMap::new()),
         }))
     }
 

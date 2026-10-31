@@ -121,11 +121,22 @@ pub async fn fetch(
     method: &str,
     path: &str,
 ) -> Result<(u16, String, Vec<u8>), HeadError> {
+    fetch_limit(address, token, method, path, MAX_BODY).await
+}
+
+/// A whole answer that may be bigger than a line of JSON (a picture of the camera): the same, with the most it may be.
+pub async fn fetch_limit(
+    address: &str,
+    token: &str,
+    method: &str,
+    path: &str,
+    max_body: usize,
+) -> Result<(u16, String, Vec<u8>), HeadError> {
     let mut a = open(address, token, method, path).await?;
     let mut body = std::mem::take(&mut a.rest);
     let mut chunk = [0u8; 2048];
     loop {
-        if body.len() > MAX_BODY {
+        if body.len() > max_body {
             return Err(HeadError::Unreachable);
         }
         let n = timeout(CONNECT_AND_HEADER, a.stream.read(&mut chunk))

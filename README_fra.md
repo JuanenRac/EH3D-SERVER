@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.0.1` |
 | Maturité | Échafaudage |
-| Tests | 51 |
+| Tests | 55 |
 | Pile technique | Rust (axum, tokio) |
 | Sur du matériel réel | Non : testé contre le simulateur ; rien n'a encore tourné sur une vraie machine par le serveur |
 
@@ -45,7 +45,7 @@ Chaque ligne est une partie de ce dépôt et le feu dit où elle en est aujourd'
 | Domaine | État | Ce que cela veut dire ici |
 |---|---|---|
 | Logiciel | 🟡 | Un serveur Rust (axum) garde utilisateurs, machines et travaux, planifie des travaux de perçage et de défonçage avec les bibliothèques d'EH3D-DRILLPRO et d'EH3D-ROUTEPRO, montre un aperçu et exécute le travail avec des dialogues d'opérateur et un arrêt. |
-| Tests | 🟢 | 51 tests réussissent (`cargo test`) : 35 dans les modules et 16 sur l'interface de bout en bout, avec des travaux sur le simulateur (11 dans `tests/api.rs`, 4 avec les vrais programmes dans `tests/programs.rs`). |
+| Tests | 🟢 | 55 tests réussissent (`cargo test`) : 38 dans les modules et 17 sur l'interface de bout en bout, avec des travaux sur le simulateur (12 dans `tests/api.rs`, 4 avec les vrais programmes dans `tests/programs.rs`). |
 | Interface pour les clients (API) | 🟡 | Les requêtes REST et les événements websocket sont décrits dans `docs/API.md` et couverts par les tests ; seule la connexion au serveur des programmes eux-mêmes les utilise pour l'instant. |
 | Clients | 🔴 | EH3D-STUDIO l'utilise (jamais essayé avec une vraie machine) ; l'application Android et le panneau tactile à côté de la machine n'existent pas encore. |
 | Sécurité | 🟡 | Chaque requête exige un jeton avec l'un de trois rôles, les mots de passe sont des hachages Argon2 et les mauvais mots de passe sont ralentis ; le serveur ne termine pas le TLS (mets du HTTPS devant) et n'a pas eu de revue indépendante. |
@@ -89,6 +89,7 @@ Comment les parties de ce dépôt s'articulent : qui l'utilise, ce qu'il contien
 * **Fichiers sûrs :** utilisateurs, jetons, machines et travaux sont des fichiers JSON écrits via un fichier temporaire ; un fichier endommagé est une erreur, jamais un redémarrage silencieux à zéro.
 * **Mises à jour depuis GitHub :** avec `updates_dir` le serveur propose à un administrateur la vérification des dernières versions de lui-même et d'EH3D-STUDIO et leur mise à jour (`/api/v1/updates`) ; un petit assistant lancé par systemd (`deploy/eh3d-update.py`) télécharge, vérifie le SHA-256 de chaque fichier, refuse une archive aux noms hors de son dossier, remplace le dossier installé (l'ancien est gardé en `.previous`) et redémarre le service. Il a été testé avec GitHub et systemd remplacés par des doublures, jamais sur une installation réelle.
 * **Le nœud de la tête de perçage par le serveur :** quand la configuration d'une machine nomme le nœud (`head_address`, `head_token`), le serveur relaie son état (`GET /api/v1/machines/:id/head/status`), sa caméra en MJPEG (`.../head/stream`, avec le jeton dans l'adresse pour un navigateur) et une mesure de la table (`POST .../head/measure`, opérateur), si bien qu'un programme sur un autre réseau l'atteint avec la même connexion. Testé avec un nœud de substitution, jamais avec un vrai.
+* **Le contrôle qualité avec la caméra de la tête :** le serveur allume l'anneau de LED, prend une photo auprès du nœud, la juge avec l'analyseur de l'atelier (le profil de chaque machine est gardé par le serveur), fait dire à l'anneau comment cela s'est passé (vert, ou rouge clignotant) et garde le dernier contrôle pour que l'écran à côté de la machine et les téléphones l'affichent : `GET/POST .../head/light`, `GET .../head/snapshot`, `POST/GET .../head/inspect`, `GET/PUT .../head/inspect/profile` et `POST .../head/inspect/calibrate`.
 
 ## 🔒 Sécurité et protection
 
@@ -148,7 +149,7 @@ Lance-le avec `run.bat` (Windows) ou `./run.sh` (Linux) ; il compile d'abord si 
 
 ## 🧪 Tests
 
-La suite compte 51 tests (`cargo test`, exécutés sous Windows et Linux dans la CI avec COMMON, DRILLPRO et ROUTEPRO récupérés à côté du serveur) : 35 dans les modules (réglages et leurs plages, utilisateurs, rôles, jetons, le ralentissement sur mauvais mot de passe, les fichiers et le registre des travaux, la planification), 11 sur l'interface de bout en bout par le vrai routeur (`tests/api.rs`) et 5 avec les vrais programmes envoyant leurs travaux à un vrai serveur sur un vrai port, la machine étant sur le simulateur (`tests/programs.rs`). La CI exécute aussi `cargo fmt --all --check`, `cargo clippy` avec les avertissements en erreurs et `python -I tools/ci_validate.py`. Rien de tout cela n'a été testé contre un vrai nœud ou une vraie machine. L'assistant qui fait les mises à jour a 10 tests de plus qui lui sont propres (`python -I tests/test_update_helper.py`, avec GitHub et systemd remplacés par des doublures).
+La suite compte 55 tests (`cargo test`, exécutés sous Windows et Linux dans la CI avec COMMON, DRILLPRO et ROUTEPRO récupérés à côté du serveur) : 38 dans les modules (réglages et leurs plages, utilisateurs, rôles, jetons, le ralentissement sur mauvais mot de passe, les fichiers et le registre des travaux, la planification), 12 sur l'interface de bout en bout par le vrai routeur (`tests/api.rs`) et 5 avec les vrais programmes envoyant leurs travaux à un vrai serveur sur un vrai port, la machine étant sur le simulateur (`tests/programs.rs`). La CI exécute aussi `cargo fmt --all --check`, `cargo clippy` avec les avertissements en erreurs et `python -I tools/ci_validate.py`. Rien de tout cela n'a été testé contre un vrai nœud ou une vraie machine. L'assistant qui fait les mises à jour a 10 tests de plus qui lui sont propres (`python -I tests/test_update_helper.py`, avec GitHub et systemd remplacés par des doublures).
 
 ## 🏗️ Compilation et publication
 
@@ -172,7 +173,8 @@ EH3D-SERVER/
 │   ├── jobs.rs state.rs                         les travaux et ce dont le serveur est fait pendant qu'il tourne
 │   ├── machines.rs store.rs                     les machines, et les fichiers écrits via un fichier temporaire
 │   ├── config.rs lib.rs main.rs                 le fichier de réglages, la racine de la bibliothèque et le programme
-│   └── updates.rs  head.rs                      les mises à jour des services
+│   ├── updates.rs  head.rs                      les mises à jour des services
+│   └── inspect.rs                               le contrôle qualité avec la caméra de la tête
 ├── tests/                                       l'interface de bout en bout sur le simulateur et les vrais programmes contre un vrai serveur
 ├── docs/                                        l'API, le guide pour exécuter le serveur et les données des deux images
 ├── deploy/                                      l'unité systemd du service

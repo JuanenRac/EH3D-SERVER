@@ -1246,3 +1246,357 @@ async fn the_node_of_the_drill_head_is_reached_through_the_server_with_the_machi
         (StatusCode::BAD_GATEWAY, json!("head_unreachable"))
     );
 }
+
+/// A board seen from above as the camera of the head sends it: grey board, dark holes of 0.8 mm at 50 pixels to the millimetre, as a JPEG.
+fn board_jpeg(holes: &[(f64, f64)]) -> Vec<u8> {
+    let (w, h) = (320usize, 240usize);
+    let mut rgb = vec![170u8; w * h * 3];
+    for y in 0..h {
+        for x in 0..w {
+            for &(mx, my) in holes {
+                let (cx, cy) = (w as f64 / 2.0 + mx * 50.0, h as f64 / 2.0 - my * 50.0);
+                if (x as f64 - cx).hypot(y as f64 - cy) <= 0.4 * 50.0 {
+                    let i = (y * w + x) * 3;
+                    rgb[i..i + 3].copy_from_slice(&[25, 25, 25]);
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    jpeg_encoder::Encoder::new(&mut out, 95)
+        .encode(&rgb, w as u16, h as u16, jpeg_encoder::ColorType::Rgb)
+        .unwrap();
+    out
+}
+
+/// A node with the ring of LEDs and a camera that sends one picture; it keeps the first line of every request it gets.
+fn fake_camera_head(
+    token: &'static str,
+    picture: Vec<u8>,
+) -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap().to_string();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = seen.clone();
+    std::thread::spawn(move || {
+        for conn in listener.incoming() {
+            let Ok(mut c) = conn else { continue };
+            let mut buf = [0u8; 2048];
+            let n = c.read(&mut buf).unwrap_or(0);
+            let req = String::from_utf8_lossy(&buf[..n]).to_string();
+            let line = req.lines().next().unwrap_or("").to_string();
+            log.lock().unwrap().push(line.clone());
+            let authorised = req.contains(&format!("Authorization: Bearer {token}\r\n"));
+            let json = |b: &str| {
+                format!("HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n{b}").into_bytes()
+            };
+            let reply: Vec<u8> = if !authorised {
+                b"HTTP/1.0 401 Unauthorized\r\nContent-Type: application/json\r\n\r\n{\"error\":\"unauthorized\"}".to_vec()
+            } else if line.starts_with("GET /api/snapshot ") {
+                let mut r = b"HTTP/1.0 200 OK\r\nContent-Type: image/jpeg\r\n\r\n".to_vec();
+                r.extend_from_slice(&picture);
+                r
+            } else if line.starts_with("GET /api/light") || line.starts_with("POST /api/light") {
+                json(
+                    r#"{"light":true,"on":false,"level":60,"max_level":80,"tone":"white","sectors":255,"leds":8,"auto_off_s":-1,"color":"ffffff","cue":"none"}"#,
+                )
+            } else {
+                b"HTTP/1.0 404 Not Found\r\n\r\n".to_vec()
+            };
+            let _ = c.write_all(&reply);
+        }
+    });
+    (address, seen)
+}
+
+#[tokio::test]
+async fn the_work_is_checked_through_the_camera_of_the_head_and_the_ring_says_how_it_went() {
+    let s = server("inspect");
+    let token = admin(&s).await;
+    let (node, seen) = fake_camera_head("headtoken12", board_jpeg(&[(0.0, 0.0)]));
+    let cfg = format!("head_node = server\nhead_address = {node}\nhead_token = headtoken12\n");
+    let (status, body) = call(&s, Method::POST, "/api/v1/machines", Some(&token), Some(json!({"id": "cam", "name": "Cam", "model": "ccd-mtc", "connection": {"kind": "demo"}, "cfg": cfg}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    // the ring and the picture go through with the node's own words
+    let (status, body) = call(
+        &s,
+        Method::GET,
+        "/api/v1/machines/cam/head/light",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, body["max_level"].clone()),
+        (StatusCode::OK, json!(80))
+    );
+    let (status, _) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines/cam/head/light?on=1&level=50&tone=warm",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(seen
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|l| l.starts_with("POST /api/light?on=1&level=50&tone=warm ")));
+    // what the node does not use never reaches it
+    let (status, body) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines/cam/head/light?on=1%0d%0aX:y",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].clone()),
+        (StatusCode::UNPROCESSABLE_ENTITY, json!("bad_light"))
+    );
+    let (status, _) = raw_get(
+        s.app.clone(),
+        &format!("/api/v1/machines/cam/head/snapshot?token={token}"),
+    )
+    .await;
+    assert!(
+        status == StatusCode::OK || status == StatusCode::UNAUTHORIZED,
+        "{status}"
+    );
+
+    // nothing was checked yet
+    let (status, body) = call(
+        &s,
+        Method::GET,
+        "/api/v1/machines/cam/head/inspect",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].clone()),
+        (StatusCode::NOT_FOUND, json!("no_inspection"))
+    );
+
+    // the profile: the scale of the picture, a preset that keeps it, and what cannot be used is listed
+    let (status, body) = call(
+        &s,
+        Method::PUT,
+        "/api/v1/machines/cam/head/inspect/profile",
+        Some(&token),
+        Some(json!({"px_per_mm": 50.0, "check_milling": false, "hole_pos_tol_mm": -3})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        (body["px_per_mm"].clone(), body["rejected"].clone()),
+        (json!(50.0), json!(["hole_pos_tol_mm"]))
+    );
+    let (status, body) = call(
+        &s,
+        Method::PUT,
+        "/api/v1/machines/cam/head/inspect/profile",
+        Some(&token),
+        Some(json!({"preset": "prototype"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        (body["name"].clone(), body["px_per_mm"].clone()),
+        (json!("prototype"), json!(50.0))
+    );
+    let (_, body) = call(
+        &s,
+        Method::GET,
+        "/api/v1/machines/cam/head/inspect/profile",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(body["name"], json!("prototype"));
+    let (status, _) = call(
+        &s,
+        Method::PUT,
+        "/api/v1/machines/cam/head/inspect/profile",
+        Some(&token),
+        Some(json!({"preset": "nonsense"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    // a good board: the hole is there, the verdict is ok and the ring shows green
+    seen.lock().unwrap().clear();
+    let (status, body) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines/cam/head/inspect",
+        Some(&token),
+        Some(json!({"holes": [{"x_mm": 0.0, "y_mm": 0.0, "dia_mm": 0.8}], "light": 60})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["verdict"], json!("ok"), "{body}");
+    assert_eq!(body["holes"][0]["ok"], json!(true));
+    {
+        let lines = seen.lock().unwrap();
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.starts_with("POST /api/light?on=1&level=60&tone=white&sectors=all ")),
+            "{lines:?}"
+        );
+        assert!(lines.iter().any(|l| l.starts_with("GET /api/snapshot ")));
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.starts_with("POST /api/light?cue=ok ")),
+            "{lines:?}"
+        );
+    }
+    // and it is kept as the last check
+    let (status, last) = call(
+        &s,
+        Method::GET,
+        "/api/v1/machines/cam/head/inspect",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, last["verdict"].clone()),
+        (StatusCode::OK, json!("ok"))
+    );
+
+    // the scale comes from the hole that was measured: the picture is at 50 pixels to the millimetre, a hole of 0.8 mm covers 40 of them
+    let (status, body) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines/cam/head/inspect/calibrate",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let scale = body["px_per_mm"].as_f64().unwrap();
+    assert!((scale - 50.0).abs() < 2.0, "{scale}");
+    // the last check was made with the old scale: it is gone, and there is nothing to calibrate from until another one is made
+    let (status, body) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines/cam/head/inspect/calibrate",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].clone()),
+        (StatusCode::NOT_FOUND, json!("no_inspection"))
+    );
+    let (status, _) = call(
+        &s,
+        Method::PUT,
+        "/api/v1/machines/cam/head/inspect/profile",
+        Some(&token),
+        Some(json!({"px_per_mm": 50.0})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines/cam/head/inspect",
+        Some(&token),
+        Some(json!({"holes": [{"x_mm": 0.0, "y_mm": 0.0, "dia_mm": 0.8}]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    // a hole that is not there: not ok, which one, and the ring shows red
+    seen.lock().unwrap().clear();
+    let (status, body) = call(&s, Method::POST, "/api/v1/machines/cam/head/inspect", Some(&token), Some(json!({"holes": [{"x_mm": 0.0, "y_mm": 0.0, "dia_mm": 0.8}, {"x_mm": 1.5, "y_mm": 0.5, "dia_mm": 0.8}]}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["verdict"], json!("not_ok"));
+    assert!(body["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| f["code"] == "hole_missing" && f["hole"] == 1));
+    assert!(seen
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|l| l.starts_with("POST /api/light?cue=nok ")));
+    // no light was asked for, so the ring was not switched on for the picture
+    assert!(!seen
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|l| l.contains("tone=white")));
+
+    // too many holes, and a viewer may look but not check
+    let many: Vec<Value> = (0..501)
+        .map(|_| json!({"x_mm": 0.0, "y_mm": 0.0, "dia_mm": 0.8}))
+        .collect();
+    let (status, body) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines/cam/head/inspect",
+        Some(&token),
+        Some(json!({"holes": many})),
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].clone()),
+        (StatusCode::UNPROCESSABLE_ENTITY, json!("too_many_holes"))
+    );
+    let (status, _) = call(
+        &s,
+        Method::POST,
+        "/api/v1/users",
+        Some(&token),
+        Some(json!({"name": "ana", "role": "viewer", "password": "otra-clave-larga"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, login) = call(
+        &s,
+        Method::POST,
+        "/api/v1/login",
+        None,
+        Some(json!({"name": "ana", "password": "otra-clave-larga"})),
+    )
+    .await;
+    let viewer = login["token"].as_str().unwrap().to_string();
+    let (status, _) = call(
+        &s,
+        Method::GET,
+        "/api/v1/machines/cam/head/inspect",
+        Some(&viewer),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines/cam/head/inspect",
+        Some(&viewer),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines/cam/head/light?on=1",
+        Some(&viewer),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}

@@ -116,6 +116,20 @@
           },
           "name": "updates.rs  head.rs",
           "tree_name": "updates.rs  head.rs"
+        },
+        {
+          "desc": {
+            "en": "the quality check through the camera of the head",
+            "es": "la verificación de calidad con la cámara del cabezal",
+            "it": "il controllo qualità con la telecamera della testa",
+            "de": "die Qualitätsprüfung mit der Kamera des Kopfes",
+            "fr": "le contrôle qualité avec la caméra de la tête",
+            "pt": "a verificação de qualidade com a câmara da cabeça",
+            "zh": "通过钻头摄像头进行质量检查",
+            "ja": "ヘッドのカメラによる品質チェック"
+          },
+          "name": "inspect.rs",
+          "tree_name": "inspect.rs"
         }
       ],
       "sub": {

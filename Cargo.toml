@@ -28,12 +28,15 @@ tokio-util = { version = "0.7", features = ["io"] }
 tower-http = { version = "0.5", features = ["limit", "fs"] }
 eh3d-drillpro = { path = "../EH3D-DRILLPRO" }
 eh3d-routepro = { path = "../EH3D-ROUTEPRO" }
+eh3d-inspect = { path = "../EH3D-COMMON/crates/inspect" }
 
 [dev-dependencies]
 # the test of the programs reads the fleet the way a program does
 eh3d-fleet = { path = "../EH3D-COMMON/crates/fleet" }
 tower = { version = "0.4", features = ["util"] }
 http-body-util = "0.1"
+# the test draws a board and sends it as the camera of the node would
+jpeg-encoder = "0.6"
 
 [profile.dev]
 # a lighter debug build: the file and line of a panic stay, the full debug symbols (the bulk of the target folder) do not

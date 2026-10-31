@@ -18,6 +18,7 @@ use serde_json::{json, Value};
 
 use crate::auth::{AuthError, Identity, Role};
 use crate::head::{self, HeadError};
+use crate::inspect::{self, InspectError};
 use crate::jobs::{new_id, now, JobRecord, JobState};
 use crate::machines::{MachineError, MachineRecord};
 use crate::plan::{self, JobRequest};
@@ -157,6 +158,23 @@ pub fn router(state: Shared) -> Router {
         .route("/api/v1/machines/:id/head/status", get(head_status))
         .route("/api/v1/machines/:id/head/measure", post(head_measure))
         .route("/api/v1/machines/:id/head/stream", get(head_stream))
+        .route(
+            "/api/v1/machines/:id/head/light",
+            get(head_light).post(head_light_set),
+        )
+        .route("/api/v1/machines/:id/head/snapshot", get(head_snapshot))
+        .route(
+            "/api/v1/machines/:id/head/inspect",
+            get(inspect_last).post(inspect_run),
+        )
+        .route(
+            "/api/v1/machines/:id/head/inspect/profile",
+            get(inspect_profile).put(inspect_profile_put),
+        )
+        .route(
+            "/api/v1/machines/:id/head/inspect/calibrate",
+            post(inspect_calibrate),
+        )
         .route("/api/v1/fleet", get(fleet))
         .route("/api/v1/jobs", get(list_jobs))
         .route("/api/v1/jobs/:id", get(get_job).delete(delete_job))
@@ -891,6 +909,280 @@ async fn head_measure(
         .await
         .map_err(head_error)?;
     Ok(pass_on(status, ct, body))
+}
+
+/// The ring of LEDs around the camera of the node.
+async fn head_light(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+) -> Result<Response, ApiError> {
+    need(&who, Role::Viewer)?;
+    let (address, token) = head_of(&s, &id)?;
+    let (status, ct, body) = head::fetch(&address, &token, "GET", "/api/light")
+        .await
+        .map_err(head_error)?;
+    Ok(pass_on(status, ct, body))
+}
+
+/// Asks the ring for something: the words are the node's (`on`, `level`, `tone`, `color`, `sectors`, `cue`, `cue_ms`) and go through as they come.
+async fn head_light_set(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+    parts: Parts,
+) -> Result<Response, ApiError> {
+    need(&who, Role::Operator)?;
+    let query = parts.uri.query().unwrap_or("");
+    if !inspect::light_query_ok(query) {
+        return Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "bad_light",
+            "the request for the light has signs that the node does not use",
+        ));
+    }
+    let (address, token) = head_of(&s, &id)?;
+    let path = if query.is_empty() {
+        "/api/light".to_string()
+    } else {
+        format!("/api/light?{query}")
+    };
+    let (status, ct, body) = head::fetch(&address, &token, "POST", &path)
+        .await
+        .map_err(head_error)?;
+    Ok(pass_on(status, ct, body))
+}
+
+/// One picture of the camera as JPEG.
+async fn head_snapshot(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+) -> Result<Response, ApiError> {
+    need(&who, Role::Viewer)?;
+    let (address, token) = head_of(&s, &id)?;
+    let (status, ct, body) =
+        head::fetch_limit(&address, &token, "GET", "/api/snapshot", 6 * 1024 * 1024)
+            .await
+            .map_err(head_error)?;
+    Ok(pass_on(status, ct, body))
+}
+
+/// The profile of the analyser of this machine: the tolerances and which checks are on.
+async fn inspect_profile(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+) -> ApiResult {
+    need(&who, Role::Viewer)?;
+    machine_of(&s, &id)?;
+    let p = inspect::load_profile(&s.cfg.data_dir, &id);
+    Ok(Json(p.to_json()))
+}
+
+/// Changes the profile: `{"preset": "fine_pitch"}` starts from one of the presets, and any member of the profile changes what it names. What cannot be used is listed in
+/// `rejected` and changes nothing.
+async fn inspect_profile_put(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    need(&who, Role::Operator)?;
+    machine_of(&s, &id)?;
+    let mut base = inspect::load_profile(&s.cfg.data_dir, &id);
+    let mut body = body;
+    let mut rejected: Vec<String> = Vec::new();
+    if let Some(name) = body.get("preset").and_then(Value::as_str) {
+        match eh3d_inspect::Profile::preset(name) {
+            Some(mut preset) => {
+                // a preset keeps the scale of the picture: it is a property of the camera, not of the strictness
+                preset.px_per_mm = base.px_per_mm;
+                base = preset;
+            }
+            None => rejected.push("preset".to_string()),
+        }
+    }
+    if let Some(obj) = body.as_object_mut() {
+        obj.remove("preset");
+    }
+    let (p, bad) = eh3d_inspect::Profile::from_json_over(&base, &body.to_string())
+        .map_err(|e| ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "bad_profile", e))?;
+    rejected.extend(bad);
+    inspect::save_profile(&s.cfg.data_dir, &id, &p).map_err(|e| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "store",
+            format!("the profile could not be kept: {e}"),
+        )
+    })?;
+    let mut shown = p.to_json();
+    shown["rejected"] = json!(rejected);
+    Ok(Json(shown))
+}
+
+#[derive(Deserialize, Default)]
+struct InspectBody {
+    /// The holes of the job that the camera should see, from the centre of the picture.
+    #[serde(default)]
+    holes: Vec<InspectHole>,
+    /// Turn the ring on at this level (white) before the picture. Absent: the light stays as it is.
+    light: Option<u32>,
+    #[serde(default = "yes")]
+    auto_light: bool,
+    /// Make the ring say how it went.
+    #[serde(default = "yes")]
+    cue: bool,
+    /// Put the ring back as it was when done.
+    #[serde(default)]
+    restore_light: bool,
+    /// Members of the profile for this check only.
+    profile: Option<Value>,
+}
+
+fn yes() -> bool {
+    true
+}
+
+#[derive(Deserialize)]
+struct InspectHole {
+    x_mm: f64,
+    y_mm: f64,
+    dia_mm: f64,
+}
+
+/// The check of the work: light, picture, analysis, the cue on the ring. The answer is the report, which is also kept as the last one of the machine.
+async fn inspect_run(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+    body: Option<Json<InspectBody>>,
+) -> ApiResult {
+    need(&who, Role::Operator)?;
+    let (address, token) = head_of(&s, &id)?;
+    let b = body.map(|Json(b)| b).unwrap_or_default();
+    let mut profile = inspect::load_profile(&s.cfg.data_dir, &id);
+    if let Some(over) = &b.profile {
+        let (p, _) = eh3d_inspect::Profile::from_json_over(&profile, &over.to_string())
+            .map_err(|e| ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "bad_profile", e))?;
+        profile = p;
+    }
+    if b.holes.len() > 500 {
+        return Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "too_many_holes",
+            "a picture is checked against at most 500 holes",
+        ));
+    }
+    let params = inspect::Params {
+        holes: b
+            .holes
+            .iter()
+            .map(|h| eh3d_inspect::ExpectedHole {
+                x_mm: h.x_mm,
+                y_mm: h.y_mm,
+                dia_mm: h.dia_mm,
+            })
+            .collect(),
+        light_level: b.light.map(|l| l.min(100)),
+        auto_light: b.auto_light,
+        cue: b.cue,
+        restore_light: b.restore_light,
+    };
+    let report = inspect::run(&address, &token, profile, params)
+        .await
+        .map_err(|e| match e {
+            InspectError::Head(e) => head_error(e),
+            InspectError::Refused(status, what) => ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "head_refused",
+                format!("the node answered {status} to the {what}"),
+            ),
+            InspectError::Picture(why) => ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "bad_picture",
+                format!("the picture of the node could not be read: {why}"),
+            ),
+        })?;
+    let mut shown = report.to_json();
+    shown["at"] = json!(now());
+    s.inspections
+        .lock()
+        .expect("inspections lock")
+        .insert(id.clone(), shown.clone());
+    s.publish(json!({ "type": "inspection", "id": id, "verdict": shown["verdict"] }));
+    Ok(Json(shown))
+}
+
+/// Sets the scale of the picture from the last check: the first hole that was found tells how many pixels it covered, and the job says how wide it is. The profile keeps the
+/// new scale. `409 no_hole` when the last check found no hole to measure.
+async fn inspect_calibrate(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+) -> ApiResult {
+    need(&who, Role::Operator)?;
+    machine_of(&s, &id)?;
+    let last = s
+        .inspections
+        .lock()
+        .expect("inspections lock")
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::NOT_FOUND,
+                "no_inspection",
+                "check a hole first: the scale comes from its width",
+            )
+        })?;
+    let mut profile = inspect::load_profile(&s.cfg.data_dir, &id);
+    let hole = last["holes"].as_array().and_then(|holes| {
+        holes.iter().find(|h| {
+            h["found"] == json!(true) && h["expected_dia_mm"].as_f64().unwrap_or(0.0) > 0.0
+        })
+    });
+    let scale = hole.and_then(|h| {
+        // the width was worked out with the scale of that moment: in pixels it did not depend on it
+        let d_px = h["dia_mm"].as_f64()? * profile.px_per_mm;
+        eh3d_inspect::Profile::calibrate_from_hole(d_px, h["expected_dia_mm"].as_f64()?)
+    });
+    let Some(scale) = scale else {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "no_hole",
+            "the last check found no hole to measure the scale with",
+        ));
+    };
+    profile.px_per_mm = (scale * 10.0).round() / 10.0;
+    inspect::save_profile(&s.cfg.data_dir, &id, &profile).map_err(|e| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "store",
+            format!("the profile could not be kept: {e}"),
+        )
+    })?;
+    // what was checked with the old scale is no longer the last check
+    s.inspections.lock().expect("inspections lock").remove(&id);
+    Ok(Json(profile.to_json()))
+}
+
+/// The last check of this machine.
+async fn inspect_last(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+) -> ApiResult {
+    need(&who, Role::Viewer)?;
+    machine_of(&s, &id)?;
+    match s.inspections.lock().expect("inspections lock").get(&id) {
+        Some(v) => Ok(Json(v.clone())),
+        None => Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "no_inspection",
+            "this machine has not been checked since the server started",
+        )),
+    }
 }
 
 /// The camera of the node as the node sends it (MJPEG), handed on while it comes. The token may be in the address because a browser cannot set a header on a picture.
