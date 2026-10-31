@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.0.4] - G-code jobs, pause and resume, GRBL machines and the spindle of the machine
+
 - **Free G-code jobs:** a job request of `"kind": "gcode"` carries the text of a program; the server cleans it into the lines it sends (no comments, no settings or real-time commands of the controller: `bad_gcode`), judges its `S` and `F` against the spindle of the machine like any other job, and runs it line by line on a machine whose connection is `demo` (the simulator) or the new `grbl` (a GRBL controller on a serial port of the server, `port` and `baud`; build with `--features serial`). The view gives the bounds, the length and the time of the moves; the job reports `items_done`, `items_total` and the `line` it has got to.
 - **Hold, resume and go on after a stop:** `POST /jobs/:id/pause` and `/resume` hold and release a running G-code job (`confirm` releases it too); a job made with `skip` (the lines already done) gives the codes in force back and waits for the operator before its first move, and `restore_outputs` starts the spindle and the coolant again only when asked. A line the controller refuses, an alarm or a link that fails ends the job as failed, says which line, and stops the controller. A machine of one kind refuses the jobs of the other (`wrong_machine`).
 - **A setting for the end of a job:** `gcode_finish_wait_s` in `server.cfg` (900 by default) is how long a G-code job waits for the machine to be still after its last line.
