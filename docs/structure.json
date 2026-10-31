@@ -130,6 +130,20 @@
           },
           "name": "inspect.rs",
           "tree_name": "inspect.rs"
+        },
+        {
+          "desc": {
+            "en": "the spindle of a machine, its limits and the safety switch",
+            "es": "el husillo de una máquina, sus límites y el interruptor de seguridad",
+            "it": "il mandrino di una macchina, i suoi limiti e l'interruttore di sicurezza",
+            "de": "die Spindel einer Maschine, ihre Grenzen und der Sicherheitsschalter",
+            "fr": "la broche d'une machine, ses limites et l'interrupteur de sécurité",
+            "pt": "o fuso de uma máquina, os seus limites e o interruptor de segurança",
+            "zh": "机床的主轴、其限值和安全开关",
+            "ja": "機械のスピンドル、その限界、安全スイッチ"
+          },
+          "name": "spindle.rs",
+          "tree_name": "spindle.rs"
         }
       ],
       "sub": {

@@ -11,6 +11,7 @@ pub mod inspect;
 pub mod jobs;
 pub mod machines;
 pub mod plan;
+pub mod spindle;
 pub mod state;
 pub mod store;
 pub mod updates;

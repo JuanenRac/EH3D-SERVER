@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use eh3d_drillpro::protocol::connection::{self, ConnectionConfig, Kind};
 use serde::{Deserialize, Serialize};
 
+use crate::spindle;
 use crate::store;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -40,6 +41,17 @@ pub struct MachineRecord {
     /// The values tuned on the real machine, in the format of the programs' machine file (`x_search_hz = 2200` ...). The connection keys in it are ignored.
     #[serde(default)]
     pub cfg: String,
+    /// The spindle the machine carries (`original` or `vfd`); empty when it is not said, and then no job is judged against a spindle.
+    #[serde(default)]
+    pub spindle: String,
+    /// What happens to a job that asks for more than the spindle gives: `reject` (the default, also when empty) or `warn`.
+    #[serde(default)]
+    pub spindle_guard: String,
+    /// The limits of each spindle when they are not the starting ones (only the members that differ).
+    #[serde(default)]
+    pub spindle_original: Option<spindle::Override>,
+    #[serde(default)]
+    pub spindle_vfd: Option<spindle::Override>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -55,6 +67,8 @@ pub enum MachineError {
     /// The tuning text does not parse (a typo is an error, never a silent default).
     BadCfg,
     BadDcf,
+    /// The spindle, the switch or the limits are not valid.
+    BadSpindle,
     Storage,
 }
 
@@ -69,6 +83,7 @@ impl MachineError {
             MachineError::BadAddress => "bad_address",
             MachineError::BadCfg => "bad_cfg",
             MachineError::BadDcf => "bad_dcf",
+            MachineError::BadSpindle => "bad_spindle",
             MachineError::Storage => "storage",
         }
     }
@@ -117,6 +132,7 @@ impl MachineRecord {
             }
         }
         self.connection_config()?;
+        self.spindle_check()?;
         for text in [&self.dcf, &self.rcf] {
             if !text.trim().is_empty()
                 && eh3d_drillpro::config::parse(text)
@@ -129,6 +145,53 @@ impl MachineRecord {
         Ok(())
     }
 
+    /// The limits of spindle `id` as this machine has them: the starting ones with what was changed on top.
+    pub fn limits_of(&self, id: &str) -> Option<spindle::Limits> {
+        let change = match id {
+            "original" => self.spindle_original,
+            "vfd" => self.spindle_vfd,
+            _ => return None,
+        };
+        change.unwrap_or_default().over(id)
+    }
+
+    /// The spindle the jobs of this machine are judged against: none when the machine does not say which it carries.
+    pub fn spindle_guard_for_jobs(&self) -> Option<spindle::Guard> {
+        let limits = self.limits_of(&self.spindle)?;
+        Some(spindle::Guard {
+            limits,
+            mode: spindle::Mode::parse(&self.spindle_guard).unwrap_or(spindle::Mode::Reject),
+        })
+    }
+
+    fn spindle_check(&self) -> Result<(), MachineError> {
+        if !self.spindle.is_empty() && !spindle::IDS.contains(&self.spindle.as_str()) {
+            return Err(MachineError::BadSpindle);
+        }
+        if spindle::Mode::parse(&self.spindle_guard).is_none() {
+            return Err(MachineError::BadSpindle);
+        }
+        for id in spindle::IDS {
+            if !self.limits_of(id).is_some_and(|l| l.valid()) {
+                return Err(MachineError::BadSpindle);
+            }
+        }
+        Ok(())
+    }
+
+    /// The spindle of the machine as the API shows it: which one it carries, the switch, the limits of both and the top speed the node of the machine should be set to.
+    pub fn spindle_view(&self) -> serde_json::Value {
+        let limits = |id: &str| serde_json::to_value(self.limits_of(id)).unwrap_or_default();
+        let mode = spindle::Mode::parse(&self.spindle_guard).unwrap_or(spindle::Mode::Reject);
+        serde_json::json!({
+            "spindle": self.spindle,
+            "guard": mode.word(),
+            "limits": { "original": limits("original"), "vfd": limits("vfd") },
+            "active": self.limits_of(&self.spindle).map(|l| serde_json::to_value(l).unwrap_or_default()),
+            "node_max_rpm": self.limits_of(&self.spindle).map(|l| l.max_rpm),
+        })
+    }
+
     /// What the API shows: everything but the node's token, with a flag that says whether there is one.
     pub fn public(&self) -> serde_json::Value {
         let (kind, address, token_set) = match &self.connection {
@@ -139,6 +202,8 @@ impl MachineRecord {
             "id": self.id, "name": self.name, "model": self.model, "station": self.station,
             "connection": { "kind": kind, "address": address, "token_set": token_set },
             "dcf": self.dcf, "rcf": self.rcf, "cfg": self.cfg,
+            "spindle": self.spindle, "spindle_guard": self.spindle_guard,
+            "spindle_original": self.spindle_original, "spindle_vfd": self.spindle_vfd,
         })
     }
 }
@@ -198,6 +263,25 @@ impl Machines {
         self.save()
     }
 
+    /// Changes a machine in place with `change` and keeps the result only if it is valid.
+    pub fn edit(
+        &mut self,
+        id: &str,
+        change: impl FnOnce(&mut MachineRecord),
+    ) -> Result<MachineRecord, MachineError> {
+        let index = self
+            .list
+            .iter()
+            .position(|m| m.id == id)
+            .ok_or(MachineError::Unknown)?;
+        let mut record = self.list[index].clone();
+        change(&mut record);
+        record.validate()?;
+        self.list[index] = record.clone();
+        self.save()?;
+        Ok(record)
+    }
+
     pub fn remove(&mut self, id: &str) -> Result<(), MachineError> {
         let index = self
             .list
@@ -223,6 +307,10 @@ mod tests {
             dcf: String::new(),
             rcf: String::new(),
             cfg: String::new(),
+            spindle: String::new(),
+            spindle_guard: String::new(),
+            spindle_original: None,
+            spindle_vfd: None,
         }
     }
 

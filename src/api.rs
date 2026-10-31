@@ -153,6 +153,10 @@ pub fn router(state: Shared) -> Router {
             "/api/v1/machines/:id",
             get(get_machine).put(put_machine).delete(delete_machine),
         )
+        .route(
+            "/api/v1/machines/:id/spindle",
+            get(spindle_get).put(spindle_put),
+        )
         .route("/api/v1/machines/:id/preview", post(preview))
         .route("/api/v1/machines/:id/jobs", post(create_job))
         .route("/api/v1/machines/:id/head/status", get(head_status))
@@ -559,14 +563,96 @@ async fn put_machine(
     State(s): State<Shared>,
     Authed(who, _): Authed,
     Path(id): Path<String>,
-    Json(mut record): Json<MachineRecord>,
+    Json(body): Json<Value>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
+    let mut record: MachineRecord = serde_json::from_value(body.clone()).map_err(|e| {
+        ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "bad_request",
+            e.to_string(),
+        )
+    })?;
     record.id = id;
+    // a client that does not know about spindles must not undo what was set: what the request leaves out stays as it was
+    if let Some(old) = s.machines.lock().expect("machines lock").get(&record.id) {
+        let sent = |k: &str| body.get(k).is_some();
+        if !sent("spindle") {
+            record.spindle = old.spindle.clone();
+        }
+        if !sent("spindle_guard") {
+            record.spindle_guard = old.spindle_guard.clone();
+        }
+        if !sent("spindle_original") {
+            record.spindle_original = old.spindle_original;
+        }
+        if !sent("spindle_vfd") {
+            record.spindle_vfd = old.spindle_vfd;
+        }
+    }
     let shown = record.public();
     s.machines.lock().expect("machines lock").replace(record)?;
     s.publish(json!({ "type": "machine", "id": shown["id"] }));
     Ok(Json(shown))
+}
+
+/// The spindle of the machine: which one it carries, what each can hold, the switch that says what happens to a job that asks for more, and the top speed the node should be set to.
+async fn spindle_get(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+) -> ApiResult {
+    need(&who, Role::Viewer)?;
+    Ok(Json(machine_of(&s, &id)?.spindle_view()))
+}
+
+#[derive(Deserialize)]
+struct SpindleBody {
+    spindle: Option<String>,
+    guard: Option<String>,
+    original: Option<crate::spindle::Override>,
+    vfd: Option<crate::spindle::Override>,
+}
+
+/// Sets the spindle, the switch (`reject` or `warn`) or the limits of a spindle (`original` and `vfd`: the members that are sent replace the starting ones, `{}` goes back to them).
+async fn spindle_put(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+    Json(b): Json<SpindleBody>,
+) -> ApiResult {
+    need(&who, Role::Admin)?;
+    let record = s
+        .machines
+        .lock()
+        .expect("machines lock")
+        .edit(&id, |m| {
+            if let Some(v) = b.spindle {
+                m.spindle = v;
+            }
+            if let Some(v) = b.guard {
+                m.spindle_guard = v;
+            }
+            if let Some(v) = b.original {
+                m.spindle_original = Some(v).filter(|o| *o != Default::default());
+            }
+            if let Some(v) = b.vfd {
+                m.spindle_vfd = Some(v).filter(|o| *o != Default::default());
+            }
+        })
+        .map_err(|e| {
+            ApiError::new(
+                if e == MachineError::BadSpindle {
+                    StatusCode::UNPROCESSABLE_ENTITY
+                } else {
+                    return ApiError::from(e);
+                },
+                e.code(),
+                "the spindle must be original or vfd, the switch reject or warn, and the limits numbers that can be used (the slowest not above the fastest)",
+            )
+        })?;
+    s.publish(json!({ "type": "machine", "id": id }));
+    Ok(Json(record.spindle_view()))
 }
 
 async fn delete_machine(

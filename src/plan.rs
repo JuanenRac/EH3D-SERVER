@@ -148,6 +148,9 @@ pub struct JobView {
     pub skipped_tools: Vec<u8>,
     #[serde(default)]
     pub skipped: usize,
+    /// What the job asks for beyond the spindle the machine carries, when the machine's switch is on `warn` (with `reject` such a job is refused with `spindle_limit`).
+    #[serde(default)]
+    pub spindle_warnings: Vec<crate::spindle::Finding>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -255,6 +258,23 @@ fn on_table(settings: Option<&MachineSettings>, x: f64, y: f64) -> bool {
                 && y + m.offset_mm.1 <= m.clip_mm.1
         }
         None => x >= 0.0 && y >= 0.0,
+    }
+}
+
+/// What to do with the excesses found against the spindle: with the switch on `reject` the job is refused; with `warn` they go in the job.
+fn spindle_verdict(
+    guard: &Option<crate::spindle::Guard>,
+    excess: Vec<crate::spindle::Finding>,
+) -> Result<Vec<crate::spindle::Finding>, PlanError> {
+    match guard {
+        Some(g) if g.mode == crate::spindle::Mode::Reject && !excess.is_empty() => fail(
+            "spindle_limit",
+            format!(
+                "the job asks for more than the spindle of the machine gives: {}",
+                crate::spindle::describe(&excess)
+            ),
+        ),
+        _ => Ok(excess),
     }
 }
 
@@ -389,6 +409,8 @@ fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, Pl
         }
     }
     let mut job_tools: Vec<JobTool> = Vec::new();
+    let guard = machine.spindle_guard_for_jobs();
+    let mut excess: Vec<crate::spindle::Finding> = Vec::new();
     for &number in &used {
         let Some(row) = tool_rows.iter().find(|t| t.number == number) else {
             return fail(
@@ -404,13 +426,20 @@ fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, Pl
         {
             return fail("bad_tool", format!("tool {number} has values out of range"));
         }
+        let mut rpm = row.spindle_rpm;
+        if let Some(g) = &guard {
+            // the drilling feed is the plunge of the spindle
+            excess.extend(g.check(number, rpm, None, Some(row.feed_mm_min)));
+            rpm = g.turns(rpm);
+        }
         job_tools.push(JobTool {
             number,
             extra_stroke_mm: row.extra_stroke_mm,
             feed_mm_min: row.feed_mm_min,
-            spindle_rpm: row.spindle_rpm,
+            spindle_rpm: rpm,
         });
     }
+    let spindle_warnings = spindle_verdict(&guard, excess)?;
     let job_holes: Vec<JobHole> = holes
         .iter()
         .map(|h| JobHole {
@@ -465,6 +494,7 @@ fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, Pl
         travel_mm: travel,
         skipped_tools: req.skip_tools.clone(),
         skipped,
+        spindle_warnings,
     };
     Ok(Planned { items, view })
 }
@@ -567,6 +597,8 @@ fn plan_route(machine: &MachineRecord, req: &RouteRequest) -> Result<Planned, Pl
             pens.push(p.pen);
         }
     }
+    let guard = machine.spindle_guard_for_jobs();
+    let mut excess: Vec<crate::spindle::Finding> = Vec::new();
     for &pen in &pens {
         let Some(t) = tool_rows.iter().find(|t| t.number == pen) else {
             return fail(
@@ -591,6 +623,22 @@ fn plan_route(machine: &MachineRecord, req: &RouteRequest) -> Result<Planned, Pl
             );
         }
     }
+    if let Some(g) = &guard {
+        for &pen in &pens {
+            if let Some(t) = tool_rows.iter().find(|t| t.number == pen) {
+                excess.extend(g.check(
+                    pen,
+                    t.spindle_rpm,
+                    Some(t.feed_xy_mm_min),
+                    Some(t.feed_z_mm_min),
+                ));
+            }
+        }
+        for t in tool_rows.iter_mut() {
+            t.spindle_rpm = g.turns(t.spindle_rpm);
+        }
+    }
+    let spindle_warnings = spindle_verdict(&guard, excess)?;
     let board = settings.as_ref().map_or(1.6, |m| m.board_mm);
     let jm = job_machine(settings.as_ref(), geometry, &connection, board);
     let items = plan_route_job(&paths, &tool_rows, &jm);
@@ -644,6 +692,7 @@ fn plan_route(machine: &MachineRecord, req: &RouteRequest) -> Result<Planned, Pl
         travel_mm: length,
         skipped_tools: req.skip_tools.clone(),
         skipped,
+        spindle_warnings,
     };
     Ok(Planned { items, view })
 }
@@ -663,6 +712,10 @@ mod tests {
             dcf: String::new(),
             rcf: String::new(),
             cfg: String::new(),
+            spindle: String::new(),
+            spindle_guard: String::new(),
+            spindle_original: None,
+            spindle_vfd: None,
         }
     }
 

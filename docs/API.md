@@ -65,7 +65,7 @@ A job request is a drilling job or a routing job, with the work as data or as th
 
 Both kinds of job take two more fields. `skip_tools` is a list of tool numbers (pens for a routing job) that are switched off: their holes or paths are left out of the job, and a tool that is off does not have to be in the tool table. `skip` is how many holes (counted in the order the machine drills them, tool by tool) or paths (in the order sent) are already done, so a job that goes on after a stop does only the rest. A job whose work is all left out by them is refused with `no_work`, and the view says what was left out in `skipped_tools` and `skipped`. A program that sends the job of a window (DRILLPRO, ROUTEPRO, BUNGARD-GUI) sends the holes it chose together with `skip_tools`, so the server and the window agree; a drilling job and a routing job in a row are two jobs, started one after the other on the machine.
 
-The holes or the files, not both. With files the holes are ordered as the program does (`sorting`: `none`, `x`, `y` or `special`; by default the machine's configuration says) and their units come from the machine's configuration file. A job is refused with a code before it exists: `no_work`, `both_sources`, `unknown_tool` (a tool the work uses is not in the table), `bad_tool`, `bad_board`, `out_of_table` (a hole or a point outside the course of the machine), `bad_ncd`, `too_big`, `bad_request`.
+The holes or the files, not both. With files the holes are ordered as the program does (`sorting`: `none`, `x`, `y` or `special`; by default the machine's configuration says) and their units come from the machine's configuration file. A job is refused with a code before it exists: `no_work`, `both_sources`, `spindle_limit` (beyond what the spindle of the machine gives, see below), `unknown_tool` (a tool the work uses is not in the table), `bad_tool`, `bad_board`, `out_of_table` (a hole or a point outside the course of the machine), `bad_ncd`, `too_big`, `bad_request`.
 
 The **view** is what a client draws and follows:
 
@@ -122,6 +122,17 @@ For a machine whose configuration names the node of its drill head (`head_node`,
 | `POST /api/v1/machines/:id/head/inspect/calibrate` | operator | sets `px_per_mm` from the first hole of the last check that was found (how many pixels it covered against its width in the job); `409 no_hole` when none was found |
 
 Refusals: `422 bad_light` (the query for the ring has signs the node does not use), `422 too_many_holes` (more than 500), `422 bad_profile`, `502 bad_picture` (the picture of the node could not be read), `404 no_head` (the machine has no `head_address`), `422 bad_address`, `422 bad_samples`, `502 head_unreachable` (the node does not answer in four seconds) and `502 head_refused` (the node answered with a status other than 200).
+
+## The spindle of the machine
+
+A machine carries one of two spindles, `original` (the one it leaves the factory with) or `vfd` (with a variable-frequency drive that the node of the machine drives), or none is said (empty: no job is judged against a spindle). The limits of each are the starting ones (`original`: 10000 to 60000 turns, 3000 mm/min along the cut, 4000 mm/min of plunge, bits up to 3.2 mm; `vfd`: 6000 to 24000 turns, 1500 and 1200 mm/min, bits up to 6 mm) with what the machine changed on top. They are also members of the machine (`spindle`, `spindle_guard`, `spindle_original`, `spindle_vfd`); a `PUT /machines/:id` that does not send them leaves them as they were.
+
+| Request | Role | What it does |
+|---|---|---|
+| `GET /api/v1/machines/:id/spindle` | viewer | `{"spindle","guard","limits":{"original":{...},"vfd":{...}},"active","node_max_rpm"}`: the spindle, the switch (`reject` or `warn`), the limits of both (`min_rpm`, `max_rpm`, `power_w`, `max_xy_mm_min`, `max_z_mm_min`, `max_bit_mm`), those of the spindle in use and its top speed, which is what `spindle.max_rpm` of the node of the machine should be (`null` with no spindle) |
+| `PUT /api/v1/machines/:id/spindle` | admin | `{"spindle"?,"guard"?,"original"?,"vfd"?}`: sets what is sent; `original` and `vfd` take the limits that differ from the starting ones (`{}` goes back to them). The answer is the same as the `GET`. `422 bad_spindle` for a spindle that is not one of the two, a switch that is not `reject` or `warn`, or limits that cannot be used (the slowest above the fastest, a zero feed); nothing changes then |
+
+With a spindle chosen, the planning (the preview, the creation of a job and its start) judges each tool the job uses: the turns above the top of the spindle (`rpm_above_max`) or, when not zero, below the slowest (`rpm_below_min`), the feed along the cut of a routing job (`feed_xy_above_max`) and the plunge of a routing job or the feed of a drilling job (`feed_z_above_max`). With the switch on `reject` (the default) a job with any excess is refused with `422 spindle_limit`, the detail saying which tool and by how much; with `warn` it goes through, the turns are cut to the top of the spindle (that is what the node is sent) and the view lists the excesses in `spindle_warnings` (`code`, `tool`, `value`, `limit`).
 
 ## What happens, as it happens
 

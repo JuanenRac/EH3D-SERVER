@@ -30,7 +30,7 @@
 |---|---|
 | Versione | `0.0.2` |
 | Maturità | Impalcatura |
-| Test | 62 |
+| Test | 75 |
 | Stack tecnologico | Rust (axum, tokio) |
 | Su hardware reale | No: provato contro il simulatore; finora nulla è stato eseguito su una macchina reale tramite il server |
 
@@ -45,7 +45,7 @@ Ogni riga è una parte di questo repository e il semaforo dice a che punto è og
 | Area | Stato | Cosa significa qui |
 |---|---|---|
 | Software | 🟡 | Un server Rust (axum) tiene utenti, macchine e lavori, pianifica lavori di foratura e fresatura con le librerie di EH3D-DRILLPRO ed EH3D-ROUTEPRO, mostra un'anteprima ed esegue il lavoro con dialoghi dell'operatore e uno stop. |
-| Test | 🟢 | Passano 62 test (`cargo test`): 43 nei moduli e 19 sull'interfaccia end to end, con lavori sul simulatore (13 in `tests/api.rs`, 6 con i programmi reali in `tests/programs.rs`). |
+| Test | 🟢 | Passano 75 test (`cargo test`): 49 nei moduli e 26 sull'interfaccia end to end, con lavori sul simulatore (20 in `tests/api.rs`, 6 con i programmi reali in `tests/programs.rs`). |
 | Interfaccia per i client (API) | 🟡 | Le richieste REST e gli eventi websocket sono descritti in `docs/API.md` e coperti dai test; finora li usa solo la connessione al server dei programmi stessi. |
 | Client | 🔴 | EH3D-STUDIO lo usa (mai provato con una macchina reale); l'app Android e il pannello touch accanto alla macchina non esistono ancora. |
 | Sicurezza | 🟡 | Ogni richiesta richiede un token con uno di tre ruoli, le password sono hash Argon2 e le password sbagliate vengono rallentate; il server non termina il TLS (metti HTTPS davanti) e non ha avuto una revisione indipendente. |
@@ -90,6 +90,7 @@ Come si incastrano le parti di questo repository: chi lo usa, che cosa contiene 
 * **Aggiornamenti da GitHub:** con `updates_dir` il server offre a un amministratore il controllo delle ultime release di sé stesso e di EH3D-STUDIO e il loro aggiornamento (`/api/v1/updates`); un piccolo helper avviato da systemd (`deploy/eh3d-update.py`) scarica, verifica lo SHA-256 di ogni file, rifiuta un archivio con nomi fuori dalla sua cartella, sostituisce la cartella installata (la precedente resta come `.previous`) e riavvia il servizio. È stato provato con GitHub e systemd sostituiti da simulazioni, mai su un'installazione reale.
 * **Il nodo della testa di foratura tramite il server:** quando la configurazione di una macchina nomina il nodo (`head_address`, `head_token`), il server inoltra il suo stato (`GET /api/v1/machines/:id/head/status`), la sua telecamera come MJPEG (`.../head/stream`, con il token nell'indirizzo per un browser) e una misura del tavolo (`POST .../head/measure`, operatore), così un programma su un'altra rete lo raggiunge con lo stesso accesso. Provato con un nodo simulato, mai con uno reale.
 * **Il controllo qualità con la telecamera della testa:** il server accende l'anello di LED, scatta una foto dal nodo, la giudica con l'analizzatore dell'officina (il profilo di ogni macchina è conservato dal server), fa dire all'anello com'è andata (verde, o rosso lampeggiante) e conserva l'ultimo controllo perché lo schermo accanto alla macchina e i telefoni lo mostrino: `GET/POST .../head/light`, `GET .../head/snapshot`, `POST/GET .../head/inspect`, `GET/PUT .../head/inspect/profile` e `POST .../head/inspect/calibrate`.
+* **Il mandrino della macchina:** `GET` e `PUT /api/v1/machines/:id/spindle` dicono quale mandrino porta la macchina (`original` o `vfd`) e i suoi limiti (giri, avanzamento di taglio, avanzamento di affondo, punta più grossa); un lavoro che chiede di più viene rifiutato con `spindle_limit` (l'interruttore di sicurezza `guard` è `reject` per impostazione predefinita; con `warn` il lavoro passa con i giri ridotti al massimo del mandrino e ogni eccesso elencato in `spindle_warnings`).
 
 ## 🔒 Sicurezza e protezione
 
@@ -106,6 +107,7 @@ Come si incastrano le parti di questo repository: chi lo usa, che cosa contiene 
 | Una richiesta enorme | il corpo è limitato (`max_body_mb`, 8 MB per impostazione predefinita) |
 | Un file di dati danneggiato | un errore, mai un avvio silenzioso da zero |
 | Un servizio con troppi diritti | l'unità systemd gira con un utente proprio con `NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp` e una sola cartella scrivibile |
+| Un lavoro che chiede al mandrino più di quanto dà | con un mandrino scelto per la macchina, la pianificazione rifiuta (`422 spindle_limit`) giri o avanzamenti oltre i suoi limiti, sia alla creazione sia all'avvio; l'interruttore è `reject` a meno che un amministratore imposti `warn` |
 
 **Ciò che non è difeso:** il server non termina il TLS, quindi token e password attraversano la rete in chiaro a meno che si metta HTTPS davanti; il token del websocket è nell'indirizzo; non ha avuto una revisione indipendente. Segnala una vulnerabilità in privato (vedi [SECURITY.md](SECURITY.md)).
 
@@ -149,7 +151,7 @@ Avvialo con `run.bat` (Windows) o `./run.sh` (Linux); compila prima se serve. Fi
 
 ## 🧪 Test
 
-La suite ha 62 test (`cargo test`, eseguiti su Windows e Linux nella CI con COMMON, DRILLPRO e ROUTEPRO scaricati accanto al server): 43 nei moduli (impostazioni e loro intervalli, utenti, ruoli, token, il rallentamento sulle password sbagliate, i file e il registro dei lavori, la pianificazione), 13 sull'interfaccia end to end attraverso il vero router (`tests/api.rs`) e 6 con i programmi reali che inviano i loro lavori a un vero server su una vera porta, con la macchina sul simulatore (`tests/programs.rs`). La CI esegue anche `cargo fmt --all --check`, `cargo clippy` con gli avvisi come errori e `python -I tools/ci_validate.py`. Nulla di questo è stato provato contro un nodo o una macchina reali. L'helper che fa gli aggiornamenti ha altri 10 test propri (`python -I tests/test_update_helper.py`, con GitHub e systemd sostituiti da simulazioni).
+La suite ha 75 test (`cargo test`, eseguiti su Windows e Linux nella CI con COMMON, DRILLPRO e ROUTEPRO scaricati accanto al server): 49 nei moduli (impostazioni e loro intervalli, utenti, ruoli, token, il rallentamento sulle password sbagliate, i file e il registro dei lavori, la pianificazione), 20 sull'interfaccia end to end attraverso il vero router (`tests/api.rs`) e 6 con i programmi reali che inviano i loro lavori a un vero server su una vera porta, con la macchina sul simulatore (`tests/programs.rs`). La CI esegue anche `cargo fmt --all --check`, `cargo clippy` con gli avvisi come errori e `python -I tools/ci_validate.py`. Nulla di questo è stato provato contro un nodo o una macchina reali. L'helper che fa gli aggiornamenti ha altri 10 test propri (`python -I tests/test_update_helper.py`, con GitHub e systemd sostituiti da simulazioni).
 
 ## 🏗️ Compilazione e rilascio
 
@@ -174,7 +176,8 @@ EH3D-SERVER/
 │   ├── machines.rs store.rs                     le macchine e i file scritti tramite uno temporaneo
 │   ├── config.rs lib.rs main.rs                 il file delle impostazioni, la radice della libreria e il programma
 │   ├── updates.rs  head.rs                      gli aggiornamenti dei servizi
-│   └── inspect.rs                               il controllo qualità con la telecamera della testa
+│   ├── inspect.rs                               il controllo qualità con la telecamera della testa
+│   └── spindle.rs                               il mandrino di una macchina, i suoi limiti e l'interruttore di sicurezza
 ├── tests/                                       l'interfaccia end to end sul simulatore e i programmi reali contro un vero server
 ├── docs/                                        l'API, la guida per eseguire il server e i dati delle due immagini
 ├── deploy/                                      l'unità systemd del servizio

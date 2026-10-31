@@ -1701,3 +1701,329 @@ async fn the_work_is_checked_through_the_camera_of_the_head_and_the_ring_says_ho
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 }
+
+// ---- the spindle of the machine ---------------------------------------------------------------------------------------------------------
+
+fn route_job(rpm: u32, feed_xy: u32, feed_z: u32) -> Value {
+    json!({
+        "kind": "route", "name": "outline",
+        "tools": [{"number": 1, "depth_mm": 1.7, "iterations": 1, "feed_xy_mm_min": feed_xy, "feed_z_mm_min": feed_z, "spindle_rpm": rpm}],
+        "paths": [{"pen": 1, "points_mm": [[10, 10], [40, 10], [40, 30]]}]
+    })
+}
+
+fn drill_job_at(rpm: u32, feed: u32) -> Value {
+    json!({
+        "kind": "drill", "name": "board",
+        "tools": [{"number": 1, "feed_mm_min": feed, "spindle_rpm": rpm}],
+        "holes": [{"tool": 1, "x_mm": 10, "y_mm": 10}]
+    })
+}
+
+async fn set_spindle(s: &Server, token: &str, id: &str, body: Value) -> (StatusCode, Value) {
+    call(
+        s,
+        Method::PUT,
+        &format!("/api/v1/machines/{id}/spindle"),
+        Some(token),
+        Some(body),
+    )
+    .await
+}
+
+async fn preview_of(s: &Server, token: &str, id: &str, job: Value) -> (StatusCode, Value) {
+    call(
+        s,
+        Method::POST,
+        &format!("/api/v1/machines/{id}/preview"),
+        Some(token),
+        Some(job),
+    )
+    .await
+}
+
+#[tokio::test]
+async fn a_machine_without_a_spindle_chosen_runs_any_job_as_it_always_did() {
+    let s = server("spindle-none");
+    let token = admin(&s).await;
+    demo_machine(&s, &token, "m1").await;
+    let (status, view) = call(
+        &s,
+        Method::GET,
+        "/api/v1/machines/m1/spindle",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(view["spindle"], "");
+    assert_eq!(
+        view["guard"], "reject",
+        "the switch starts on the careful side"
+    );
+    assert_eq!(view["limits"]["vfd"]["max_rpm"], 24000);
+    assert_eq!(view["limits"]["original"]["max_rpm"], 60000);
+    assert!(view["active"].is_null() && view["node_max_rpm"].is_null());
+    let (status, view) = preview_of(&s, &token, "m1", drill_job_at(60_000, 9_000)).await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    assert_eq!(view["spindle_warnings"], json!([]));
+}
+
+#[tokio::test]
+async fn the_spindle_is_set_by_an_administrator_and_kept_across_a_restart_and_an_update_that_does_not_name_it(
+) {
+    let s = server("spindle-set");
+    let boss = admin(&s).await;
+    demo_machine(&s, &boss, "m1").await;
+    let (status, view) = set_spindle(
+        &s,
+        &boss,
+        "m1",
+        json!({"spindle": "vfd", "vfd": {"max_xy_mm_min": 900}}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    assert_eq!(view["spindle"], "vfd");
+    assert_eq!(view["node_max_rpm"], 24000);
+    assert_eq!(view["active"]["max_xy_mm_min"], 900);
+    assert_eq!(
+        view["active"]["max_z_mm_min"], 1200,
+        "what was not named keeps the starting value"
+    );
+    // an update of the machine from a client that does not know about spindles leaves it alone
+    let (status, shown) = call(
+        &s,
+        Method::PUT,
+        "/api/v1/machines/m1",
+        Some(&boss),
+        Some(json!({"id": "m1", "name": "Renamed", "connection": {"kind": "demo"}})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{shown}");
+    assert_eq!(shown["spindle"], "vfd");
+    assert_eq!(shown["spindle_vfd"]["max_xy_mm_min"], 900);
+    // and it is on disk
+    let again = eh3d_server::machines::Machines::open(&s.dir).unwrap();
+    assert_eq!(again.get("m1").unwrap().spindle, "vfd");
+    // the limits go back to the starting ones with an empty change
+    let (_, view) = set_spindle(&s, &boss, "m1", json!({"vfd": {}})).await;
+    assert_eq!(view["active"]["max_xy_mm_min"], 1500);
+}
+
+#[tokio::test]
+async fn only_an_administrator_changes_the_spindle_and_nonsense_is_refused() {
+    let s = server("spindle-roles");
+    let boss = admin(&s).await;
+    demo_machine(&s, &boss, "m1").await;
+    let (_, made) = call(
+        &s,
+        Method::POST,
+        "/api/v1/users",
+        Some(&boss),
+        Some(json!({"name": "op", "role": "operator", "password": "clave-larga-123"})),
+    )
+    .await;
+    assert!(made.get("error").is_none(), "{made}");
+    let (_, login) = call(
+        &s,
+        Method::POST,
+        "/api/v1/login",
+        None,
+        Some(json!({"name": "op", "password": "clave-larga-123"})),
+    )
+    .await;
+    let op = login["token"].as_str().unwrap().to_string();
+    assert_eq!(
+        set_spindle(&s, &op, "m1", json!({"spindle": "vfd"}))
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &s,
+            Method::GET,
+            "/api/v1/machines/m1/spindle",
+            Some(&op),
+            None
+        )
+        .await
+        .0,
+        StatusCode::OK,
+        "an operator may read it"
+    );
+    for bad in [
+        json!({"spindle": "steam"}),
+        json!({"guard": "ignore"}),
+        json!({"vfd": {"min_rpm": 30000}}),
+        json!({"original": {"max_z_mm_min": 0}}),
+    ] {
+        let (status, body) = set_spindle(&s, &boss, "m1", bad.clone()).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{bad} -> {body}");
+        assert_eq!(body["error"], "bad_spindle");
+    }
+    let (status, _) = set_spindle(&s, &boss, "nothing", json!({})).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    // nothing of the refused changes stuck
+    let (_, view) = call(
+        &s,
+        Method::GET,
+        "/api/v1/machines/m1/spindle",
+        Some(&boss),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (view["spindle"].as_str(), view["guard"].as_str()),
+        (Some(""), Some("reject"))
+    );
+}
+
+#[tokio::test]
+async fn a_job_beyond_the_spindle_is_refused_by_default_with_what_is_over() {
+    let s = server("spindle-reject");
+    let token = admin(&s).await;
+    demo_machine(&s, &token, "m1").await;
+    set_spindle(&s, &token, "m1", json!({"spindle": "vfd"})).await;
+    // the turns of the original spindle on the one with the drive
+    let (status, body) = preview_of(&s, &token, "m1", drill_job_at(60_000, 800)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["error"], "spindle_limit");
+    assert!(body["detail"]
+        .as_str()
+        .unwrap()
+        .contains("60000 against 24000"));
+    // the plunge of a drill over what the spindle holds
+    let (status, body) = preview_of(&s, &token, "m1", drill_job_at(24_000, 2_000)).await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("spindle_limit"))
+    );
+    // a routing job: the feed along the cut and the plunge are judged apart
+    let (status, body) = preview_of(&s, &token, "m1", route_job(24_000, 2_500, 300)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(body["detail"]
+        .as_str()
+        .unwrap()
+        .contains("feed along the cut"));
+    let (status, body) = preview_of(&s, &token, "m1", route_job(24_000, 800, 1_500)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(body["detail"].as_str().unwrap().contains("plunge feed"));
+    // slower than the spindle can hold
+    let (status, _) = preview_of(&s, &token, "m1", drill_job_at(3_000, 800)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    // a job that fits goes through, and no job is made out of a refused one
+    let (status, view) = preview_of(&s, &token, "m1", drill_job_at(24_000, 1_000)).await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    let (status, _) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines/m1/jobs",
+        Some(&token),
+        Some(drill_job_at(60_000, 800)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    let (_, jobs) = call(&s, Method::GET, "/api/v1/jobs", Some(&token), None).await;
+    assert_eq!(jobs, json!([]));
+}
+
+#[tokio::test]
+async fn the_original_spindle_takes_the_fast_turns_but_not_a_feed_beyond_its_limit() {
+    let s = server("spindle-original");
+    let token = admin(&s).await;
+    demo_machine(&s, &token, "m1").await;
+    set_spindle(&s, &token, "m1", json!({"spindle": "original"})).await;
+    let (status, view) = preview_of(&s, &token, "m1", drill_job_at(60_000, 3_500)).await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    let (status, body) = preview_of(&s, &token, "m1", route_job(60_000, 3_500, 300)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(body["detail"]
+        .as_str()
+        .unwrap()
+        .contains("3500 against 3000"));
+}
+
+#[tokio::test]
+async fn with_the_switch_on_warn_the_job_goes_through_cut_to_the_top_turns_and_lists_every_excess()
+{
+    let s = server("spindle-warn");
+    let token = admin(&s).await;
+    demo_machine(&s, &token, "m1").await;
+    let (status, view) =
+        set_spindle(&s, &token, "m1", json!({"spindle": "vfd", "guard": "warn"})).await;
+    assert_eq!(
+        (status, view["guard"].as_str()),
+        (StatusCode::OK, Some("warn"))
+    );
+    let (status, view) = preview_of(&s, &token, "m1", route_job(60_000, 2_500, 1_500)).await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    let codes: Vec<&str> = view["spindle_warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|w| w["code"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        codes,
+        ["rpm_above_max", "feed_xy_above_max", "feed_z_above_max"]
+    );
+    assert_eq!(view["spindle_warnings"][0]["limit"], 24000);
+    assert_eq!(
+        view["tools"][0]["spindle_rpm"], 24000,
+        "the node is never asked for more than the top of the spindle"
+    );
+    // the job is kept with its warnings, and a job without excess has none
+    let (status, job) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines/m1/jobs",
+        Some(&token),
+        Some(drill_job_at(60_000, 800)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{job}");
+    assert_eq!(job["view"]["spindle_warnings"][0]["code"], "rpm_above_max");
+    let (_, clean) = preview_of(&s, &token, "m1", drill_job_at(24_000, 800)).await;
+    assert_eq!(clean["spindle_warnings"], json!([]));
+}
+
+#[tokio::test]
+async fn a_ready_job_is_judged_again_when_it_starts_with_the_spindle_the_machine_carries_then() {
+    let s = server("spindle-start");
+    let token = admin(&s).await;
+    demo_machine(&s, &token, "m1").await;
+    // made while the machine carries the fast spindle
+    set_spindle(&s, &token, "m1", json!({"spindle": "original"})).await;
+    let (status, job) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines/m1/jobs",
+        Some(&token),
+        Some(drill_job_at(60_000, 800)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{job}");
+    let id = job["id"].as_str().unwrap().to_string();
+    // the spindle is changed for the one with the drive: the job no longer fits and does not start
+    set_spindle(&s, &token, "m1", json!({"spindle": "vfd"})).await;
+    let (status, body) = call(
+        &s,
+        Method::POST,
+        &format!("/api/v1/jobs/{id}/start"),
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["error"], "spindle_limit");
+    let (_, again) = call(
+        &s,
+        Method::GET,
+        &format!("/api/v1/jobs/{id}"),
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(again["state"], "ready", "nothing ran");
+}

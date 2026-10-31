@@ -215,6 +215,7 @@ mod tests {
                 travel_mm: 0.0,
                 skipped_tools: vec![],
                 skipped: 0,
+                spindle_warnings: vec![],
             },
         }
     }
