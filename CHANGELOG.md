@@ -4,6 +4,10 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.0.5] - The original spindle starts from the speed of the maker
+
+- **The original spindle starts from the speed of the maker:** 3000 to 63000 rpm and 150 W (the KaVo spindle of the CCD, as the manual and the catalogue of Bungard say) instead of 10000 to 60000 rpm and 200 W; the settings of a machine still replace them.
+
 ## [0.0.4] - G-code jobs, pause and resume, GRBL machines and the spindle of the machine
 
 - **Free G-code jobs:** a job request of `"kind": "gcode"` carries the text of a program; the server cleans it into the lines it sends (no comments, no settings or real-time commands of the controller: `bad_gcode`), judges its `S` and `F` against the spindle of the machine like any other job, and runs it line by line on a machine whose connection is `demo` (the simulator) or the new `grbl` (a GRBL controller on a serial port of the server, `port` and `baud`; build with `--features serial`). The view gives the bounds, the length and the time of the moves; the job reports `items_done`, `items_total` and the `line` it has got to.
