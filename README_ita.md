@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/License-GPL%203.0--or--later-blue.svg" alt="GPL 3.0 or later">
   <img src="https://img.shields.io/badge/Stack-Rust-DEA584.svg" alt="Rust">
   <img src="https://img.shields.io/badge/Languages-8-00E5FF.svg" alt="Languages">
-  <img src="https://img.shields.io/badge/Version-0.0.6-0f6cbd.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.0.7-0f6cbd.svg" alt="Version">
   <img src="https://img.shields.io/badge/Maturity-scaffolding-FFB020.svg" alt="Maturity">
 </p>
 
@@ -28,7 +28,7 @@
 
 | | |
 |---|---|
-| Versione | `0.0.6` |
+| Versione | `0.0.7` |
 | Maturità | Impalcatura |
 | Test | 100 |
 | Stack tecnologico | Rust (axum, tokio) |
@@ -124,7 +124,7 @@ Come si incastrano le parti di questo repository: chi lo usa, che cosa contiene 
 
 ## ⚙️ Configurazione
 
-`server.cfg` (o il file indicato con `--config`) contiene cinque chiavi facoltative; una chiave sconosciuta o un valore fuori intervallo è un errore all'avvio. `server.cfg.example` le spiega.
+`server.cfg` (o il file indicato con `--config`) contiene undici chiavi facoltative; una chiave sconosciuta o un valore fuori intervallo è un errore all'avvio. `server.cfg.example` le spiega.
 
 | Chiave | Predefinito | Intervallo | Cosa fa |
 |---|---|---|---|

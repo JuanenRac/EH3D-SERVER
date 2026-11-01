@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/License-GPL%203.0--or--later-blue.svg" alt="GPL 3.0 or later">
   <img src="https://img.shields.io/badge/Stack-Rust-DEA584.svg" alt="Rust">
   <img src="https://img.shields.io/badge/Languages-8-00E5FF.svg" alt="Languages">
-  <img src="https://img.shields.io/badge/Version-0.0.6-0f6cbd.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.0.7-0f6cbd.svg" alt="Version">
   <img src="https://img.shields.io/badge/Maturity-scaffolding-FFB020.svg" alt="Maturity">
 </p>
 
@@ -28,7 +28,7 @@
 
 | | |
 |---|---|
-| Versão | `0.0.6` |
+| Versão | `0.0.7` |
 | Maturidade | Estrutura inicial |
 | Testes | 100 |
 | Tecnologias | Rust (axum, tokio) |
@@ -124,7 +124,7 @@ Como as partes deste repositório se encaixam: quem o usa, o que contém e de qu
 
 ## ⚙️ Configuração
 
-`server.cfg` (ou o ficheiro dado com `--config`) tem cinco chaves opcionais; uma chave desconhecida ou um valor fora de gama é um erro ao arrancar. `server.cfg.example` explica-as.
+`server.cfg` (ou o ficheiro dado com `--config`) tem onze chaves opcionais; uma chave desconhecida ou um valor fora de gama é um erro ao arrancar. `server.cfg.example` explica-as.
 
 | Chave | Por omissão | Gama | O que faz |
 |---|---|---|---|

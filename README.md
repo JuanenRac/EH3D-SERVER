@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/License-GPL%203.0--or--later-blue.svg" alt="GPL 3.0 or later">
   <img src="https://img.shields.io/badge/Stack-Rust-DEA584.svg" alt="Rust">
   <img src="https://img.shields.io/badge/Languages-8-00E5FF.svg" alt="Languages">
-  <img src="https://img.shields.io/badge/Version-0.0.6-0f6cbd.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.0.7-0f6cbd.svg" alt="Version">
   <img src="https://img.shields.io/badge/Maturity-scaffolding-FFB020.svg" alt="Maturity">
 </p>
 
@@ -28,7 +28,7 @@
 
 | | |
 |---|---|
-| Version | `0.0.6` |
+| Version | `0.0.7` |
 | Maturity | Scaffolding |
 | Tests | 100 |
 | Stack | Rust (axum, tokio) |
@@ -124,7 +124,7 @@ How the parts of this repository fit together: who uses it, what it holds and wh
 
 ## ⚙️ Configuration
 
-`server.cfg` (or the file given with `--config`) holds five optional keys; an unknown key or a value out of range is an error at start. `server.cfg.example` explains them.
+`server.cfg` (or the file given with `--config`) holds eleven optional keys; an unknown key or a value out of range is an error at start. `server.cfg.example` explains them.
 
 | Key | Default | Range | What it does |
 |---|---|---|---|

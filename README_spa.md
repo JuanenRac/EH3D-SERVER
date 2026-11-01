@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/License-GPL%203.0--or--later-blue.svg" alt="GPL 3.0 or later">
   <img src="https://img.shields.io/badge/Stack-Rust-DEA584.svg" alt="Rust">
   <img src="https://img.shields.io/badge/Languages-8-00E5FF.svg" alt="Languages">
-  <img src="https://img.shields.io/badge/Version-0.0.6-0f6cbd.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.0.7-0f6cbd.svg" alt="Version">
   <img src="https://img.shields.io/badge/Maturity-scaffolding-FFB020.svg" alt="Maturity">
 </p>
 
@@ -28,7 +28,7 @@
 
 | | |
 |---|---|
-| Versión | `0.0.6` |
+| Versión | `0.0.7` |
 | Madurez | Andamiaje |
 | Pruebas | 100 |
 | Pila tecnológica | Rust (axum, tokio) |
@@ -124,7 +124,7 @@ Cómo encajan las partes de este repositorio: quién lo usa, qué contiene y de 
 
 ## ⚙️ Configuración
 
-`server.cfg` (o el fichero dado con `--config`) tiene cinco claves opcionales; una clave desconocida o un valor fuera de rango es un error al arrancar. `server.cfg.example` las explica.
+`server.cfg` (o el fichero dado con `--config`) tiene once claves opcionales; una clave desconocida o un valor fuera de rango es un error al arrancar. `server.cfg.example` las explica.
 
 | Clave | Por defecto | Rango | Qué hace |
 |---|---|---|---|

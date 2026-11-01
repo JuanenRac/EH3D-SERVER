@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/License-GPL%203.0--or--later-blue.svg" alt="GPL 3.0 or later">
   <img src="https://img.shields.io/badge/Stack-Rust-DEA584.svg" alt="Rust">
   <img src="https://img.shields.io/badge/Languages-8-00E5FF.svg" alt="Languages">
-  <img src="https://img.shields.io/badge/Version-0.0.6-0f6cbd.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.0.7-0f6cbd.svg" alt="Version">
   <img src="https://img.shields.io/badge/Maturity-scaffolding-FFB020.svg" alt="Maturity">
 </p>
 
@@ -28,7 +28,7 @@
 
 | | |
 |---|---|
-| 版本 | `0.0.6` |
+| 版本 | `0.0.7` |
 | 成熟度 | 脚手架 |
 | 测试 | 100 |
 | 技术栈 | Rust (axum, tokio) |
@@ -124,7 +124,7 @@ EH3D-SERVER 是 EH3D 家族的中心：程序把作业发给它，它通过节�
 
 ## ⚙️ 配置
 
-`server.cfg`（或用 `--config` 指定的文件）有五个可选键；未知的键或超出范围的值在启动时会报错。`server.cfg.example` 有说明。
+`server.cfg`（或用 `--config` 指定的文件）有十一个可选键；未知的键或超出范围的值在启动时会报错。`server.cfg.example` 有说明。
 
 | 键 | 默认值 | 范围 | 作用 |
 |---|---|---|---|

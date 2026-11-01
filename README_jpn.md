@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/License-GPL%203.0--or--later-blue.svg" alt="GPL 3.0 or later">
   <img src="https://img.shields.io/badge/Stack-Rust-DEA584.svg" alt="Rust">
   <img src="https://img.shields.io/badge/Languages-8-00E5FF.svg" alt="Languages">
-  <img src="https://img.shields.io/badge/Version-0.0.6-0f6cbd.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.0.7-0f6cbd.svg" alt="Version">
   <img src="https://img.shields.io/badge/Maturity-scaffolding-FFB020.svg" alt="Maturity">
 </p>
 
@@ -28,7 +28,7 @@
 
 | | |
 |---|---|
-| バージョン | `0.0.6` |
+| バージョン | `0.0.7` |
 | 成熟度 | 足場 |
 | テスト | 100 |
 | 技術スタック | Rust (axum, tokio) |
@@ -124,7 +124,7 @@ EH3D-SERVER は EH3D ファミリーの中心です。プログラムはジョ�
 
 ## ⚙️ 設定
 
-`server.cfg`（または `--config` で指定したファイル）には 5 つの省略可能なキーがあります。未知のキーや範囲外の値は起動時にエラーになります。`server.cfg.example` に説明があります。
+`server.cfg`（または `--config` で指定したファイル）には 11 の省略可能なキーがあります。未知のキーや範囲外の値は起動時にエラーになります。`server.cfg.example` に説明があります。
 
 | キー | 既定値 | 範囲 | 内容 |
 |---|---|---|---|

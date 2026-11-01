@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.0.7] - Times of the GRBL lines and the homing
+
 - **Waits of a GRBL machine by the kind of line:** `grbl_line_timeout_s` (5 s), `grbl_homing_timeout_s` (120 s) and `grbl_jog_timeout_s` (60 s) in `server.cfg` (each from 1 to 3600), so that a `$H` of a machine that allows the `$` lines has time to finish while an ordinary line still fails quickly. A line that does not end in time holds the machine (a homing cycle is reset, a jog cancelled) and fails the job with the line. Needs the controller crate of EH3D-COMMON with the same change.
 - 1 test more (the three settings, their defaults and their range), and the job that carries `$H` and `$J=` runs on the simulator.
 

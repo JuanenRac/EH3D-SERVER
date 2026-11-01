@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/License-GPL%203.0--or--later-blue.svg" alt="GPL 3.0 or later">
   <img src="https://img.shields.io/badge/Stack-Rust-DEA584.svg" alt="Rust">
   <img src="https://img.shields.io/badge/Languages-8-00E5FF.svg" alt="Languages">
-  <img src="https://img.shields.io/badge/Version-0.0.6-0f6cbd.svg" alt="Version">
+  <img src="https://img.shields.io/badge/Version-0.0.7-0f6cbd.svg" alt="Version">
   <img src="https://img.shields.io/badge/Maturity-scaffolding-FFB020.svg" alt="Maturity">
 </p>
 
@@ -28,7 +28,7 @@
 
 | | |
 |---|---|
-| Version | `0.0.6` |
+| Version | `0.0.7` |
 | Reifegrad | Gerüst |
 | Tests | 100 |
 | Technologie-Stack | Rust (axum, tokio) |
@@ -124,7 +124,7 @@ Wie die Teile dieses Repositorys zusammenpassen: wer es nutzt, was es enthält u
 
 ## ⚙️ Konfiguration
 
-`server.cfg` (oder die mit `--config` angegebene Datei) enthält fünf optionale Schlüssel; ein unbekannter Schlüssel oder ein Wert außerhalb des Bereichs ist beim Start ein Fehler. `server.cfg.example` erklärt sie.
+`server.cfg` (oder die mit `--config` angegebene Datei) enthält elf optionale Schlüssel; ein unbekannter Schlüssel oder ein Wert außerhalb des Bereichs ist beim Start ein Fehler. `server.cfg.example` erklärt sie.
 
 | Schlüssel | Standard | Bereich | Was er bewirkt |
 |---|---|---|---|
