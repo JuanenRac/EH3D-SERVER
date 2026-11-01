@@ -30,6 +30,10 @@ pub struct ServerConfig {
     pub grbl_homing_timeout_s: u64,
     /// The same for a jog (`$J=...`).
     pub grbl_jog_timeout_s: u64,
+    /// How many lines before the one a stopped G-code job had reached a resumed job starts again: the controller takes lines ahead of the movement, so the last ones sent were not all done.
+    pub resume_margin_lines: usize,
+    /// How many wrong passwords in a row, with any names, block an address (the one of the socket) for a while; 0 turns it off.
+    pub login_ip_limit: u32,
 }
 
 impl ServerConfig {
@@ -58,6 +62,8 @@ impl Default for ServerConfig {
             grbl_line_timeout_s: 5,
             grbl_homing_timeout_s: 120,
             grbl_jog_timeout_s: 60,
+            resume_margin_lines: 16,
+            login_ip_limit: 10,
         }
     }
 }
@@ -126,6 +132,12 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
             }
             "grbl_jog_timeout_s" => {
                 c.grbl_jog_timeout_s = number(&key, value, 1, 3_600).map_err(at)?
+            }
+            "login_ip_limit" => {
+                c.login_ip_limit = number(&key, value, 0, 1_000).map_err(at)? as u32
+            }
+            "resume_margin_lines" => {
+                c.resume_margin_lines = number(&key, value, 0, 1_000).map_err(at)? as usize
             }
             other => return Err(at(format!("unknown key '{other}'"))),
         }
@@ -229,6 +241,18 @@ mod tests {
         assert!(parse("grbl_homing_timeout_s = 0\n").is_err());
         assert!(parse("grbl_jog_timeout_s = 99999\n").is_err());
         assert!(parse("grbl_line_timeout_s = fast\n").is_err());
+    }
+
+    #[test]
+    fn the_margin_of_a_resumed_gcode_job_is_a_setting() {
+        assert_eq!(parse("").unwrap().resume_margin_lines, 16);
+        assert_eq!(
+            parse("resume_margin_lines = 0\n")
+                .unwrap()
+                .resume_margin_lines,
+            0
+        );
+        assert!(parse("resume_margin_lines = 5000\n").is_err());
     }
 
     #[test]

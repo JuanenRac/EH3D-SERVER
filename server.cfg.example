@@ -19,6 +19,10 @@ gcode_finish_wait_s = 900
 # How long, in seconds, a GRBL machine may take to answer a line of a G-code job. When a line does not end in time the machine is held (a homing cycle is reset, a jog is cancelled) and the job is marked as failed, with the line.
 # An ordinary line is taken at once.
 grbl_line_timeout_s = 5
+# How many lines before the one it had reached a resumed G-code job starts again (0 to 1000): the controller takes lines ahead of the movement, so the last ones sent were not all done.
+resume_margin_lines = 16
+# How many wrong passwords in a row, with any names, block the address they come from for a while (0 to 1000; 0 turns it off). The address is the one of the connection: behind a reverse proxy it is the proxy's, so turn it off there.
+login_ip_limit = 10
 # The homing cycle ($H, on a machine that allows the $ lines) answers only when the machine has finished; give it more than the longest homing takes.
 grbl_homing_timeout_s = 120
 # A jog ($J=...) answers when the move is done: give it more than the longest slow move you send.

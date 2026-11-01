@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- The release workflow runs `cargo test --all-targets` before it builds the packages.
+
+- **A resumed G-code job goes back a margin of lines** (`resume_margin_lines` in `server.cfg`, 16 by default, 0 to 1000): the controller takes lines ahead of the movement, so the last ones it took were not all done. The codes in force are still given back before the first move.
+- **Wrong passwords are also counted by address** (`login_ip_limit`, 10 by default, 0 turns it off): the address is the one of the connection, never a header, and a person who tries many names from one address is slowed down without blocking the names of the others.
+
 - **The secrets of the tuning text stay on the server:** `GET /machines` and `GET /machines/:id` show `head_token`, `node_token` and any other `*_token`, `*password` or `*_secret` key with an empty value, and a `PUT` that sends them empty keeps the stored ones.
 - **A started job cannot be undone by a late start:** a job cancelled or removed while it was being planned is not started any more, and `DELETE /jobs/:id` checks and removes under one lock.
 - **A machine with a job running is not edited:** `PUT /machines/:id` answers `409 machine_busy`, and `POST /updates/apply` answers `409 machines_busy` while any job is active (the update restarts the server).

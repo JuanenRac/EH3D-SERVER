@@ -2529,7 +2529,9 @@ async fn a_stopped_gcode_job_goes_on_from_its_line_and_waits_for_the_operator_be
     let s = server("resume-gcode");
     let token = admin(&s).await;
     demo_machine(&s, &token, "m1").await;
-    let text = "G21 G90\nG0 X1\nG2 X5 I1\nG0 X9\n";
+    // twenty lines before the one that fails: the margin of the server (16) goes back from the line reached
+    let owned = format!("G21 G90\n{}G2 X5 I1\nG0 X9\n", "G0 X1\n".repeat(20));
+    let text = owned.as_str();
     let (_, job) = post(
         &s,
         &token,
@@ -2541,7 +2543,7 @@ async fn a_stopped_gcode_job_goes_on_from_its_line_and_waits_for_the_operator_be
     post(&s, &token, &format!("/api/v1/jobs/{id}/start"), None).await;
     let failed = wait_state(&s, &token, &id, &["failed", "done"]).await;
     assert_eq!(failed["state"], "failed", "{failed}");
-    assert_eq!(failed["line"].as_u64(), Some(2));
+    assert_eq!(failed["line"].as_u64(), Some(21));
     let (status, second) = post(
         &s,
         &token,
@@ -2550,7 +2552,7 @@ async fn a_stopped_gcode_job_goes_on_from_its_line_and_waits_for_the_operator_be
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{second}");
-    assert_eq!(second["view"]["skipped"].as_u64(), Some(2));
+    assert_eq!(second["view"]["skipped"].as_u64(), Some(5));
     assert_eq!(second["resumed_from"].as_str(), Some(id.as_str()));
     let second_id = second["id"].as_str().unwrap().to_string();
     let (_, saved) = get(&s, &token, &format!("/api/v1/jobs/{second_id}/request")).await;
@@ -2570,6 +2572,25 @@ async fn a_stopped_gcode_job_goes_on_from_its_line_and_waits_for_the_operator_be
     assert_eq!(held["state"], "waiting_operator", "{held}");
     assert_eq!(held["pause"]["kind"], "resume");
     assert_eq!(held["items_done"], 0);
+}
+
+#[tokio::test]
+async fn a_stopped_gcode_job_goes_back_by_the_margin_of_the_server() {
+    use eh3d_server::jobs::JobState;
+    let s = server("resume-margin");
+    let token = admin(&s).await;
+    demo_machine(&s, &token, "m1").await;
+    let (_, job) = post(
+        &s,
+        &token,
+        "/api/v1/machines/m1/jobs",
+        Some(gcode_job("G21 G90\nG0 X1\n")),
+    )
+    .await;
+    let id = job["id"].as_str().unwrap().to_string();
+    stop_job(&s, &id, JobState::Failed, 0, 0, 40);
+    let (_, saved) = get(&s, &token, &format!("/api/v1/jobs/{id}/request")).await;
+    assert_eq!(saved["next_skip"].as_u64(), Some(24), "{saved}");
 }
 
 #[tokio::test]

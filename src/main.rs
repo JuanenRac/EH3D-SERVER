@@ -56,7 +56,11 @@ async fn main() {
     );
     let app = api::router(state.clone());
     let stopper = state.clone();
-    let served = axum::serve(listener, app).with_graceful_shutdown(async move {
+    let served = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
         let _ = tokio::signal::ctrl_c().await;
         println!("eh3d-server: stopping; the machines that are running are stopped first");
         let stopper = stopper.clone();

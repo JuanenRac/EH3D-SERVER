@@ -59,7 +59,8 @@ pub enum PauseError {
 impl AppState {
     pub fn open(cfg: ServerConfig) -> io::Result<Arc<AppState>> {
         std::fs::create_dir_all(&cfg.data_dir)?;
-        let auth = Auth::open(&cfg.data_dir, cfg.session_hours)?;
+        let mut auth = Auth::open(&cfg.data_dir, cfg.session_hours)?;
+        auth.set_ip_limit(cfg.login_ip_limit);
         let machines = Machines::open(&cfg.data_dir)?;
         let jobs = JobBook::open(&cfg.data_dir, cfg.keep_jobs)?;
         let (events, _) = broadcast::channel(256);

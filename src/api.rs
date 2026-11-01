@@ -271,13 +271,19 @@ struct LoginBody {
     password: String,
 }
 
-async fn login(State(s): State<Shared>, ApiJson(b): ApiJson<LoginBody>) -> ApiResult {
+async fn login(
+    State(s): State<Shared>,
+    peer: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>,
+    ApiJson(b): ApiJson<LoginBody>,
+) -> ApiResult {
+    // the address of the socket: a header could be written by the one who is guessing
+    let ip = peer.map(|axum::extract::ConnectInfo(a)| a.ip());
     let name = b.name.clone();
     let (token, role, expires) = tokio::task::spawn_blocking(move || {
         s.auth
             .lock()
             .expect("auth lock")
-            .login(&b.name, &b.password, now())
+            .login_from(&b.name, &b.password, now(), ip)
     })
     .await
     .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))??;
@@ -869,11 +875,16 @@ fn bad_saved_request(e: serde_json::Error) -> plan::PlanError {
 /// How many holes (drilling), paths (routing) or lines of the text (G-code) a stopped job had done, counted from the start of the work: the `skip` of the job
 /// that goes on. A routing job is replanned for it; the count is the paths whose whole plan, with the tail of the job, fits in the items that ran, so a path
 /// that was cut short is done again and never left out.
-async fn skip_of(machine: &MachineRecord, job: &JobRecord) -> Result<usize, ApiError> {
+async fn skip_of(
+    machine: &MachineRecord,
+    job: &JobRecord,
+    margin: usize,
+) -> Result<usize, ApiError> {
     let before = job.request.get("skip").and_then(Value::as_u64).unwrap_or(0) as usize;
     match job.kind.as_str() {
         "drill" => Ok(before + job.holes_done),
-        "gcode" => Ok(job.line.max(before)),
+        // the lines the controller had taken but not yet done are sent again: a margin before the line reached
+        "gcode" => Ok(job.line.saturating_sub(margin).max(before)),
         _ => {
             if job.items_done == 0 {
                 return Ok(before);
@@ -933,7 +944,7 @@ async fn job_request(
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "unknown_job", ""))?;
     let next_skip = if matches!(job.state, JobState::Cancelled | JobState::Failed) {
         match machine_of(&s, &job.machine) {
-            Ok(m) => skip_of(&m, &job).await.ok(),
+            Ok(m) => skip_of(&m, &job, s.cfg.resume_margin_lines).await.ok(),
             Err(_) => None,
         }
     } else {
@@ -970,7 +981,7 @@ async fn resume_from(
     let (job, machine) = stopped_job(&s, &id)?;
     let skip = match b.skip {
         Some(n) => n,
-        None => skip_of(&machine, &job).await?,
+        None => skip_of(&machine, &job, s.cfg.resume_margin_lines).await?,
     };
     let mut request = job.request.clone();
     let object = request.as_object_mut().ok_or_else(|| {

@@ -115,12 +115,17 @@ pub struct Auth {
     failures: HashMap<String, (u32, u64)>,
     /// Wrong setup codes in a row and until when the setup is blocked.
     setup_failures: (u32, u64),
+    /// Wrong passwords per address of the socket (any name): how many in a row and until when the address is blocked.
+    ip_failures: HashMap<std::net::IpAddr, (u32, u64)>,
+    /// How many wrong passwords in a row block an address; 0 turns the limit by address off.
+    ip_limit: u32,
     session_secs: u64,
 }
 
 pub const TOKEN_PREFIX: &str = "eh3d_";
 const MAX_FAILURES: u32 = 5;
 const MAX_TRACKED_NAMES: usize = 1024;
+const MAX_TRACKED_ADDRESSES: usize = 4096;
 
 fn sha(text: &str) -> String {
     hex::encode(Sha256::digest(text.as_bytes()))
@@ -190,6 +195,8 @@ impl Auth {
             setup_code,
             failures: HashMap::new(),
             setup_failures: (0, 0),
+            ip_failures: HashMap::new(),
+            ip_limit: 10,
             session_secs: u64::from(session_hours) * 3600,
         })
     }
@@ -255,6 +262,29 @@ impl Auth {
         password: &str,
         now: u64,
     ) -> Result<(String, Role, u64), AuthError> {
+        self.login_from(name, password, now, None)
+    }
+
+    /// How many wrong passwords in a row from one address block it (0: no limit by address).
+    pub fn set_ip_limit(&mut self, limit: u32) {
+        self.ip_limit = limit;
+    }
+
+    /// Like `login`, knowing the address the request came from (the address of the socket, never a header): a person who tries many names from one
+    /// address is slowed down without blocking the name of somebody else.
+    pub fn login_from(
+        &mut self,
+        name: &str,
+        password: &str,
+        now: u64,
+        ip: Option<std::net::IpAddr>,
+    ) -> Result<(String, Role, u64), AuthError> {
+        let ip = ip.filter(|_| self.ip_limit > 0);
+        if let Some(a) = ip {
+            if matches!(self.ip_failures.get(&a), Some(&(_, until)) if until > now) {
+                return Err(AuthError::Throttled);
+            }
+        }
         if let Some(&(_, until)) = self.failures.get(name) {
             if until > now {
                 return Err(AuthError::Throttled);
@@ -270,6 +300,20 @@ impl Auth {
             }
         };
         if !good {
+            if let Some(a) = ip {
+                if self.ip_failures.len() >= MAX_TRACKED_ADDRESSES {
+                    self.ip_failures.retain(|_, &mut (_, until)| until > now);
+                }
+                if self.ip_failures.len() < MAX_TRACKED_ADDRESSES
+                    || self.ip_failures.contains_key(&a)
+                {
+                    let e = self.ip_failures.entry(a).or_insert((0, 0));
+                    e.0 += 1;
+                    if e.0 >= self.ip_limit {
+                        e.1 = now + (30u64 << (e.0 - self.ip_limit).min(6));
+                    }
+                }
+            }
             // names that were never real must not make the map grow for ever: the blocks that ended are forgotten
             if self.failures.len() >= MAX_TRACKED_NAMES {
                 self.failures.retain(|_, &mut (_, until)| until > now);
@@ -286,6 +330,9 @@ impl Auth {
             return Err(AuthError::BadCredentials);
         }
         self.failures.remove(name);
+        if let Some(a) = ip {
+            self.ip_failures.remove(&a);
+        }
         let role = user.map(|u| u.role).unwrap_or(Role::Viewer);
         let token = random_hex(32);
         self.sessions.insert(
@@ -493,6 +540,38 @@ mod tests {
         let code = a.setup_code().unwrap().to_string();
         a.setup(&code, "juan", "una-clave-larga").unwrap();
         (a, d)
+    }
+
+    #[test]
+    fn many_names_from_one_address_are_slowed_down_without_blocking_the_names() {
+        let d = dir("auth-ip");
+        let mut a = Auth::open(&d, 12).unwrap();
+        let code = a.setup_code().unwrap().to_string();
+        a.setup(&code, "juan", "una-clave-larga").unwrap();
+        a.set_ip_limit(3);
+        let ip: std::net::IpAddr = "10.0.0.7".parse().unwrap();
+        for n in 0..3 {
+            let name = format!("who{n}");
+            assert_eq!(
+                a.login_from(&name, "mala-clave-larga", 1000, Some(ip)),
+                Err(AuthError::BadCredentials)
+            );
+        }
+        // the address is blocked, even for the right password; another address and the plain login are not
+        assert_eq!(
+            a.login_from("juan", "una-clave-larga", 1001, Some(ip)),
+            Err(AuthError::Throttled)
+        );
+        let other: std::net::IpAddr = "10.0.0.8".parse().unwrap();
+        assert!(a
+            .login_from("juan", "una-clave-larga", 1001, Some(other))
+            .is_ok());
+        // a limit of 0 turns it off
+        a.set_ip_limit(0);
+        assert!(a
+            .login_from("juan", "una-clave-larga", 1001, Some(ip))
+            .is_ok());
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
