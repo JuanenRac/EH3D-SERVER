@@ -4,6 +4,9 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **Waits of a GRBL machine by the kind of line:** `grbl_line_timeout_s` (5 s), `grbl_homing_timeout_s` (120 s) and `grbl_jog_timeout_s` (60 s) in `server.cfg` (each from 1 to 3600), so that a `$H` of a machine that allows the `$` lines has time to finish while an ordinary line still fails quickly. A line that does not end in time holds the machine (a homing cycle is reset, a jog cancelled) and fails the job with the line. Needs the controller crate of EH3D-COMMON with the same change.
+- 1 test more (the three settings, their defaults and their range), and the job that carries `$H` and `$J=` runs on the simulator.
+
 ## [0.0.6] - Resume a stopped job from its saved request, and a switch for the dollar lines of GRBL
 
 - **Going on from a stopped job without asking for the file again:** the server keeps the request of every job as it came (the file, the tool table, the options, the program text) and gives it back with `GET /api/v1/jobs/:id/request` (operator or administrator; it goes with the job and is no bigger than a request may be). `POST /api/v1/jobs/:id/resume-from` makes a new job, ready and never started, from a cancelled or failed one with its `skip` brought forward to what it had done: the holes done for drilling, the paths finished for routing (the one cut short is cut again) and the `line` for G-code, adding up over several stops. The body may name `skip`, `skip_tools`, `restore_outputs` and `name`; `409 not_stopped` for a job that did not stop. The new job waits for a person to start it, and a G-code one waits for the operator before its first move. Jobs carry `resumed_from`.

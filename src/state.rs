@@ -183,6 +183,7 @@ impl AppState {
             program.raw_total,
             program.resume,
             Duration::from_secs(self.cfg.gcode_finish_wait_s),
+            self.cfg.grbl_timeouts(),
         );
         self.gcode_runs
             .lock()

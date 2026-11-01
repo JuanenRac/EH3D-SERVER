@@ -16,3 +16,10 @@ studio_dir =
 updates_dir =
 # How long, in seconds, a G-code job waits for the machine to finish its last moves (the controller takes lines ahead of the movement) before the job is marked as failed.
 gcode_finish_wait_s = 900
+# How long, in seconds, a GRBL machine may take to answer a line of a G-code job. When a line does not end in time the machine is held (a homing cycle is reset, a jog is cancelled) and the job is marked as failed, with the line.
+# An ordinary line is taken at once.
+grbl_line_timeout_s = 5
+# The homing cycle ($H, on a machine that allows the $ lines) answers only when the machine has finished; give it more than the longest homing takes.
+grbl_homing_timeout_s = 120
+# A jog ($J=...) answers when the move is done: give it more than the longest slow move you send.
+grbl_jog_timeout_s = 60

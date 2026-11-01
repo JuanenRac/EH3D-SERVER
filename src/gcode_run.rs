@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use eh3d_controller::grbl::Timeouts;
 use eh3d_controller::sim::SimController;
 use eh3d_controller::{Command, Controller, State};
 
@@ -72,10 +73,10 @@ pub struct GcodeRun {
 const STATUS_EVERY: usize = 25;
 
 /// The controller of a machine for a G-code job.
-fn open(connection: &Connection) -> Result<Box<dyn Controller>, String> {
+fn open(connection: &Connection, timeouts: Timeouts) -> Result<Box<dyn Controller>, String> {
     match connection {
         Connection::Demo => Ok(Box::new(SimController::new())),
-        Connection::Grbl { port, baud } => open_grbl(port, *baud),
+        Connection::Grbl { port, baud } => open_grbl(port, *baud, timeouts),
         Connection::Node { .. } => {
             Err("a node of a Bungard machine takes drilling and routing jobs, not G-code".into())
         }
@@ -83,22 +84,26 @@ fn open(connection: &Connection) -> Result<Box<dyn Controller>, String> {
 }
 
 #[cfg(feature = "serial")]
-fn open_grbl(port: &str, baud: u32) -> Result<Box<dyn Controller>, String> {
+fn open_grbl(port: &str, baud: u32, timeouts: Timeouts) -> Result<Box<dyn Controller>, String> {
     use eh3d_controller::grbl::GrblController;
     use eh3d_controller::serial::SerialTransport;
     let transport = SerialTransport::open(port, baud).map_err(|e| format!("{port}: {e}"))?;
-    Ok(Box::new(GrblController::new(transport)))
+    Ok(Box::new(
+        GrblController::new(transport).with_timeouts(timeouts),
+    ))
 }
 
 #[cfg(not(feature = "serial"))]
-fn open_grbl(port: &str, _baud: u32) -> Result<Box<dyn Controller>, String> {
+fn open_grbl(port: &str, _baud: u32, _timeouts: Timeouts) -> Result<Box<dyn Controller>, String> {
     Err(format!(
         "{port}: this server was built without serial port support (build it with --features serial)"
     ))
 }
 
 impl GcodeRun {
-    /// Starts the job on the machine. `finish_wait` is how long it waits, after the last line, for the machine to be still.
+    /// Starts the job on the machine. `finish_wait` is how long it waits, after the last line, for the machine to be still; `timeouts` are
+    /// the times a GRBL controller may take to answer each kind of line (a line that does not end in time stops the machine and fails the job).
+    #[allow(clippy::too_many_arguments)]
     pub fn start(
         connection: Connection,
         entries: Vec<Entry>,
@@ -106,6 +111,7 @@ impl GcodeRun {
         raw_total: usize,
         resume: bool,
         finish_wait: Duration,
+        timeouts: Timeouts,
     ) -> Arc<GcodeRun> {
         let shared = Arc::new(Shared {
             state: Mutex::new(GState::Connecting),
@@ -118,7 +124,15 @@ impl GcodeRun {
         let lines_raw: Vec<usize> = entries.iter().map(|e| e.raw).collect();
         let (worker, lines) = (shared.clone(), entries);
         let handle = thread::spawn(move || {
-            let end = match run(&connection, &lines, preamble, resume, finish_wait, &worker) {
+            let end = match run(
+                &connection,
+                &lines,
+                preamble,
+                resume,
+                finish_wait,
+                timeouts,
+                &worker,
+            ) {
                 Ok(s) => s,
                 Err(why) => GState::Failed(why),
             };
@@ -249,9 +263,10 @@ fn run(
     preamble: usize,
     resume: bool,
     finish_wait: Duration,
+    timeouts: Timeouts,
     shared: &Shared,
 ) -> Result<GState, String> {
-    let mut c = open(connection)?;
+    let mut c = open(connection, timeouts)?;
     alarm_of(c.as_mut())?;
     shared.set(GState::Running);
     for (i, entry) in lines.iter().enumerate() {
@@ -337,6 +352,7 @@ mod tests {
             p.raw_total,
             p.resume,
             Duration::from_secs(5),
+            Timeouts::default(),
         )
     }
 
@@ -359,6 +375,22 @@ mod tests {
         assert_eq!(run.progress(), (4, 4));
         // done: the line reached is the end of the text
         assert_eq!(run.line(), 4);
+    }
+
+    #[test]
+    fn a_program_with_a_homing_and_a_jog_runs_on_the_simulator() {
+        let text = "$H\nG0 X10 Y10\n$J=G91 X5 F200\n$G\nM30\n";
+        let p = gcode::parse_with(text, 0, false, true).unwrap();
+        let run = GcodeRun::start(
+            Connection::Demo,
+            p.entries,
+            p.preamble,
+            p.raw_total,
+            p.resume,
+            Duration::from_secs(5),
+            Timeouts::default(),
+        );
+        assert_eq!(wait(&run, GState::finished), GState::Done);
     }
 
     #[test]
@@ -422,14 +454,14 @@ mod tests {
             address: "10.0.0.2:5800".into(),
             token: String::new(),
         };
-        assert!(open(&node).is_err());
+        assert!(open(&node, Timeouts::default()).is_err());
         #[cfg(not(feature = "serial"))]
         {
             let grbl = Connection::Grbl {
                 port: "COM9".into(),
                 baud: 115_200,
             };
-            let e = open(&grbl).err().unwrap();
+            let e = open(&grbl, Timeouts::default()).err().unwrap();
             assert!(e.contains("serial"), "{e}");
         }
     }

@@ -24,6 +24,24 @@ pub struct ServerConfig {
     /// How long, in seconds, a G-code job waits for the machine to finish its last moves (the controller takes lines ahead of the movement)
     /// before it is marked as failed.
     pub gcode_finish_wait_s: u64,
+    /// How long, in seconds, a GRBL machine may take to answer an ordinary line of a G-code job before the job is stopped and marked as failed.
+    pub grbl_line_timeout_s: u64,
+    /// The same for the homing cycle (`$H`), which answers only when the machine has finished.
+    pub grbl_homing_timeout_s: u64,
+    /// The same for a jog (`$J=...`).
+    pub grbl_jog_timeout_s: u64,
+}
+
+impl ServerConfig {
+    /// The times a GRBL controller waits, by the kind of line.
+    pub fn grbl_timeouts(&self) -> eh3d_controller::grbl::Timeouts {
+        use std::time::Duration;
+        eh3d_controller::grbl::Timeouts {
+            line: Duration::from_secs(self.grbl_line_timeout_s),
+            homing: Duration::from_secs(self.grbl_homing_timeout_s),
+            jog: Duration::from_secs(self.grbl_jog_timeout_s),
+        }
+    }
 }
 
 impl Default for ServerConfig {
@@ -37,6 +55,9 @@ impl Default for ServerConfig {
             studio_dir: None,
             updates_dir: None,
             gcode_finish_wait_s: 900,
+            grbl_line_timeout_s: 5,
+            grbl_homing_timeout_s: 120,
+            grbl_jog_timeout_s: 60,
         }
     }
 }
@@ -96,6 +117,15 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
             }
             "gcode_finish_wait_s" => {
                 c.gcode_finish_wait_s = number(&key, value, 1, 86_400).map_err(at)?
+            }
+            "grbl_line_timeout_s" => {
+                c.grbl_line_timeout_s = number(&key, value, 1, 3_600).map_err(at)?
+            }
+            "grbl_homing_timeout_s" => {
+                c.grbl_homing_timeout_s = number(&key, value, 1, 3_600).map_err(at)?
+            }
+            "grbl_jog_timeout_s" => {
+                c.grbl_jog_timeout_s = number(&key, value, 1, 3_600).map_err(at)?
             }
             other => return Err(at(format!("unknown key '{other}'"))),
         }
@@ -178,6 +208,27 @@ mod tests {
 "
         )
         .is_err());
+    }
+
+    #[test]
+    fn the_waits_of_a_grbl_machine_are_settings_with_safe_defaults() {
+        let t = parse("").unwrap().grbl_timeouts();
+        assert_eq!(
+            (t.line.as_secs(), t.homing.as_secs(), t.jog.as_secs()),
+            (5, 120, 60)
+        );
+        let c = parse(
+            "grbl_line_timeout_s = 10\ngrbl_homing_timeout_s = 300\ngrbl_jog_timeout_s = 90\n",
+        )
+        .unwrap();
+        let t = c.grbl_timeouts();
+        assert_eq!(
+            (t.line.as_secs(), t.homing.as_secs(), t.jog.as_secs()),
+            (10, 300, 90)
+        );
+        assert!(parse("grbl_homing_timeout_s = 0\n").is_err());
+        assert!(parse("grbl_jog_timeout_s = 99999\n").is_err());
+        assert!(parse("grbl_line_timeout_s = fast\n").is_err());
     }
 
     #[test]

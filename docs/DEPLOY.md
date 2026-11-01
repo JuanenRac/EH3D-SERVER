@@ -14,7 +14,7 @@ EH3D-SERVER/
 
 ## Settings
 
-`server.cfg` (or the file given with `--config`) holds `listen`, `data_dir`, `session_hours`, `max_body_mb` and `keep_jobs`; see `server.cfg.example`. The default port is **18200**, which is not one of ARMOR's (18080 to 18090) nor HYDRA-UMC's, so the three servers can share the CM5.
+`server.cfg` (or the file given with `--config`) holds `listen`, `data_dir`, `session_hours`, `max_body_mb`, `keep_jobs` and the settings of G-code jobs (`gcode_finish_wait_s`, `grbl_line_timeout_s`, `grbl_homing_timeout_s`, `grbl_jog_timeout_s`); see `server.cfg.example`. The default port is **18200**, which is not one of ARMOR's (18080 to 18090) nor HYDRA-UMC's, so the three servers can share the CM5.
 
 ## First start
 
@@ -77,3 +77,5 @@ cargo build --release --features serial
 ```
 
 The user the service runs as must be allowed to open the port (on Linux the group `dialout`). Without the feature a G-code job for a `grbl` machine is marked failed when it starts, with a message that says so. `gcode_finish_wait_s` in `server.cfg` is how long a job waits for the machine to be still after its last line.
+
+A GRBL machine answers an ordinary line at once, but a homing cycle (`$H`) and a jog (`$J=...`) answer only when the machine has finished moving, so each kind of line has its own wait in `server.cfg`: `grbl_line_timeout_s` (5 seconds by default), `grbl_homing_timeout_s` (120) and `grbl_jog_timeout_s` (60), each from 1 to 3600. Give the homing more than your machine takes. When a line does not end in time the machine is stopped (a homing cycle is reset, a jog is cancelled, anything else is held, and the job then stops the controller) and the job is marked `failed` with the line that did not end; the machine is never left moving.
