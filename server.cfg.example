@@ -23,6 +23,10 @@ grbl_line_timeout_s = 5
 resume_margin_lines = 16
 # How many wrong passwords in a row, with any names, block the address they come from for a while (0 to 1000; 0 turns it off). The address is the one of the connection: behind a reverse proxy it is the proxy's, so turn it off there.
 login_ip_limit = 10
+# Accept the token of the session in the address of the camera and of the websocket (the first versions of the clients sent it there). Off by default: the clients ask for a ticket (POST /api/v1/tickets), good for one use within 30 seconds.
+url_token = false
+# While the server has no user yet, answer only connections from this very computer (127.0.0.1), so that nobody else on the network can make the first administrator. Off by default (the server answers whoever reaches it); once there is a user it makes no difference.
+local_until_setup = false
 # The homing cycle ($H, on a machine that allows the $ lines) answers only when the machine has finished; give it more than the longest homing takes.
 grbl_homing_timeout_s = 120
 # A jog ($J=...) answers when the move is done: give it more than the longest slow move you send.

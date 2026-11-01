@@ -33,6 +33,8 @@ pub struct AppState {
     pub updates: Option<crate::updates::Updates>,
     /// The last check of the work through the camera of the drill head, by the id of the machine.
     pub inspections: Mutex<HashMap<String, serde_json::Value>>,
+    /// The tickets that open the camera and the websocket without the token in the address.
+    pub tickets: Mutex<crate::tickets::Tickets>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -77,6 +79,7 @@ impl AppState {
             events,
             updates,
             inspections: Mutex::new(HashMap::new()),
+            tickets: Mutex::new(crate::tickets::Tickets::default()),
         }))
     }
 
@@ -411,6 +414,19 @@ impl AppState {
             }
             _ => false,
         }
+    }
+
+    /// The stop of a machine: the job that is active on it, if any, is stopped at once (a GRBL machine gets the real-time hold and reset on the port; a
+    /// node gets its drivers switched off). The id of the job, or `None` when the machine had no job of this server.
+    pub fn stop_machine(&self, machine: &str) -> Option<String> {
+        let id = self
+            .jobs
+            .lock()
+            .expect("jobs lock")
+            .active_on(machine)
+            .map(|j| j.id.clone())?;
+        self.cancel_job(&id);
+        Some(id)
     }
 
     /// Stops every running job: for the end of the server, which never leaves a machine moving on its own.

@@ -4,6 +4,8 @@ import hashlib
 import importlib.util
 import io
 import json
+import shutil
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -166,6 +168,64 @@ class UpdateHelper(unittest.TestCase):
         self.ask({"action": "apply", "components": ["studio"]})
         self.assertEqual(self.folder.read("status.json")["state"], "error")
         self.assertFalse((self.root / "outside.txt").exists())
+
+    def _keys(self, name: str):
+        key = self.root / name
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], check=True, capture_output=True)
+        return key
+
+    def _sign(self, key: Path, data: bytes) -> bytes:
+        target = self.root / "to-sign.bin"
+        target.write_bytes(data)
+        (self.root / "to-sign.bin.sig").unlink(missing_ok=True)
+        subprocess.run(["ssh-keygen", "-q", "-Y", "sign", "-f", str(key), "-n", "eh3d-release", str(target)], check=True, capture_output=True)
+        return (self.root / "to-sign.bin.sig").read_bytes()
+
+    @unittest.skipUnless(shutil.which("ssh-keygen"), "ssh-keygen is needed to make the keys of the test")
+    def test_with_allowed_signers_only_a_release_signed_by_one_of_them_is_installed(self):
+        owner, thief = self._keys("owner"), self._keys("thief")
+        signers = self.root / "signers"
+        signers.write_text("eh3d-release " + (self.root / "owner.pub").read_text(encoding="utf-8"), encoding="utf-8")
+        studio = self.root / "opt" / "eh3d-studio"
+        studio.mkdir(parents=True)
+        (studio / "index.html").write_text("old", encoding="utf-8")
+        url = next(u for u in self.gh.files if "studio" in u and not u.endswith(".sha256"))
+        name = url.rsplit("/", 1)[1]
+        sig_url = url + ".sig"
+        before = H.SIGNERS
+        H.SIGNERS = str(signers)
+        try:
+            # no signature published: refused
+            self.ask({"action": "apply", "components": ["studio"]})
+            self.assertEqual(self.folder.read("status.json")["state"], "error")
+            self.assertIn(".sig", self.folder.read("status.json")["message"])
+            self.assertEqual((studio / "index.html").read_text(encoding="utf-8"), "old")
+            # signed by somebody else: refused
+            self.gh.files[sig_url] = self._sign(thief, self.gh.files[url])
+            self.gh.releases["EH3D-STUDIO"]["assets"].append({"name": name + ".sig", "browser_download_url": sig_url})
+            self.ask({"action": "apply", "components": ["studio"]})
+            self.assertEqual(self.folder.read("status.json")["state"], "error")
+            self.assertEqual((studio / "index.html").read_text(encoding="utf-8"), "old")
+            # signed by the owner: installed
+            self.gh.files[sig_url] = self._sign(owner, self.gh.files[url])
+            self.ask({"action": "apply", "components": ["studio"]})
+            self.assertEqual(self.folder.read("status.json")["state"], "done", self.folder.read("status.json"))
+            self.assertEqual((studio / "index.html").read_text(encoding="utf-8"), "<html>new</html>")
+        finally:
+            H.SIGNERS = before
+
+    def test_without_signers_the_hash_is_enough_and_the_log_says_who_is_not_checked(self):
+        before = H.SIGNERS
+        H.SIGNERS = None
+        try:
+            studio = self.root / "opt" / "eh3d-studio"
+            studio.mkdir(parents=True)
+            self.ask({"action": "apply", "components": ["studio"]})
+            status = self.folder.read("status.json")
+            self.assertEqual(status["state"], "done")
+            self.assertTrue(any("not who made it" in line for line in status["log"]))
+        finally:
+            H.SIGNERS = before
 
     def test_a_name_that_only_starts_like_the_folder_is_outside_it(self):
         with tempfile.TemporaryDirectory() as tmp:

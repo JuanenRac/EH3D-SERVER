@@ -1279,13 +1279,25 @@ async fn the_node_of_the_drill_head_is_reached_through_the_server_with_the_machi
         (StatusCode::UNPROCESSABLE_ENTITY, json!("bad_samples"))
     );
 
-    // the camera: the picture comes through, with the token in the address because a browser cannot set a header on it
-    let (status, text) = raw_get(
+    // the camera: the picture comes through with a ticket in the address (a browser cannot set a header on it), never with the token
+    let (status, made) = call(&s, Method::POST, "/api/v1/tickets", Some(&token), None).await;
+    assert_eq!(status, StatusCode::OK, "{made}");
+    let ticket = made["ticket"].as_str().unwrap().to_string();
+    let (status, _) = raw_get(
         s.app.clone(),
         &format!("/api/v1/machines/bench/head/stream?token={token}"),
     )
     .await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "the token in the address is off"
+    );
+    let stream = format!("/api/v1/machines/bench/head/stream?ticket={ticket}");
+    let (status, text) = raw_get(s.app.clone(), &stream).await;
     assert_eq!(status, StatusCode::OK);
+    let (again, _) = raw_get(s.app.clone(), &stream).await;
+    assert_eq!(again, StatusCode::UNAUTHORIZED, "a ticket is good once");
     assert!(
         text.contains("PICTURE-ONE") && text.contains("PICTURE-TWO"),
         "{text}"
@@ -2766,4 +2778,87 @@ async fn a_viewer_never_sees_the_secrets_of_the_tuning_text_and_a_busy_machine_i
     )
     .await;
     wait_for(&s, &token, &job, &["cancelled"], false).await;
+}
+
+#[tokio::test]
+async fn with_local_until_setup_only_this_computer_makes_the_first_administrator() {
+    use axum::extract::ConnectInfo;
+    let dir = std::env::temp_dir().join(format!("eh3d-server-api-local-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let state = AppState::open(ServerConfig {
+        data_dir: dir.clone(),
+        local_until_setup: true,
+        ..ServerConfig::default()
+    })
+    .unwrap();
+    let app = router(state.clone());
+    let from = |ip: &str| {
+        let mut r = Request::builder()
+            .uri("/api/v1/setup")
+            .body(Body::empty())
+            .unwrap();
+        r.extensions_mut()
+            .insert(ConnectInfo(std::net::SocketAddr::new(
+                ip.parse().unwrap(),
+                5000,
+            )));
+        r
+    };
+    let far = app.clone().oneshot(from("192.168.0.77")).await.unwrap();
+    assert_eq!(far.status(), StatusCode::FORBIDDEN);
+    let near = app.clone().oneshot(from("127.0.0.1")).await.unwrap();
+    assert_eq!(near.status(), StatusCode::OK);
+    // once there is a user, whoever reaches the server is answered
+    let code = state.auth.lock().unwrap().setup_code().unwrap().to_string();
+    state
+        .auth
+        .lock()
+        .unwrap()
+        .setup(&code, "juan", "una-clave-larga")
+        .unwrap();
+    let after = app.oneshot(from("192.168.0.77")).await.unwrap();
+    assert_eq!(after.status(), StatusCode::OK);
+    drop(state);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn the_stop_of_a_machine_ends_the_job_that_runs_on_it_whoever_asks_and_a_viewer_cannot() {
+    let s = server("stop-machine");
+    let boss = admin(&s).await;
+    let operator = user_with_role(&s, &boss, "op1", "operator").await;
+    let viewer = user_with_role(&s, &boss, "view1", "viewer").await;
+    demo_machine(&s, &boss, "m1").await;
+    // nothing runs: the answer says so
+    let (status, body) = post(&s, &operator, "/api/v1/machines/m1/stop", None).await;
+    assert_eq!(
+        (status, body["stopped"].clone()),
+        (StatusCode::OK, json!(false)),
+        "{body}"
+    );
+    assert_eq!(
+        post(&s, &viewer, "/api/v1/machines/m1/stop", None).await.0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        post(&s, &operator, "/api/v1/machines/nope/stop", None)
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    // a job waits for the operator: the stop ends it without naming it
+    let (_, job) = post(&s, &operator, "/api/v1/machines/m1/jobs", Some(drill_job())).await;
+    let id = job["id"].as_str().unwrap().to_string();
+    assert_eq!(
+        post(&s, &operator, &format!("/api/v1/jobs/{id}/start"), None)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    wait_for(&s, &operator, &id, &["waiting_operator"], false).await;
+    let (status, body) = post(&s, &operator, "/api/v1/machines/m1/stop", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["stopped"], true);
+    assert_eq!(body["job"].as_str(), Some(id.as_str()));
+    wait_for(&s, &operator, &id, &["cancelled"], false).await;
 }

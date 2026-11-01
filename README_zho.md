@@ -97,7 +97,7 @@ EH3D-SERVER 是 EH3D 家族的中心：程序把作业发给它，它通过节�
 
 | 威胁 | 防御 |
 |---|---|
-| 网络上任何人发送请求 | 除健康检查、首次设置和登录外的每个请求都需要令牌（`Authorization: Bearer`，websocket 用 `?token=`）；三种角色：查看者只读，操作员运行作业，管理员管理用户、令牌和机床 |
+| 网络上任何人发送请求 | 除健康检查、首次设置和登录外的每个请求都需要令牌（`Authorization: Bearer`，websocket 用 `?ticket=`）；三种角色：查看者只读，操作员运行作业，管理员管理用户、令牌和机床 |
 | 猜测密码 | 五次错误密码会锁定该名称，先 30 秒，只要持续错误就变为 60 秒、120 秒……（`429 throttled`）；响应不会说明哪一部分错误，未知名称与已知名称耗时一样 |
 | 数据文件夹的副本 | 密码是 Argon2id 哈希；会话令牌和程序令牌是随机的，只保存其 SHA-256，所以文件夹的副本无法让任何人登录；节点的令牌从不会被 API 显示 |
 | 接管全新的服务器 | 第一个管理员用只在控制台打印的设置码创建 |
@@ -117,7 +117,7 @@ EH3D-SERVER 是 EH3D 家族的中心：程序把作业发给它，它通过节�
 | 接口 | 内容 | 位置 |
 |---|---|---|
 | REST | `/api/v1/`：`health`、`setup`、`login`、`logout`、`session`、`account`、`users`、`tokens`、`machines`（含 `preview` 和 `jobs`）、`jobs`（含 `start`、`confirm`、`cancel`）；输入输出均为 JSON，错误形如 `{"error","detail"}` | [docs/API.md](docs/API.md)、`src/api.rs` |
-| Websocket | `GET /api/v1/events?token=...`：先发含作业摘要的 `hello`，之后每个变化发送 `job` 和 `job_removed` | [docs/API.md](docs/API.md) |
+| Websocket | `GET /api/v1/events?ticket=...`：先发含作业摘要的 `hello`，之后每个变化发送 `job` 和 `job_removed` | [docs/API.md](docs/API.md) |
 | 通往机床 | 机床的 `connection` 为 `node`（位于某地址、带令牌的 EH3D-NODE-BUNGARD）或 `demo`（模拟器） | [docs/API.md](docs/API.md)、`src/machines.rs` |
 | 命令行 | `eh3d-server [--config FILE]`；`--help` 会列出 | `src/main.rs` |
 | 服务 | 一个可执行文件，默认端口 18200，一个 systemd 单元 | [docs/DEPLOY.md](docs/DEPLOY.md)、`deploy/eh3d-server.service` |

@@ -97,7 +97,7 @@ Cómo encajan las partes de este repositorio: quién lo usa, qué contiene y de 
 
 | Amenaza | Defensa |
 |---|---|
-| Cualquiera en la red enviando peticiones | cada petición salvo la comprobación de salud, la primera puesta en marcha y el inicio de sesión necesita un token (`Authorization: Bearer`, o `?token=` para el websocket); tres roles: el observador lee, el operador ejecuta trabajos, el administrador gestiona usuarios, tokens y máquinas |
+| Cualquiera en la red enviando peticiones | cada petición salvo la comprobación de salud, la primera puesta en marcha y el inicio de sesión necesita un token (`Authorization: Bearer`, o `?ticket=` para el websocket); tres roles: el observador lee, el operador ejecuta trabajos, el administrador gestiona usuarios, tokens y máquinas |
 | Adivinar una contraseña | cinco contraseñas erróneas bloquean el nombre, 30 s y luego 60 s, 120 s y así mientras sigan (`429 throttled`); la respuesta no dice qué parte falló, y un nombre desconocido cuesta lo mismo que uno conocido |
 | Una copia de la carpeta de datos | las contraseñas son hashes Argon2id; los tokens de sesión y de programa son aleatorios y solo se guarda su SHA-256, así que una copia de la carpeta no inicia sesión a nadie; la API nunca muestra el token de un nodo |
 | Apoderarse de un servidor recién instalado | el primer administrador se crea con un código de puesta en marcha que solo imprime la consola |
@@ -117,7 +117,7 @@ Cómo encajan las partes de este repositorio: quién lo usa, qué contiene y de 
 | Interfaz | Qué es | Dónde |
 |---|---|---|
 | REST | `/api/v1/`: `health`, `setup`, `login`, `logout`, `session`, `account`, `users`, `tokens`, `updates`, `machines` (con `preview` y `jobs`), `jobs` (con `start`, `confirm`, `cancel`); JSON de entrada y de salida, errores como `{"error","detail"}` | [docs/API.md](docs/API.md), `src/api.rs` |
-| Websocket | `GET /api/v1/events?token=...`: un `hello` con el resumen de los trabajos y luego `job` y `job_removed` en cada cambio | [docs/API.md](docs/API.md) |
+| Websocket | `GET /api/v1/events?ticket=...`: un `hello` con el resumen de los trabajos y luego `job` y `job_removed` en cada cambio | [docs/API.md](docs/API.md) |
 | Hacia la máquina | la `connection` de una máquina es `node` (un EH3D-NODE-BUNGARD en una dirección con su token) o `demo` (el simulador) | [docs/API.md](docs/API.md), `src/machines.rs` |
 | Línea de comandos | `eh3d-server [--config FICHERO]`; `--help` lo lista | `src/main.rs` |
 | Servicio | un binario, puerto 18200 por defecto, una unidad de systemd | [docs/DEPLOY.md](docs/DEPLOY.md), `deploy/eh3d-server.service` |

@@ -34,6 +34,10 @@ pub struct ServerConfig {
     pub resume_margin_lines: usize,
     /// How many wrong passwords in a row, with any names, block an address (the one of the socket) for a while; 0 turns it off.
     pub login_ip_limit: u32,
+    /// Accept the token of the session in the address (`?token=`) of the camera and of the websocket, as the first versions of the clients sent it. Off: only a ticket.
+    pub url_token: bool,
+    /// While the server has no user yet, answer only the connections that come from this very computer (127.0.0.1): the first administrator is made from here. Off by default: the server answers whoever reaches it, as it always did.
+    pub local_until_setup: bool,
 }
 
 impl ServerConfig {
@@ -64,6 +68,8 @@ impl Default for ServerConfig {
             grbl_jog_timeout_s: 60,
             resume_margin_lines: 16,
             login_ip_limit: 10,
+            url_token: false,
+            local_until_setup: false,
         }
     }
 }
@@ -132,6 +138,28 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
             }
             "grbl_jog_timeout_s" => {
                 c.grbl_jog_timeout_s = number(&key, value, 1, 3_600).map_err(at)?
+            }
+            "local_until_setup" => {
+                c.local_until_setup = match value.to_ascii_lowercase().as_str() {
+                    "true" | "yes" | "on" | "1" => true,
+                    "false" | "no" | "off" | "0" => false,
+                    _ => {
+                        return Err(at(format!(
+                            "local_until_setup must be true or false, not '{value}'"
+                        )))
+                    }
+                }
+            }
+            "url_token" => {
+                c.url_token = match value.to_ascii_lowercase().as_str() {
+                    "true" | "yes" | "on" | "1" => true,
+                    "false" | "no" | "off" | "0" => false,
+                    _ => {
+                        return Err(at(format!(
+                            "url_token must be true or false, not '{value}'"
+                        )))
+                    }
+                }
             }
             "login_ip_limit" => {
                 c.login_ip_limit = number(&key, value, 0, 1_000).map_err(at)? as u32
@@ -253,6 +281,13 @@ mod tests {
             0
         );
         assert!(parse("resume_margin_lines = 5000\n").is_err());
+    }
+
+    #[test]
+    fn the_token_in_the_address_is_off_unless_asked_for() {
+        assert!(!parse("").unwrap().url_token);
+        assert!(parse("url_token = yes\n").unwrap().url_token);
+        assert!(parse("url_token = maybe\n").is_err());
     }
 
     #[test]

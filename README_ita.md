@@ -97,7 +97,7 @@ Come si incastrano le parti di questo repository: chi lo usa, che cosa contiene 
 
 | Minaccia | Difesa |
 |---|---|
-| Chiunque sulla rete invii richieste | ogni richiesta tranne il controllo di salute, la prima configurazione e il login richiede un token (`Authorization: Bearer`, o `?token=` per il websocket); tre ruoli: l'osservatore legge, l'operatore esegue lavori, l'amministratore gestisce utenti, token e macchine |
+| Chiunque sulla rete invii richieste | ogni richiesta tranne il controllo di salute, la prima configurazione e il login richiede un token (`Authorization: Bearer`, o `?ticket=` per il websocket); tre ruoli: l'osservatore legge, l'operatore esegue lavori, l'amministratore gestisce utenti, token e macchine |
 | Indovinare una password | cinque password sbagliate bloccano il nome, 30 s e poi 60 s, 120 s e così via finché continuano (`429 throttled`); la risposta non dice quale parte era sbagliata, e un nome sconosciuto costa quanto uno noto |
 | Una copia della cartella dati | le password sono hash Argon2id; i token di sessione e di programma sono casuali e se ne conserva solo lo SHA-256, quindi una copia della cartella non fa entrare nessuno; il token di un nodo non viene mai mostrato dall'API |
 | Prendere il controllo di un server nuovo | il primo amministratore si crea con un codice di configurazione che stampa solo la console |
@@ -117,7 +117,7 @@ Come si incastrano le parti di questo repository: chi lo usa, che cosa contiene 
 | Interfaccia | Che cos'è | Dove |
 |---|---|---|
 | REST | `/api/v1/`: `health`, `setup`, `login`, `logout`, `session`, `account`, `users`, `tokens`, `updates`, `machines` (con `preview` e `jobs`), `jobs` (con `start`, `confirm`, `cancel`); JSON in entrata e in uscita, errori come `{"error","detail"}` | [docs/API.md](docs/API.md), `src/api.rs` |
-| Websocket | `GET /api/v1/events?token=...`: un `hello` con i riepiloghi dei lavori, poi `job` e `job_removed` a ogni cambiamento | [docs/API.md](docs/API.md) |
+| Websocket | `GET /api/v1/events?ticket=...`: un `hello` con i riepiloghi dei lavori, poi `job` e `job_removed` a ogni cambiamento | [docs/API.md](docs/API.md) |
 | Verso la macchina | la `connection` di una macchina è `node` (un EH3D-NODE-BUNGARD a un indirizzo con il suo token) o `demo` (il simulatore) | [docs/API.md](docs/API.md), `src/machines.rs` |
 | Riga di comando | `eh3d-server [--config FILE]`; `--help` la elenca | `src/main.rs` |
 | Servizio | un binario, porta 18200 per impostazione predefinita, un'unità systemd | [docs/DEPLOY.md](docs/DEPLOY.md), `deploy/eh3d-server.service` |

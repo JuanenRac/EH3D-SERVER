@@ -97,7 +97,7 @@ How the parts of this repository fit together: who uses it, what it holds and wh
 
 | Threat | Defense |
 |---|---|
-| Anyone on the network sending requests | every request but the health check, the first set-up and the login needs a token (`Authorization: Bearer`, or `?token=` for the websocket); three roles: viewer reads, operator runs jobs, administrator manages users, tokens and machines |
+| Anyone on the network sending requests | every request but the health check, the first set-up and the login needs a token (`Authorization: Bearer`, or `?ticket=` for the websocket); three roles: viewer reads, operator runs jobs, administrator manages users, tokens and machines |
 | Guessing a password | five wrong passwords block the name, for 30 s and then 60 s, 120 s and so on while they go on (`429 throttled`); the answer does not say which part was wrong, and an unknown name costs as much as a known one |
 | A copy of the data folder | passwords are Argon2id hashes; session and program tokens are random and only their SHA-256 is kept, so a copy of the folder logs nobody in; the token of a node is never shown by the API |
 | Taking over a fresh server | the first administrator is made with a set-up code that only the console prints |
@@ -117,7 +117,7 @@ How the parts of this repository fit together: who uses it, what it holds and wh
 | Interface | What it is | Where |
 |---|---|---|
 | REST | `/api/v1/`: `health`, `setup`, `login`, `logout`, `session`, `account`, `users`, `tokens`, `updates`, `fleet`, `fleet`, `machines` (with `preview` and `jobs`), `jobs` (with `start`, `confirm`, `cancel`); JSON in and out, errors as `{"error","detail"}` | [docs/API.md](docs/API.md), `src/api.rs` |
-| Websocket | `GET /api/v1/events?token=...`: a `hello` with the summaries of the jobs, then `job` and `job_removed` for every change | [docs/API.md](docs/API.md) |
+| Websocket | `GET /api/v1/events?ticket=...`: a `hello` with the summaries of the jobs, then `job` and `job_removed` for every change | [docs/API.md](docs/API.md) |
 | To the machine | a machine's `connection` is `node` (an EH3D-NODE-BUNGARD at an address with its token) or `demo` (the simulator) | [docs/API.md](docs/API.md), `src/machines.rs` |
 | Command line | `eh3d-server [--config FILE]`; `--help` lists it | `src/main.rs` |
 | Service | one binary, port 18200 by default, a systemd unit | [docs/DEPLOY.md](docs/DEPLOY.md), `deploy/eh3d-server.service` |

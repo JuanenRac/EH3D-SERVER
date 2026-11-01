@@ -41,6 +41,9 @@ impl GState {
     }
 }
 
+/// What writes the real-time stop to the port.
+type StopFn = Box<dyn Fn() -> std::io::Result<()> + Send + Sync>;
+
 struct Shared {
     state: Mutex<GState>,
     /// The index of the entry that goes next (the entries before it were taken by the controller).
@@ -50,9 +53,26 @@ struct Shared {
     confirm: AtomicBool,
     /// The job stopped following: the server ends.
     detach: AtomicBool,
+    /// Writes the real-time stop to the port from any thread (a GRBL machine only; set by the thread of the job once the port is open).
+    emergency: Mutex<Option<StopFn>>,
+    /// The real-time stop went out: the controller was reset, so it will not answer the lines that were waiting.
+    hard: AtomicBool,
 }
 
 impl Shared {
+    fn new() -> Shared {
+        Shared {
+            state: Mutex::new(GState::Connecting),
+            next: AtomicUsize::new(0),
+            cancel: AtomicBool::new(false),
+            hold: AtomicBool::new(false),
+            confirm: AtomicBool::new(false),
+            detach: AtomicBool::new(false),
+            emergency: Mutex::new(None),
+            hard: AtomicBool::new(false),
+        }
+    }
+
     fn set(&self, s: GState) {
         if let Ok(mut g) = self.state.lock() {
             *g = s;
@@ -73,10 +93,14 @@ pub struct GcodeRun {
 const STATUS_EVERY: usize = 25;
 
 /// The controller of a machine for a G-code job.
-fn open(connection: &Connection, timeouts: Timeouts) -> Result<Box<dyn Controller>, String> {
+fn open(
+    connection: &Connection,
+    timeouts: Timeouts,
+    shared: &Shared,
+) -> Result<Box<dyn Controller>, String> {
     match connection {
         Connection::Demo => Ok(Box::new(SimController::new())),
-        Connection::Grbl { port, baud } => open_grbl(port, *baud, timeouts),
+        Connection::Grbl { port, baud } => open_grbl(port, *baud, timeouts, shared),
         Connection::Node { .. } => {
             Err("a node of a Bungard machine takes drilling and routing jobs, not G-code".into())
         }
@@ -84,17 +108,30 @@ fn open(connection: &Connection, timeouts: Timeouts) -> Result<Box<dyn Controlle
 }
 
 #[cfg(feature = "serial")]
-fn open_grbl(port: &str, baud: u32, timeouts: Timeouts) -> Result<Box<dyn Controller>, String> {
+fn open_grbl(
+    port: &str,
+    baud: u32,
+    timeouts: Timeouts,
+    shared: &Shared,
+) -> Result<Box<dyn Controller>, String> {
     use eh3d_controller::grbl::GrblController;
     use eh3d_controller::serial::SerialTransport;
     let transport = SerialTransport::open(port, baud).map_err(|e| format!("{port}: {e}"))?;
-    Ok(Box::new(
-        GrblController::new(transport).with_timeouts(timeouts),
-    ))
+    // the port is shared so that a stop can be written while the thread of the job waits for an answer
+    let (link, handle) = crate::emergency::share(transport);
+    if let Ok(mut slot) = shared.emergency.lock() {
+        *slot = Some(Box::new(move || handle.stop()));
+    }
+    Ok(Box::new(GrblController::new(link).with_timeouts(timeouts)))
 }
 
 #[cfg(not(feature = "serial"))]
-fn open_grbl(port: &str, _baud: u32, _timeouts: Timeouts) -> Result<Box<dyn Controller>, String> {
+fn open_grbl(
+    port: &str,
+    _baud: u32,
+    _timeouts: Timeouts,
+    _shared: &Shared,
+) -> Result<Box<dyn Controller>, String> {
     Err(format!(
         "{port}: this server was built without serial port support (build it with --features serial)"
     ))
@@ -113,14 +150,7 @@ impl GcodeRun {
         finish_wait: Duration,
         timeouts: Timeouts,
     ) -> Arc<GcodeRun> {
-        let shared = Arc::new(Shared {
-            state: Mutex::new(GState::Connecting),
-            next: AtomicUsize::new(0),
-            cancel: AtomicBool::new(false),
-            hold: AtomicBool::new(false),
-            confirm: AtomicBool::new(false),
-            detach: AtomicBool::new(false),
-        });
+        let shared = Arc::new(Shared::new());
         let lines_raw: Vec<usize> = entries.iter().map(|e| e.raw).collect();
         let (worker, lines) = (shared.clone(), entries);
         let handle = thread::spawn(move || {
@@ -187,9 +217,19 @@ impl GcodeRun {
         }
     }
 
-    /// Stops the machine and ends the job.
+    /// Stops the machine and ends the job. On a GRBL machine the feed hold and the soft reset are written to the port at once, from this thread, without
+    /// waiting for the line that is being sent to end; the job is marked as cancelled when its thread notices.
     pub fn cancel(&self) {
         self.shared.cancel.store(true, Ordering::SeqCst);
+        let sent = self
+            .shared
+            .emergency
+            .lock()
+            .ok()
+            .and_then(|slot| slot.as_ref().map(|stop| stop().is_ok()));
+        if sent == Some(true) {
+            self.shared.hard.store(true, Ordering::SeqCst);
+        }
     }
 
     pub fn finished(&self) -> bool {
@@ -229,6 +269,14 @@ fn stop(c: &mut dyn Controller) -> Result<(), String> {
     }
 }
 
+/// The end of a job that was cancelled. When the real-time stop went out the controller has been reset and is already stopped.
+fn cancelled(c: &mut dyn Controller, shared: &Shared) -> Result<GState, String> {
+    if !shared.hard.load(Ordering::SeqCst) {
+        stop(c)?;
+    }
+    Ok(GState::Cancelled)
+}
+
 /// Stops the machine as far as the controller allows; the word of what went wrong goes first.
 fn stop_after(c: &mut dyn Controller, why: String) -> String {
     match stop(c) {
@@ -266,26 +314,23 @@ fn run(
     timeouts: Timeouts,
     shared: &Shared,
 ) -> Result<GState, String> {
-    let mut c = open(connection, timeouts)?;
+    let mut c = open(connection, timeouts, shared)?;
     alarm_of(c.as_mut())?;
     shared.set(GState::Running);
     for (i, entry) in lines.iter().enumerate() {
         // the check before the first move after a stop
         if i == preamble && resume && !wait_held(shared, Hold::Resume) {
-            stop(c.as_mut())?;
-            return Ok(GState::Cancelled);
+            return cancelled(c.as_mut(), shared);
         }
         if shared.cancel.load(Ordering::SeqCst) {
-            stop(c.as_mut())?;
-            return Ok(GState::Cancelled);
+            return cancelled(c.as_mut(), shared);
         }
         if shared.hold.load(Ordering::SeqCst) {
             if let Err(e) = c.command(Command::Pause) {
                 return Err(stop_after(c.as_mut(), format!("pause: {e}")));
             }
             if !wait_held(shared, Hold::Operator) {
-                stop(c.as_mut())?;
-                return Ok(GState::Cancelled);
+                return cancelled(c.as_mut(), shared);
             }
             if let Err(e) = c.command(Command::Resume) {
                 return Err(stop_after(c.as_mut(), format!("resume: {e}")));
@@ -293,6 +338,10 @@ fn run(
             shared.set(GState::Running);
         }
         if let Err(e) = c.send_line(&entry.text) {
+            // a line that was waiting when the operator stopped the machine is not a failure
+            if shared.cancel.load(Ordering::SeqCst) {
+                return cancelled(c.as_mut(), shared);
+            }
             return Err(stop_after(
                 c.as_mut(),
                 format!("line {} ({}): {e}", entry.raw + 1, entry.text),
@@ -309,8 +358,7 @@ fn run(
     let limit = Instant::now() + finish_wait;
     loop {
         if shared.cancel.load(Ordering::SeqCst) {
-            stop(c.as_mut())?;
-            return Ok(GState::Cancelled);
+            return cancelled(c.as_mut(), shared);
         }
         match c.status() {
             Ok(s) if s.state == State::Alarm => {
@@ -454,14 +502,16 @@ mod tests {
             address: "10.0.0.2:5800".into(),
             token: String::new(),
         };
-        assert!(open(&node, Timeouts::default()).is_err());
+        assert!(open(&node, Timeouts::default(), &Shared::new()).is_err());
         #[cfg(not(feature = "serial"))]
         {
             let grbl = Connection::Grbl {
                 port: "COM9".into(),
                 baud: 115_200,
             };
-            let e = open(&grbl, Timeouts::default()).err().unwrap();
+            let e = open(&grbl, Timeouts::default(), &Shared::new())
+                .err()
+                .unwrap();
             assert!(e.contains("serial"), "{e}");
         }
     }

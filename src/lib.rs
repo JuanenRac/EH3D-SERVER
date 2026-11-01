@@ -6,6 +6,7 @@
 pub mod api;
 pub mod auth;
 pub mod config;
+pub mod emergency;
 pub mod gcode;
 pub mod gcode_run;
 pub mod head;
@@ -16,4 +17,5 @@ pub mod plan;
 pub mod spindle;
 pub mod state;
 pub mod store;
+pub mod tickets;
 pub mod updates;

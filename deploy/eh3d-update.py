@@ -12,7 +12,12 @@ The server does not talk to GitHub and does not replace itself: this program doe
 
     eh3d-update.py --dir /var/lib/eh3d-updates [--config /etc/eh3d-update.json]     # does what request.json says, once
 
-Every download is checked against the SHA-256 that the release publishes next to the file before anything is replaced, the files are written beside the old ones and
+Every download is checked against the SHA-256 that the release publishes next to the file before anything is replaced. That proves the file arrived whole, not who made it
+(the hash is published in the same place as the file). When the machine has a file of allowed signers (`--signers`, or `/etc/eh3d-update.signers` if it exists) the release must
+also publish `<file>.sig`, an OpenSSH signature of the file made with `ssh-keygen -Y sign -n eh3d-release`, and it must verify with `ssh-keygen -Y verify`
+against one of those keys: then a stolen account of GitHub, which can replace the file and its hash, still cannot make this machine install what the owner did not sign.
+Without that file the helper works as before, and says in its log that the files are not checked for who made them.
+ the files are written beside the old ones and
 moved into place, and the old ones are kept as `.previous` so that a bad update can be put back by hand. Only the standard library is used.
 """
 import argparse
@@ -28,6 +33,11 @@ import urllib.request
 from pathlib import Path
 
 OWNER = "JuanenRac"
+#: The file of allowed signers (the format of `ssh-keygen -Y verify`): one line per public key, `eh3d-release <key type> <key>`. Used when it exists.
+DEFAULT_SIGNERS = "/etc/eh3d-update.signers"
+SIGNATURE_NAMESPACE = "eh3d-release"
+SIGNATURE_IDENTITY = "eh3d-release"
+SIGNERS = DEFAULT_SIGNERS if os.path.exists(DEFAULT_SIGNERS) else None
 DEFAULT_CONFIG = {
     "server": {
         "repo": "EH3D-SERVER",
@@ -119,6 +129,20 @@ def safe_members(tar: tarfile.TarFile, dest: Path):
         yield m
 
 
+def verify_signature(archive: Path, signature: bytes, signers: str, run=subprocess.run) -> bool:
+    """True when `signature` (the text of an OpenSSH signature) is a valid signature of `archive` by one of the keys in `signers`."""
+    with tempfile.TemporaryDirectory(prefix="eh3d-sig-") as tmp:
+        sig_file = Path(tmp) / "file.sig"
+        sig_file.write_bytes(signature)
+        with archive.open("rb") as data:
+            done = run(
+                ["ssh-keygen", "-Y", "verify", "-f", signers, "-I", SIGNATURE_IDENTITY, "-n", SIGNATURE_NAMESPACE, "-s", str(sig_file)],
+                stdin=data,
+                capture_output=True,
+            )
+    return done.returncode == 0
+
+
 def install(folder: Folder, comp_id: str, comp: dict, release: dict, get=http_get, run=subprocess.run) -> None:
     version = release["latest"]
     name = comp["asset"].format(version=version, arch=arch())
@@ -136,6 +160,15 @@ def install(folder: Folder, comp_id: str, comp: dict, release: dict, get=http_ge
         want = expected_hash(get(hash_url).decode("utf-8", "replace"), name)
         if not want or sha256_of(archive) != want:
             raise RuntimeError(f"{name}: the hash does not match, nothing was installed")
+        if SIGNERS:
+            sig_url = release["assets"].get(name + ".sig")
+            if not sig_url:
+                raise RuntimeError(f"the release has no {name}.sig and this machine only installs what is signed ({SIGNERS})")
+            if not verify_signature(archive, get(sig_url), SIGNERS):
+                raise RuntimeError(f"{name}: the signature is not one of the allowed signers, nothing was installed")
+            folder.say("updating", f"{comp_id}: the signature is right")
+        else:
+            folder.say("updating", f"{comp_id}: no file of allowed signers: the hash proves the file arrived whole, not who made it")
         folder.say("updating", f"{comp_id}: the hash is right, unpacking")
         stage = tmpdir / "stage"
         stage.mkdir()
@@ -216,8 +249,12 @@ def handle(folder: Folder, config: dict, get=http_get, run=subprocess.run) -> bo
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Updates the EH3D services from the releases of GitHub, as the server asks.")
     p.add_argument("--dir", required=True, help="the shared folder (updates_dir of server.cfg)")
+    p.add_argument("--signers", help="the file of allowed signers (ssh-keygen format): when given or present at /etc/eh3d-update.signers, only signed releases are installed")
     p.add_argument("--config", help="a JSON file that replaces the components (id: repo, asset, install_dir, program, restart)")
     a = p.parse_args(argv)
+    global SIGNERS
+    if a.signers:
+        SIGNERS = a.signers
     config = DEFAULT_CONFIG
     if a.config:
         config = json.loads(Path(a.config).read_text(encoding="utf-8"))

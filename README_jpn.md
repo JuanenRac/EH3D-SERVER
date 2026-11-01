@@ -97,7 +97,7 @@ EH3D-SERVER は EH3D ファミリーの中心です。プログラムはジョ�
 
 | 脅威 | 防御 |
 |---|---|
-| ネットワーク上の誰かがリクエストを送る | ヘルスチェック、初回セットアップ、ログイン以外のすべてのリクエストにトークンが必要です（`Authorization: Bearer`、WebSocket は `?token=`）。3 つの権限：閲覧者は読み取り、オペレーターはジョブを実行、管理者はユーザー・トークン・機械を管理 |
+| ネットワーク上の誰かがリクエストを送る | ヘルスチェック、初回セットアップ、ログイン以外のすべてのリクエストにトークンが必要です（`Authorization: Bearer`、WebSocket は `?ticket=`）。3 つの権限：閲覧者は読み取り、オペレーターはジョブを実行、管理者はユーザー・トークン・機械を管理 |
 | パスワードの推測 | 誤ったパスワードが 5 回で名前をブロックし、30 秒、続くあいだ 60 秒、120 秒…と延びます（`429 throttled`）。どの部分が違ったかは答えず、未知の名前も既知の名前と同じ時間がかかります |
 | データ フォルダーのコピー | パスワードは Argon2id ハッシュ。セッションとプログラムのトークンはランダムで SHA-256 だけを保存するため、フォルダーのコピーで誰もログインできません。ノードのトークンは API が表示することはありません |
 | 新しいサーバーの乗っ取り | 最初の管理者は、コンソールだけに表示されるセットアップ コードで作成します |
@@ -117,7 +117,7 @@ EH3D-SERVER は EH3D ファミリーの中心です。プログラムはジョ�
 | インターフェース | 内容 | 場所 |
 |---|---|---|
 | REST | `/api/v1/`：`health`、`setup`、`login`、`logout`、`session`、`account`、`users`、`tokens`、`machines`（`preview` と `jobs` 付き）、`jobs`（`start`、`confirm`、`cancel` 付き）。入出力は JSON、エラーは `{"error","detail"}` | [docs/API.md](docs/API.md)、`src/api.rs` |
-| WebSocket | `GET /api/v1/events?token=...`：ジョブの概要を持つ `hello`、その後の変更ごとの `job` と `job_removed` | [docs/API.md](docs/API.md) |
+| WebSocket | `GET /api/v1/events?ticket=...`：ジョブの概要を持つ `hello`、その後の変更ごとの `job` と `job_removed` | [docs/API.md](docs/API.md) |
 | 機械へ | 機械の `connection` は `node`（アドレスとトークンを持つ EH3D-NODE-BUNGARD）または `demo`（シミュレーター） | [docs/API.md](docs/API.md)、`src/machines.rs` |
 | コマンドライン | `eh3d-server [--config FILE]`。`--help` で一覧表示 | `src/main.rs` |
 | サービス | 1 つのバイナリ、既定ポート 18200、systemd ユニット | [docs/DEPLOY.md](docs/DEPLOY.md)、`deploy/eh3d-server.service` |

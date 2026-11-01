@@ -161,6 +161,31 @@ impl FromRequestParts<Shared> for Authed {
     }
 }
 
+/// With `local_until_setup` on, a server that has no user yet answers only the connections from its own computer: nobody else on the network can make the first administrator.
+async fn local_until_setup(
+    State(s): State<Shared>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    if s.cfg.local_until_setup {
+        let peer = req
+            .extensions()
+            .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+            .map(|c| c.0.ip());
+        if let Some(ip) = peer {
+            if !ip.is_loopback() && s.auth.lock().expect("auth lock").needs_setup() {
+                return ApiError::new(
+                    StatusCode::FORBIDDEN,
+                    "local_only",
+                    "this server has no user yet: make the administrator from the computer it runs on",
+                )
+                .into_response();
+            }
+        }
+    }
+    next.run(req).await
+}
+
 pub fn router(state: Shared) -> Router {
     let limit = state.cfg.max_body_mb * 1024 * 1024;
     let studio = state.cfg.studio_dir.clone();
@@ -185,6 +210,8 @@ pub fn router(state: Shared) -> Router {
             get(spindle_get).put(spindle_put),
         )
         .route("/api/v1/machines/:id/preview", post(preview))
+        .route("/api/v1/machines/:id/stop", post(stop_machine))
+        .route("/api/v1/tickets", post(make_ticket))
         .route("/api/v1/machines/:id/jobs", post(create_job))
         .route("/api/v1/machines/:id/head/status", get(head_status))
         .route("/api/v1/machines/:id/head/measure", post(head_measure))
@@ -221,6 +248,10 @@ pub fn router(state: Shared) -> Router {
         .route("/api/v1/updates/apply", post(updates_apply))
         .route("/api/v1/events", get(events))
         .layer(DefaultBodyLimit::max(limit))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            local_until_setup,
+        ))
         .with_state(state);
     match studio {
         // the pages of Studio: a file that is not there is the start page, so a reload on any page of the application works
@@ -1102,6 +1133,21 @@ async fn confirm_job(
     }
 }
 
+/// The stop of a machine, whether or not the caller knows which job runs on it: the button of the clients. It does not wait for the line that is being sent.
+async fn stop_machine(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+) -> ApiResult {
+    need(&who, Role::Operator)?;
+    machine_of(&s, &id)?;
+    let job = s.stop_machine(&id);
+    s.publish(json!({ "type": "machine", "id": id }));
+    Ok(Json(
+        json!({ "ok": true, "stopped": job.is_some(), "job": job }),
+    ))
+}
+
 async fn cancel_job(
     State(s): State<Shared>,
     Authed(who, _): Authed,
@@ -1559,20 +1605,7 @@ async fn head_stream(
     Path(id): Path<String>,
     Query(q): Query<TokenQuery>,
 ) -> Result<Response, ApiError> {
-    let token = bearer(&parts).or(q.token).ok_or_else(|| {
-        ApiError::new(
-            StatusCode::UNAUTHORIZED,
-            "unauthorized",
-            "send the token in the address or in Authorization",
-        )
-    })?;
-    let who = s
-        .auth
-        .lock()
-        .expect("auth lock")
-        .identify(&token, now())
-        .ok_or_else(|| ApiError::new(StatusCode::UNAUTHORIZED, "unauthorized", ""))?;
-    need(&who, Role::Viewer)?;
+    let (_who, _token) = identify_open(&s, &parts, &q)?;
     let (address, head_token) = head_of(&s, &id)?;
     let answer = head::open(&address, &head_token, "GET", "/stream")
         .await
@@ -1597,6 +1630,59 @@ async fn head_stream(
 #[derive(Deserialize)]
 struct TokenQuery {
     token: Option<String>,
+    ticket: Option<String>,
+}
+
+/// A ticket for the camera or the websocket: good for one use within half a minute, so that the address does not carry the token of the session.
+async fn make_ticket(State(s): State<Shared>, Authed(_who, token): Authed) -> ApiResult {
+    let ticket = s
+        .tickets
+        .lock()
+        .expect("tickets lock")
+        .issue(&token, now())
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::TOO_MANY_REQUESTS,
+                "throttled",
+                "too many tickets are waiting",
+            )
+        })?;
+    Ok(Json(
+        json!({ "ticket": ticket, "expires_s": crate::tickets::TICKET_SECONDS }),
+    ))
+}
+
+/// Who asks, for the endpoints whose caller cannot always send a header: `Authorization`, else a ticket in the address, else (only if the settings allow it)
+/// the token in the address. Returns the identity and the token of the session.
+fn identify_open(
+    s: &Shared,
+    parts: &Parts,
+    q: &TokenQuery,
+) -> Result<(Identity, String), ApiError> {
+    let unauthorized = |why: &str| ApiError::new(StatusCode::UNAUTHORIZED, "unauthorized", why);
+    let token = if let Some(t) = bearer(parts) {
+        t
+    } else if let Some(ticket) = &q.ticket {
+        s.tickets
+            .lock()
+            .expect("tickets lock")
+            .redeem(ticket, now())
+            .ok_or_else(|| unauthorized("the ticket is unknown, used or expired"))?
+    } else if let (true, Some(t)) = (s.cfg.url_token, q.token.clone()) {
+        t
+    } else {
+        return Err(unauthorized(
+            "send the token in Authorization, or a ticket (POST /api/v1/tickets) in the address",
+        ));
+    };
+    let who = s
+        .auth
+        .lock()
+        .expect("auth lock")
+        .identify(&token, now())
+        .ok_or_else(|| unauthorized(""))?;
+    need(&who, Role::Viewer)?;
+    Ok((who, token))
 }
 
 /// A websocket that sends every change as a JSON text: `{"type":"job","job":{...}}` for a job, `{"type":"job_removed","id":...}` and
@@ -1607,20 +1693,7 @@ async fn events(
     Query(q): Query<TokenQuery>,
     ws: WebSocketUpgrade,
 ) -> Result<Response, ApiError> {
-    let token = bearer(&parts).or(q.token).ok_or_else(|| {
-        ApiError::new(
-            StatusCode::UNAUTHORIZED,
-            "unauthorized",
-            "send the token in the address or in Authorization",
-        )
-    })?;
-    let who = s
-        .auth
-        .lock()
-        .expect("auth lock")
-        .identify(&token, now())
-        .ok_or_else(|| ApiError::new(StatusCode::UNAUTHORIZED, "unauthorized", ""))?;
-    need(&who, Role::Viewer)?;
+    let (_who, token) = identify_open(&s, &parts, &q)?;
     Ok(ws.on_upgrade(move |socket| relay(socket, s, token)))
 }
 

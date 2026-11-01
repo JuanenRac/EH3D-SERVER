@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **The stop button reaches the machine at once:** `POST /machines/:id/stop` ends the job that is active on a machine whoever asks and whatever the job is; on a GRBL machine the feed hold and the soft reset are written to the port from another thread (the port is shared, the waits are made in short turns), so a homing cycle or a long move no longer has to end before the stop is heard. A line that was waiting when the stop came does not make the job fail: it is cancelled. `POST /jobs/:id/cancel` takes the same way.
+- **The token stays out of the address:** `POST /tickets` gives a ticket good for one use within 30 seconds, for the camera and the websocket; `?token=` in the address is refused unless `url_token = true` is set.
+- **`local_until_setup` in `server.cfg`** (off by default: the server answers whoever reaches it, as it always did): while there is no user yet, only connections from 127.0.0.1 are answered (`403 local_only` for the rest), so nobody else on the network can make the first administrator; once there is a user it makes no difference.
+- **The update helper can require a signature:** when the machine has a file of allowed signers (`/etc/eh3d-update.signers` or `--signers`), only a release that publishes `<file>.sig` (an OpenSSH signature made with `ssh-keygen -Y sign -n eh3d-release`) that verifies against one of those keys is installed; without the file it works as before and says in its log that the hash proves the file arrived whole, not who made it. No key is made by the project: the owner makes one and publishes the signatures.
+- **The request of a job is a file of its own** (`requests/<id>.json`) and `jobs.json` no longer carries it; the files are written by a thread of their own, so the lock of the jobs is never held for the disk. A `jobs.json` of an older version is read and its requests are moved to files.
+
 - The release workflow runs `cargo test --all-targets` before it builds the packages.
 
 - **A resumed G-code job goes back a margin of lines** (`resume_margin_lines` in `server.cfg`, 16 by default, 0 to 1000): the controller takes lines ahead of the movement, so the last ones it took were not all done. The codes in force are still given back before the first move.

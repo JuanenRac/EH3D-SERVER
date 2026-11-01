@@ -14,7 +14,7 @@ EH3D-SERVER/
 
 ## Settings
 
-`server.cfg` (or the file given with `--config`) holds `listen`, `data_dir`, `session_hours`, `max_body_mb`, `keep_jobs` and the settings of G-code jobs (`gcode_finish_wait_s`, `grbl_line_timeout_s`, `grbl_homing_timeout_s`, `grbl_jog_timeout_s`), `resume_margin_lines` (16) and `login_ip_limit` (10, 0 turns it off; behind a reverse proxy the address is the proxy's, so turn it off there); see `server.cfg.example`. The default port is **18200**, which is not one of ARMOR's (18080 to 18090) nor HYDRA-UMC's, so the three servers can share the CM5.
+`server.cfg` (or the file given with `--config`) holds `listen`, `data_dir`, `session_hours`, `max_body_mb`, `keep_jobs` and the settings of G-code jobs (`gcode_finish_wait_s`, `grbl_line_timeout_s`, `grbl_homing_timeout_s`, `grbl_jog_timeout_s`), `resume_margin_lines` (16), `local_until_setup` (off: with it on, a server that has no user yet answers only 127.0.0.1, so the first administrator is made from the computer itself), `url_token` (off) and `login_ip_limit` (10, 0 turns it off; behind a reverse proxy the address is the proxy's, so turn it off there); see `server.cfg.example`. The default port is **18200**, which is not one of ARMOR's (18080 to 18090) nor HYDRA-UMC's, so the three servers can share the CM5.
 
 ## First start
 
@@ -79,3 +79,13 @@ cargo build --release --features serial
 The user the service runs as must be allowed to open the port (on Linux the group `dialout`). Without the feature a G-code job for a `grbl` machine is marked failed when it starts, with a message that says so. `gcode_finish_wait_s` in `server.cfg` is how long a job waits for the machine to be still after its last line.
 
 A GRBL machine answers an ordinary line at once, but a homing cycle (`$H`) and a jog (`$J=...`) answer only when the machine has finished moving, so each kind of line has its own wait in `server.cfg`: `grbl_line_timeout_s` (5 seconds by default), `grbl_homing_timeout_s` (120) and `grbl_jog_timeout_s` (60), each from 1 to 3600. Give the homing more than your machine takes. When a line does not end in time the machine is stopped (a homing cycle is reset, a jog is cancelled, anything else is held, and the job then stops the controller) and the job is marked `failed` with the line that did not end; the machine is never left moving.
+
+## Who made the update
+
+The update helper checks every download against the SHA-256 that the release publishes, which proves the file arrived whole. Because the hash is published in the same place as the file, whoever can replace the file can replace the hash too. To also know who made it, give the machine a file of allowed signers and sign the releases:
+
+1. The owner makes a key pair that is only for releases (`ssh-keygen -t ed25519 -f eh3d-release`) and keeps the private half off the servers.
+2. On the machine, `/etc/eh3d-update.signers` holds one line: `eh3d-release <the contents of eh3d-release.pub>`.
+3. For every file of a release, the owner signs it (`ssh-keygen -Y sign -f eh3d-release -n eh3d-release FILE.tar.gz`) and publishes `FILE.tar.gz.sig` next to it.
+
+From then on the helper installs only a release that has the `.sig` and whose signature verifies with `ssh-keygen -Y verify`; a release without it, or signed by another key, is refused and nothing is replaced. Without the signers file the helper works as before and its log says that the files are not checked for who made them.

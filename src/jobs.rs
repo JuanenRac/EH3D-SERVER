@@ -7,6 +7,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Condvar, Mutex};
 
 use crate::plan::JobView;
 use crate::store;
@@ -70,7 +71,9 @@ pub struct JobRecord {
     /// Why it failed, in English.
     pub message: String,
     pub pause: Option<PauseView>,
-    /// What was asked, as it came: the job is planned again when it starts, with the machine's constants of that moment.
+    /// What was asked, as it came: the job is planned again when it starts, with the machine's constants of that moment. It is kept in a file of its own
+    /// (`requests/<id>.json`), not in `jobs.json`; a `jobs.json` of an older version that still holds it is read all the same.
+    #[serde(default, skip_serializing)]
     pub request: serde_json::Value,
     /// The job this one goes on from (made by `resume-from`); empty for the others.
     #[serde(default)]
@@ -97,31 +100,162 @@ impl JobRecord {
     }
 }
 
+/// What is waiting to be written: the files are written by a thread of their own, so that the lock of the book is held only for the time it takes to
+/// turn the book into bytes and never for the disk (a slow SD card of the CM5 must not stop the API or the jobs that are running).
+#[derive(Default)]
+struct Pending {
+    /// The new `jobs.json` (without the requests).
+    list: Option<Vec<u8>>,
+    /// The request of a job to keep, by id.
+    writes: Vec<(String, Vec<u8>)>,
+    /// The ids of the jobs whose request is no longer needed.
+    deletes: Vec<String>,
+    busy: bool,
+    stop: bool,
+}
+
+impl Pending {
+    fn is_empty(&self) -> bool {
+        self.list.is_none() && self.writes.is_empty() && self.deletes.is_empty()
+    }
+}
+
+type Shared = Arc<(Mutex<Pending>, Condvar)>;
+
+fn write_bytes(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, bytes)?;
+    if cfg!(windows) && path.exists() {
+        std::fs::remove_file(path)?;
+    }
+    std::fs::rename(&tmp, path)
+}
+
+fn writer_loop(shared: Shared, list_path: PathBuf, requests_dir: PathBuf) {
+    let (lock, cv) = &*shared;
+    loop {
+        let work = {
+            let mut p = lock.lock().expect("pending lock");
+            while p.is_empty() && !p.stop {
+                p = cv.wait(p).expect("pending lock");
+            }
+            if p.is_empty() && p.stop {
+                return;
+            }
+            p.busy = true;
+            std::mem::take(&mut *p)
+        };
+        // a request is written before the list that names its job, and removed after it
+        for (id, bytes) in &work.writes {
+            if let Err(e) = write_bytes(&requests_dir.join(format!("{id}.json")), bytes) {
+                eprintln!("eh3d-server: cannot write the request of {id}: {e}");
+            }
+        }
+        if let Some(bytes) = &work.list {
+            if let Err(e) = write_bytes(&list_path, bytes) {
+                eprintln!("eh3d-server: cannot write {}: {e}", list_path.display());
+            }
+        }
+        for id in &work.deletes {
+            let _ = std::fs::remove_file(requests_dir.join(format!("{id}.json")));
+        }
+        let mut p = lock.lock().expect("pending lock");
+        p.busy = false;
+        cv.notify_all();
+    }
+}
+
 pub struct JobBook {
-    path: PathBuf,
+    requests_dir: PathBuf,
     keep: usize,
     jobs: Vec<JobRecord>,
+    shared: Shared,
+    handle: Option<std::thread::JoinHandle<()>>,
 }
 
 impl JobBook {
     pub fn open(dir: &Path, keep: usize) -> io::Result<JobBook> {
         let path = dir.join("jobs.json");
+        let requests_dir = dir.join("requests");
         let mut jobs: Vec<JobRecord> = store::read_json(&path)?.unwrap_or_default();
+        let mut migrate: Vec<(String, Vec<u8>)> = Vec::new();
         for job in &mut jobs {
             if job.state.active() {
                 job.state = JobState::Failed;
                 job.message = "the server restarted while the job was running".into();
                 job.pause = None;
             }
+            if job.request.is_null() {
+                // the request is in its own file
+                if let Ok(bytes) = std::fs::read(requests_dir.join(format!("{}.json", job.id))) {
+                    job.request = serde_json::from_slice(&bytes).unwrap_or_default();
+                }
+            } else if !requests_dir.join(format!("{}.json", job.id)).exists() {
+                // a book of an older version: the request moves to a file of its own
+                migrate.push((
+                    job.id.clone(),
+                    serde_json::to_vec(&job.request).unwrap_or_default(),
+                ));
+            }
         }
-        Ok(JobBook { path, keep, jobs })
+        let shared: Shared = Arc::new((Mutex::new(Pending::default()), Condvar::new()));
+        let handle = {
+            let (shared, requests_dir) = (shared.clone(), requests_dir.clone());
+            std::thread::Builder::new()
+                .name("eh3d-jobs-writer".into())
+                .spawn(move || writer_loop(shared, path, requests_dir))?
+        };
+        let book = JobBook {
+            requests_dir,
+            keep,
+            jobs,
+            shared,
+            handle: Some(handle),
+        };
+        if !migrate.is_empty() {
+            book.shared
+                .0
+                .lock()
+                .expect("pending lock")
+                .writes
+                .extend(migrate);
+            book.save();
+        }
+        Ok(book)
     }
 
+    /// Turns the book into bytes (with the lock of the book, which is quick) and hands them to the writer thread.
     fn save(&self) {
-        // a job book that cannot be written is a problem for the log, not a reason to stop a machine in the middle of a board
-        if let Err(e) = store::write_json(&self.path, &self.jobs) {
-            eprintln!("eh3d-server: cannot write {}: {e}", self.path.display());
+        let bytes = serde_json::to_vec(&self.jobs).unwrap_or_default();
+        let (lock, cv) = &*self.shared;
+        lock.lock().expect("pending lock").list = Some(bytes);
+        cv.notify_all();
+    }
+
+    /// Waits until everything handed to the writer is on the disk (the end of the server, and the tests).
+    pub fn flush(&self) {
+        let (lock, cv) = &*self.shared;
+        let mut p = lock.lock().expect("pending lock");
+        while !p.is_empty() || p.busy {
+            p = cv.wait(p).expect("pending lock");
         }
+    }
+
+    fn queue_delete(&self, id: &str) {
+        self.shared
+            .0
+            .lock()
+            .expect("pending lock")
+            .deletes
+            .push(id.to_string());
+    }
+
+    /// Where the request of a job is kept.
+    pub fn request_path(&self, id: &str) -> PathBuf {
+        self.requests_dir.join(format!("{id}.json"))
     }
 
     pub fn list(&self) -> &[JobRecord] {
@@ -137,12 +271,20 @@ impl JobBook {
     }
 
     pub fn add(&mut self, job: JobRecord) {
+        let bytes = serde_json::to_vec(&job.request).unwrap_or_default();
+        self.shared
+            .0
+            .lock()
+            .expect("pending lock")
+            .writes
+            .push((job.id.clone(), bytes));
         self.jobs.push(job);
         // the oldest finished jobs go when the list is longer than it should be
         while self.jobs.len() > self.keep {
             match self.jobs.iter().position(|j| j.state.finished()) {
                 Some(i) => {
-                    self.jobs.remove(i);
+                    let gone = self.jobs.remove(i);
+                    self.queue_delete(&gone.id);
                 }
                 None => break,
             }
@@ -160,6 +302,7 @@ impl JobBook {
         self.jobs.retain(|j| j.id != id);
         let removed = self.jobs.len() != before;
         if removed {
+            self.queue_delete(id);
             self.save();
         }
         removed
@@ -170,6 +313,20 @@ impl JobBook {
         self.jobs
             .iter()
             .find(|j| j.machine == machine && j.state.active())
+    }
+}
+
+impl Drop for JobBook {
+    fn drop(&mut self) {
+        self.flush();
+        {
+            let (lock, cv) = &*self.shared;
+            lock.lock().expect("pending lock").stop = true;
+            cv.notify_all();
+        }
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
     }
 }
 
@@ -244,6 +401,7 @@ mod tests {
         book.add(record("b", JobState::Running));
         book.add(record("c", JobState::WaitingOperator));
         book.add(record("d", JobState::Done));
+        book.flush();
         let again = JobBook::open(&d, 10).unwrap();
         let states: Vec<JobState> = again.list().iter().map(|j| j.state).collect();
         assert_eq!(
@@ -257,6 +415,55 @@ mod tests {
         );
         assert!(again.get("b").unwrap().message.contains("restarted"));
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_request_of_a_job_is_a_file_of_its_own_and_an_old_book_is_migrated() {
+        let d = dir("jobs-req");
+        let mut book = JobBook::open(&d, 10).unwrap();
+        let mut a = record("a", JobState::Ready);
+        a.request = serde_json::json!({"kind": "gcode", "gcode": "G0 X1"});
+        book.add(a);
+        book.flush();
+        let list = std::fs::read_to_string(d.join("jobs.json")).unwrap();
+        assert!(
+            !list.contains("G0 X1"),
+            "the list does not carry the request"
+        );
+        assert!(std::fs::read_to_string(book.request_path("a"))
+            .unwrap()
+            .contains("G0 X1"));
+        drop(book);
+        let again = JobBook::open(&d, 10).unwrap();
+        assert_eq!(again.get("a").unwrap().request["gcode"], "G0 X1");
+        // removing the job removes its file
+        let mut again = again;
+        assert!(again.remove("a"));
+        again.flush();
+        assert!(!again.request_path("a").exists());
+        drop(again);
+
+        // a jobs.json of an older version carries the request: it is read, and moved to its own file
+        let d2 = dir("jobs-old");
+        std::fs::create_dir_all(&d2).unwrap();
+        let mut old = serde_json::to_value(record("o", JobState::Done)).unwrap();
+        old["request"] = serde_json::json!({"kind": "gcode", "gcode": "G1 X2"});
+        std::fs::write(
+            d2.join("jobs.json"),
+            serde_json::to_vec(&vec![old]).unwrap(),
+        )
+        .unwrap();
+        let migrated = JobBook::open(&d2, 10).unwrap();
+        assert_eq!(migrated.get("o").unwrap().request["gcode"], "G1 X2");
+        migrated.flush();
+        assert!(std::fs::read_to_string(migrated.request_path("o"))
+            .unwrap()
+            .contains("G1 X2"));
+        assert!(!std::fs::read_to_string(d2.join("jobs.json"))
+            .unwrap()
+            .contains("G1 X2"));
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&d2);
     }
 
     #[test]
