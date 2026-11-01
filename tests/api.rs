@@ -2354,3 +2354,288 @@ async fn the_spindle_switch_judges_the_turns_and_the_feed_of_a_gcode_job_too() {
     assert_eq!(codes, ["rpm_above_max", "feed_xy_above_max"]);
     assert_eq!(view["spindle_warnings"][0]["limit"], 24000);
 }
+
+// ---- going on from a stopped job, and the `$` lines of GRBL ---------------------------------------------------------------------------
+
+/// Makes a user of the role and returns the token of their login.
+async fn user_with_role(s: &Server, boss: &str, name: &str, role: &str) -> String {
+    let (status, _) = post(
+        s,
+        boss,
+        "/api/v1/users",
+        Some(json!({"name": name, "role": role, "password": "clave-larga-123"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    call(
+        s,
+        Method::POST,
+        "/api/v1/login",
+        None,
+        Some(json!({"name": name, "password": "clave-larga-123"})),
+    )
+    .await
+    .1["token"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+/// Puts a job in the book as stopped where the test says (a drilling job: the holes done; a routing job: the items run; a G-code job: the line).
+fn stop_job(
+    s: &Server,
+    id: &str,
+    state: eh3d_server::jobs::JobState,
+    holes: usize,
+    items: usize,
+    line: usize,
+) {
+    let mut jobs = s.state.jobs.lock().unwrap();
+    let job = jobs.get_mut(id).unwrap();
+    job.state = state;
+    job.holes_done = holes;
+    job.items_done = items;
+    job.line = line;
+    jobs.changed();
+}
+
+#[tokio::test]
+async fn a_stopped_drilling_job_goes_on_from_the_saved_request_and_the_holes_done_add_up() {
+    use eh3d_server::jobs::JobState;
+    let s = server("resume-drill");
+    let boss = admin(&s).await;
+    let operator = user_with_role(&s, &boss, "op1", "operator").await;
+    let viewer = user_with_role(&s, &boss, "view1", "viewer").await;
+    demo_machine(&s, &boss, "m1").await;
+    let mut asked = drill_job();
+    asked["skip_tools"] = json!([2]);
+    let (_, job) = post(&s, &operator, "/api/v1/machines/m1/jobs", Some(asked)).await;
+    let first = job["id"].as_str().unwrap().to_string();
+    assert_eq!(job["holes_total"], 2);
+
+    // a job that is not stopped cannot be gone on from
+    let path = format!("/api/v1/jobs/{first}/resume-from");
+    let (status, body) = post(&s, &operator, &path, None).await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::CONFLICT, Some("not_stopped"))
+    );
+
+    // it stops with one hole done: the new job has the same file and tools, leaves that hole out and waits to be started
+    stop_job(&s, &first, JobState::Failed, 1, 0, 0);
+    let (status, saved) = get(&s, &operator, &format!("/api/v1/jobs/{first}/request")).await;
+    assert_eq!(status, StatusCode::OK, "{saved}");
+    assert_eq!(saved["request"]["holes"].as_array().unwrap().len(), 3);
+    assert_eq!(saved["next_skip"].as_u64(), Some(1));
+    let (status, second) = post(&s, &operator, &path, None).await;
+    assert_eq!(status, StatusCode::OK, "{second}");
+    assert_eq!(second["state"], "ready");
+    assert_eq!(second["resumed_from"], first.as_str());
+    assert_eq!(second["view"]["skipped"].as_u64(), Some(2));
+    assert_eq!(second["holes_total"].as_u64(), Some(1));
+    let second_id = second["id"].as_str().unwrap().to_string();
+    let (_, kept) = get(&s, &operator, &format!("/api/v1/jobs/{second_id}/request")).await;
+    assert_eq!(kept["request"]["skip"].as_u64(), Some(1));
+    assert_eq!(kept["request"]["skip_tools"], json!([2]));
+    // nothing started by itself
+    let (_, listed) = get(&s, &operator, "/api/v1/jobs?state=ready").await;
+    assert_eq!(listed.as_array().unwrap().len(), 1);
+
+    // it stops again, one hole later: the sum is carried on; with nothing left the answer is no_work
+    stop_job(&s, &second_id, JobState::Cancelled, 1, 0, 0);
+    let path2 = format!("/api/v1/jobs/{second_id}/resume-from");
+    let (status, body) = post(&s, &operator, &path2, None).await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("no_work"))
+    );
+    // the person may name where to go on from instead
+    let (status, third) = post(
+        &s,
+        &operator,
+        &path2,
+        Some(json!({"skip": 0, "name": "again"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{third}");
+    assert_eq!(third["name"].as_str(), Some("again"));
+    assert_eq!(third["view"]["skipped"].as_u64(), Some(1));
+
+    // a viewer reads neither the request nor goes on; a missing job is unknown; the request goes with the job
+    let request_path = format!("/api/v1/jobs/{first}/request");
+    assert_eq!(
+        get(&s, &viewer, &request_path).await.0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        post(&s, &viewer, &path, None).await.0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        post(&s, &operator, "/api/v1/jobs/jnone/resume-from", None)
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    let (status, _) = call(
+        &s,
+        Method::DELETE,
+        &format!("/api/v1/jobs/{first}"),
+        Some(&operator),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        get(&s, &operator, &request_path).await.0,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
+async fn a_stopped_routing_job_goes_on_after_the_paths_it_finished_and_repeats_the_one_it_cut_short(
+) {
+    use eh3d_server::jobs::JobState;
+    let s = server("resume-route");
+    let token = admin(&s).await;
+    demo_machine(&s, &token, "m1").await;
+    let route = json!({"kind": "route", "name": "outline",
+        "tools": [{"number": 1, "depth_mm": 1.7, "iterations": 1, "feed_xy_mm_min": 800, "feed_z_mm_min": 300, "spindle_rpm": 24000}],
+        "paths": [{"pen": 1, "points_mm": [[10, 10], [40, 10], [40, 30]]}, {"pen": 1, "points_mm": [[12, 40], [20, 40]]}, {"pen": 1, "points_mm": [[50, 12], [60, 12]]}]});
+    let (status, job) = post(&s, &token, "/api/v1/machines/m1/jobs", Some(route)).await;
+    assert_eq!(status, StatusCode::OK, "{job}");
+    let id = job["id"].as_str().unwrap().to_string();
+    let total = job["items_total"].as_u64().unwrap() as usize;
+    let path = format!("/api/v1/jobs/{id}/resume-from");
+    // stopped before anything ran, or in the middle of the first path: it starts from the first path again
+    for items in [0, 3] {
+        stop_job(&s, &id, JobState::Failed, 0, items, 0);
+        let (status, again) = post(&s, &token, &path, None).await;
+        assert_eq!(status, StatusCode::OK, "{again}");
+        assert_eq!(again["view"]["skipped"], 0, "items {items}");
+    }
+    // stopped almost at the end: the first two paths are done and the last one, cut short, is cut again
+    stop_job(&s, &id, JobState::Cancelled, 0, total - 1, 0);
+    let (_, saved) = get(&s, &token, &format!("/api/v1/jobs/{id}/request")).await;
+    assert_eq!(saved["next_skip"].as_u64(), Some(2), "{saved}");
+    let (status, again) = post(&s, &token, &path, None).await;
+    assert_eq!(status, StatusCode::OK, "{again}");
+    assert_eq!(again["view"]["skipped"].as_u64(), Some(2));
+    assert_eq!(again["holes_total"].as_u64(), Some(1));
+}
+
+#[tokio::test]
+async fn a_stopped_gcode_job_goes_on_from_its_line_and_waits_for_the_operator_before_it_moves() {
+    let s = server("resume-gcode");
+    let token = admin(&s).await;
+    demo_machine(&s, &token, "m1").await;
+    let text = "G21 G90\nG0 X1\nG2 X5 I1\nG0 X9\n";
+    let (_, job) = post(
+        &s,
+        &token,
+        "/api/v1/machines/m1/jobs",
+        Some(gcode_job(text)),
+    )
+    .await;
+    let id = job["id"].as_str().unwrap().to_string();
+    post(&s, &token, &format!("/api/v1/jobs/{id}/start"), None).await;
+    let failed = wait_state(&s, &token, &id, &["failed", "done"]).await;
+    assert_eq!(failed["state"], "failed", "{failed}");
+    assert_eq!(failed["line"].as_u64(), Some(2));
+    let (status, second) = post(
+        &s,
+        &token,
+        &format!("/api/v1/jobs/{id}/resume-from"),
+        Some(json!({"restore_outputs": false})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{second}");
+    assert_eq!(second["view"]["skipped"].as_u64(), Some(2));
+    assert_eq!(second["resumed_from"].as_str(), Some(id.as_str()));
+    let second_id = second["id"].as_str().unwrap().to_string();
+    let (_, saved) = get(&s, &token, &format!("/api/v1/jobs/{second_id}/request")).await;
+    assert_eq!(
+        saved["request"]["gcode"], text,
+        "the program is not asked for again"
+    );
+    // going on from the line that failed: the job waits for a person before the first move
+    post(&s, &token, &format!("/api/v1/jobs/{second_id}/start"), None).await;
+    let held = wait_state(
+        &s,
+        &token,
+        &second_id,
+        &["waiting_operator", "failed", "done"],
+    )
+    .await;
+    assert_eq!(held["state"], "waiting_operator", "{held}");
+    assert_eq!(held["pause"]["kind"], "resume");
+    assert_eq!(held["items_done"], 0);
+}
+
+#[tokio::test]
+async fn the_dollar_lines_of_grbl_are_refused_unless_an_administrator_allows_them_on_that_machine()
+{
+    let s = server("dollar");
+    let boss = admin(&s).await;
+    let operator = user_with_role(&s, &boss, "op1", "operator").await;
+    demo_machine(&s, &boss, "m1").await;
+    let program = "$H\nG21 G90\nG0 X1\n";
+    let (_, m) = get(&s, &operator, "/api/v1/machines/m1").await;
+    assert_eq!(m["allow_dollar"], false, "off by default");
+    let preview = "/api/v1/machines/m1/preview";
+    let (status, body) = post(&s, &operator, preview, Some(gcode_job(program))).await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_gcode"))
+    );
+
+    // only an administrator changes it
+    let record = json!({"id": "m1", "name": "Bungard", "connection": {"kind": "demo"}, "allow_dollar": true});
+    let machine = "/api/v1/machines/m1";
+    let (status, _) = call(
+        &s,
+        Method::PUT,
+        machine,
+        Some(&operator),
+        Some(record.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, m) = call(&s, Method::PUT, machine, Some(&boss), Some(record)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(m["allow_dollar"], true);
+    // an update that does not name the switch leaves it as it was
+    let plain = json!({"id": "m1", "name": "Bungard 2", "connection": {"kind": "demo"}});
+    let (_, m) = call(&s, Method::PUT, machine, Some(&boss), Some(plain)).await;
+    assert_eq!(m["allow_dollar"], true);
+
+    // with it on the machine takes the `$` lines, but never the wipe of the controller or the real-time characters
+    let (status, body) = post(&s, &operator, preview, Some(gcode_job(program))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    for bad in ["$RST=*\nG0 X1", "G0 X1\n!", "G0 X1\n?"] {
+        let (status, body) = post(&s, &operator, preview, Some(gcode_job(bad))).await;
+        assert_eq!(
+            (status, body["error"].as_str()),
+            (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_gcode")),
+            "{bad}"
+        );
+    }
+    let (status, job) = post(
+        &s,
+        &operator,
+        "/api/v1/machines/m1/jobs",
+        Some(gcode_job(program)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{job}");
+    let id = job["id"].as_str().unwrap().to_string();
+
+    // switched off again, the job that was ready is judged again when it starts
+    let off = json!({"id": "m1", "name": "Bungard", "connection": {"kind": "demo"}, "allow_dollar": false});
+    call(&s, Method::PUT, machine, Some(&boss), Some(off)).await;
+    let (status, body) = post(&s, &operator, &format!("/api/v1/jobs/{id}/start"), None).await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_gcode"))
+    );
+}

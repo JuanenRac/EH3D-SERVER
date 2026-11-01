@@ -72,6 +72,9 @@ pub struct JobRecord {
     pub pause: Option<PauseView>,
     /// What was asked, as it came: the job is planned again when it starts, with the machine's constants of that moment.
     pub request: serde_json::Value,
+    /// The job this one goes on from (made by `resume-from`); empty for the others.
+    #[serde(default)]
+    pub resumed_from: String,
     pub view: JobView,
 }
 
@@ -82,7 +85,7 @@ impl JobRecord {
             "id": self.id, "machine": self.machine, "name": self.name, "kind": self.kind, "state": self.state,
             "created": self.created, "started": self.started, "finished": self.finished, "by": self.by,
             "items_total": self.items_total, "items_done": self.items_done, "holes_total": self.holes_total, "holes_done": self.holes_done,
-            "line": self.line, "message": self.message, "pause": self.pause, "estimate_s": self.view.estimate_s,
+            "line": self.line, "resumed_from": self.resumed_from, "message": self.message, "pause": self.pause, "estimate_s": self.view.estimate_s,
         })
     }
 
@@ -207,6 +210,7 @@ mod tests {
             message: String::new(),
             pause: None,
             request: serde_json::json!({}),
+            resumed_from: String::new(),
             view: JobView {
                 kind: "drill".into(),
                 name: "n".into(),

@@ -65,6 +65,9 @@ pub struct MachineRecord {
     pub spindle_original: Option<spindle::Override>,
     #[serde(default)]
     pub spindle_vfd: Option<spindle::Override>,
+    /// Whether free G-code jobs on this machine may carry the `$` lines of GRBL (`$H` and the like). Off by default; only an administrator turns it on.
+    #[serde(default)]
+    pub allow_dollar: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -247,6 +250,7 @@ impl MachineRecord {
             "dcf": self.dcf, "rcf": self.rcf, "cfg": self.cfg,
             "spindle": self.spindle, "spindle_guard": self.spindle_guard,
             "spindle_original": self.spindle_original, "spindle_vfd": self.spindle_vfd,
+            "allow_dollar": self.allow_dollar,
         })
     }
 }
@@ -354,6 +358,7 @@ mod tests {
             spindle_guard: String::new(),
             spindle_original: None,
             spindle_vfd: None,
+            allow_dollar: false,
         }
     }
 

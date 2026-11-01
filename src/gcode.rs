@@ -2,7 +2,9 @@
 //! and, when it goes on after a stop, the codes that were in force are rebuilt from the lines that were already sent. Nothing here touches a machine.
 //!
 //! The lines that are sent are the code without its comments; blank lines and `%` are dropped. A line that is not G-code (`$` settings of GRBL, its
-//! real-time characters, control characters) is refused: a job must not change the controller's settings or unlock it.
+//! real-time characters, control characters) is refused: a job must not change the controller's settings or unlock it. A machine whose administrator
+//! switched `allow_dollar` on takes the `$` lines of GRBL (`$H`, `$X`, `$G`, `$J=...`, settings), except `$RST`, which wipes the controller's memory;
+//! the real-time characters are refused always.
 
 /// The most lines a program may carry.
 pub const MAX_LINES: usize = 1_000_000;
@@ -95,12 +97,33 @@ pub fn words(code: &str) -> Vec<(char, f64)> {
     out
 }
 
+/// A `$` line of GRBL that a machine with the switch on may take: `$` and then only letters, digits and the signs of a command or a setting.
+fn dollar_ok(code: &str) -> bool {
+    let rest = &code[1..];
+    !rest.to_ascii_uppercase().starts_with("RST")
+        && rest
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || " =.-+#$".contains(c))
+}
+
 /// A line that can be sent: refuses what is not G-code.
-fn check_line(raw: usize, code: &str) -> Result<(), GcodeError> {
+fn check_line(raw: usize, code: &str, allow_dollar: bool) -> Result<(), GcodeError> {
     if code.chars().any(|c| c.is_control() && c != '\t') {
         return fail(
             "bad_gcode",
             format!("line {}: control characters are not G-code", raw + 1),
+        );
+    }
+    if allow_dollar && code.starts_with('$') {
+        if dollar_ok(code) {
+            return Ok(());
+        }
+        return fail(
+            "bad_gcode",
+            format!(
+                "line {}: this `$` command is not taken even by a machine that allows them",
+                raw + 1
+            ),
         );
     }
     if code.starts_with(['$', '!', '~', '?']) {
@@ -211,6 +234,16 @@ fn number(v: f64) -> String {
 /// Cleans the text into a program. `skip` is how many lines of the text (counting the blank and comment ones) were already sent: they are not sent
 /// again; the codes they put in force are given again instead and the job waits for the operator before it moves.
 pub fn parse(text: &str, skip: usize, restore_outputs: bool) -> Result<Program, GcodeError> {
+    parse_with(text, skip, restore_outputs, false)
+}
+
+/// Like [`parse`], and takes the `$` lines of GRBL when `allow_dollar` is set (the switch of the machine).
+pub fn parse_with(
+    text: &str,
+    skip: usize,
+    restore_outputs: bool,
+    allow_dollar: bool,
+) -> Result<Program, GcodeError> {
     let raw: Vec<&str> = text.lines().collect();
     if raw.len() > MAX_LINES {
         return fail(
@@ -228,7 +261,7 @@ pub fn parse(text: &str, skip: usize, restore_outputs: bool) -> Result<Program, 
         if code.is_empty() || code == "%" {
             continue;
         }
-        check_line(n, &code)?;
+        check_line(n, &code, allow_dollar)?;
         if n < skip {
             modal.apply(&code);
         } else {
@@ -398,6 +431,23 @@ mod tests {
             "no_work"
         );
         assert_eq!(parse("G0 X1", 5, false).unwrap_err().code, "no_work");
+    }
+
+    #[test]
+    fn a_machine_that_allows_dollar_lines_takes_them_but_never_the_wipe_or_the_realtime_characters()
+    {
+        let text = "$H\nG21\n$X\n$G\n$J=G91 X1 F100\n$100=250.000\nG0 X1\n";
+        let ok = parse_with(text, 0, false, true).unwrap();
+        assert_eq!(ok.entries.len(), 7);
+        assert_eq!(ok.entries[0].text, "$H");
+        assert_eq!(parse(text, 0, false).unwrap_err().code, "bad_gcode");
+        for bad in ["$RST=*", "$rst=$", "!", "~", "?", "$\"x\"", "$H\u{1}"] {
+            assert_eq!(
+                parse_with(bad, 0, false, true).unwrap_err().code,
+                "bad_gcode",
+                "{bad}"
+            );
+        }
     }
 
     #[test]

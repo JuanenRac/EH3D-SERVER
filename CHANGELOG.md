@@ -4,6 +4,10 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **Going on from a stopped job without asking for the file again:** the server keeps the request of every job as it came (the file, the tool table, the options, the program text) and gives it back with `GET /api/v1/jobs/:id/request` (operator or administrator; it goes with the job and is no bigger than a request may be). `POST /api/v1/jobs/:id/resume-from` makes a new job, ready and never started, from a cancelled or failed one with its `skip` brought forward to what it had done: the holes done for drilling, the paths finished for routing (the one cut short is cut again) and the `line` for G-code, adding up over several stops. The body may name `skip`, `skip_tools`, `restore_outputs` and `name`; `409 not_stopped` for a job that did not stop. The new job waits for a person to start it, and a G-code one waits for the operator before its first move. Jobs carry `resumed_from`.
+- **A switch per machine for the `$` lines of GRBL:** the machine member `allow_dollar` (off by default, changed only by an administrator, kept when an update does not name it) lets the G-code jobs of that machine carry lines such as `$H`, `$X`, `$G` and `$J=...`. `$RST`, the real-time characters and any `$` line with odd signs are refused with `bad_gcode` even then, and a ready job is judged again when it starts, so turning the switch off stops a job made while it was on.
+- 5 tests more (the dollar lines and what is refused with them, going on from a drilling, a routing and a G-code job, the roles, the sums over two stops, the switch of a machine).
+
 ## [0.0.5] - The original spindle starts from the speed of the maker
 
 - **The original spindle starts from the speed of the maker:** 3000 to 63000 rpm and 150 W (the KaVo spindle of the CCD, as the manual and the catalogue of Bungard say) instead of 10000 to 60000 rpm and 200 W; the settings of a machine still replace them.

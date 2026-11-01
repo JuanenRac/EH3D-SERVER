@@ -105,6 +105,9 @@ pub struct RouteRequest {
     /// How many paths, in the order they are sent, are already done: a job that goes on after a stop leaves them out.
     #[serde(default)]
     pub skip: usize,
+    /// Only the first paths that are left (used to find how many paths a stopped job had done); never read from a client.
+    #[serde(skip)]
+    pub only_first: Option<usize>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -317,16 +320,24 @@ pub fn plan(machine: &MachineRecord, request: &JobRequest) -> Result<Planned, Pl
 /// program is the work; the bounds and the time are read from its straight moves).
 fn plan_gcode(machine: &MachineRecord, req: &GcodeRequest) -> Result<Planned, PlanError> {
     let guard = machine.spindle_guard_for_jobs();
-    let mut program =
-        crate::gcode::parse(&req.gcode, req.skip, req.restore_outputs).map_err(|e| PlanError {
-            code: e.code,
-            detail: e.detail,
-        })?;
-    // the whole text is read, also the part that was done: its codes are given again when the job goes on
-    let all = crate::gcode::parse(&req.gcode, 0, false).map_err(|e| PlanError {
+    let mut program = crate::gcode::parse_with(
+        &req.gcode,
+        req.skip,
+        req.restore_outputs,
+        machine.allow_dollar,
+    )
+    .map_err(|e| PlanError {
         code: e.code,
         detail: e.detail,
     })?;
+    // the whole text is read, also the part that was done: its codes are given again when the job goes on
+    let all =
+        crate::gcode::parse_with(&req.gcode, 0, false, machine.allow_dollar).map_err(|e| {
+            PlanError {
+                code: e.code,
+                detail: e.detail,
+            }
+        })?;
     let rapid = guard
         .as_ref()
         .map_or(crate::gcode::DEFAULT_RAPID_MM_MIN, |g| {
@@ -655,6 +666,9 @@ fn plan_route(machine: &MachineRecord, req: &RouteRequest) -> Result<Planned, Pl
     paths.retain(|p| !req.skip_tools.contains(&p.pen));
     paths.drain(..req.skip.min(paths.len()));
     let skipped = before - paths.len();
+    if let Some(n) = req.only_first {
+        paths.truncate(n);
+    }
     if paths.is_empty() {
         return fail(
             "no_work",
@@ -812,6 +826,7 @@ mod tests {
             spindle_guard: String::new(),
             spindle_original: None,
             spindle_vfd: None,
+            allow_dollar: false,
         }
     }
 

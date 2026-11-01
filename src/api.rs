@@ -187,6 +187,8 @@ pub fn router(state: Shared) -> Router {
         .route("/api/v1/jobs/:id/cancel", post(cancel_job))
         .route("/api/v1/jobs/:id/pause", post(pause_job))
         .route("/api/v1/jobs/:id/resume", post(resume_job))
+        .route("/api/v1/jobs/:id/request", get(job_request))
+        .route("/api/v1/jobs/:id/resume-from", post(resume_from))
         .route("/api/v1/updates", get(updates_view))
         .route("/api/v1/updates/check", post(updates_check))
         .route("/api/v1/updates/apply", post(updates_apply))
@@ -591,6 +593,9 @@ async fn put_machine(
         if !sent("spindle_vfd") {
             record.spindle_vfd = old.spindle_vfd;
         }
+        if !sent("allow_dollar") {
+            record.allow_dollar = old.allow_dollar;
+        }
     }
     let shown = record.public();
     s.machines.lock().expect("machines lock").replace(record)?;
@@ -727,8 +732,22 @@ async fn create_job(
 ) -> ApiResult {
     need(&who, Role::Operator)?;
     let machine = machine_of(&s, &id)?;
+    Ok(Json(
+        make_job(&s, &who.name, machine, body, String::new()).await?,
+    ))
+}
+
+/// Plans a job request for a machine and puts it in the book as ready (it never starts by itself); `resumed_from` is the job it goes on from, if any.
+async fn make_job(
+    s: &Shared,
+    by: &str,
+    machine: MachineRecord,
+    body: Value,
+    resumed_from: String,
+) -> Result<Value, ApiError> {
     let request = request_of(&body)?;
     let name = request.name().map(str::to_string);
+    let id = machine.id.clone();
     let planned = tokio::task::spawn_blocking(move || plan::plan(&machine, &request))
         .await
         .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))?
@@ -745,7 +764,7 @@ async fn create_job(
         created: now(),
         started: None,
         finished: None,
-        by: who.name,
+        by: by.to_string(),
         items_total: view.items,
         items_done: 0,
         holes_total: match view.kind.as_str() {
@@ -758,11 +777,167 @@ async fn create_job(
         message: String::new(),
         pause: None,
         request: body,
+        resumed_from,
         view,
     };
     let shown = job.full();
     s.publish_job(&job);
     s.jobs.lock().expect("jobs lock").add(job);
+    Ok(shown)
+}
+
+/// The job and its machine, for a job that stopped (cancelled or failed): the only ones that can be gone on from.
+fn stopped_job(s: &Shared, id: &str) -> Result<(JobRecord, MachineRecord), ApiError> {
+    let job = s
+        .jobs
+        .lock()
+        .expect("jobs lock")
+        .get(id)
+        .cloned()
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "unknown_job", ""))?;
+    if !matches!(job.state, JobState::Cancelled | JobState::Failed) {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "not_stopped",
+            "only a job that was cancelled or failed can be gone on from",
+        ));
+    }
+    let machine = machine_of(s, &job.machine)?;
+    Ok((job, machine))
+}
+
+fn bad_saved_request(e: serde_json::Error) -> plan::PlanError {
+    plan::PlanError {
+        code: "bad_request",
+        detail: e.to_string(),
+    }
+}
+
+/// How many holes (drilling), paths (routing) or lines of the text (G-code) a stopped job had done, counted from the start of the work: the `skip` of the job
+/// that goes on. A routing job is replanned for it; the count is the paths whose whole plan, with the tail of the job, fits in the items that ran, so a path
+/// that was cut short is done again and never left out.
+async fn skip_of(machine: &MachineRecord, job: &JobRecord) -> Result<usize, ApiError> {
+    let before = job.request.get("skip").and_then(Value::as_u64).unwrap_or(0) as usize;
+    match job.kind.as_str() {
+        "drill" => Ok(before + job.holes_done),
+        "gcode" => Ok(job.line.max(before)),
+        _ => {
+            if job.items_done == 0 {
+                return Ok(before);
+            }
+            let (machine, body, items_done) =
+                (machine.clone(), job.request.clone(), job.items_done);
+            let done = tokio::task::spawn_blocking(move || -> Result<usize, plan::PlanError> {
+                let with = |n: Option<usize>| -> Result<Option<usize>, plan::PlanError> {
+                    let mut request: JobRequest =
+                        serde_json::from_value(body.clone()).map_err(bad_saved_request)?;
+                    if let JobRequest::Route(r) = &mut request {
+                        r.only_first = n;
+                    }
+                    match plan::plan(&machine, &request) {
+                        Ok(p) => Ok(Some(if n.is_some() {
+                            p.items.len()
+                        } else {
+                            p.view.paths.len()
+                        })),
+                        Err(e) if e.code == "no_work" => Ok(None),
+                        Err(e) => Err(e),
+                    }
+                };
+                let total = with(None)?.unwrap_or(0);
+                let (mut low, mut high) = (0usize, total);
+                while low < high {
+                    let mid = (low + high).div_ceil(2);
+                    match with(Some(mid))? {
+                        Some(n) if n <= items_done => low = mid,
+                        _ => high = mid - 1,
+                    }
+                }
+                Ok(low)
+            })
+            .await
+            .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))?
+            .map_err(plan_error)?;
+            Ok(before + done)
+        }
+    }
+}
+
+/// What was asked of a job, as it came (the file, the tool table, the options), so that a client can go on from a stopped job without asking for the file
+/// again. It is kept as long as the job is and goes with it.
+async fn job_request(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+) -> ApiResult {
+    need(&who, Role::Operator)?;
+    let job = s
+        .jobs
+        .lock()
+        .expect("jobs lock")
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "unknown_job", ""))?;
+    let next_skip = if matches!(job.state, JobState::Cancelled | JobState::Failed) {
+        match machine_of(&s, &job.machine) {
+            Ok(m) => skip_of(&m, &job).await.ok(),
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+    Ok(Json(json!({
+        "id": job.id, "machine": job.machine, "kind": job.kind, "name": job.name, "state": job.state,
+        "resumed_from": job.resumed_from, "next_skip": next_skip, "request": job.request,
+    })))
+}
+
+#[derive(Deserialize, Default)]
+struct ResumeFromBody {
+    /// Where to go on from, in the unit of the job (holes, paths or lines), instead of what the job had done.
+    skip: Option<usize>,
+    /// Replaces the tools that are off.
+    skip_tools: Option<Vec<u8>>,
+    /// A G-code job: start the spindle and the coolant again as they were.
+    restore_outputs: Option<bool>,
+    name: Option<String>,
+}
+
+/// Makes a new job, ready and not started, from the request of a cancelled or failed one with its `skip` brought forward to what it had done (so the holes,
+/// paths or lines done are left out, and the sums add up over several stops). The file and the options are not asked again; the new job waits for a person
+/// to start it, and a G-code one waits again for the operator before its first move.
+async fn resume_from(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+    body: Option<Json<ResumeFromBody>>,
+) -> ApiResult {
+    need(&who, Role::Operator)?;
+    let b = body.map(|Json(b)| b).unwrap_or_default();
+    let (job, machine) = stopped_job(&s, &id)?;
+    let skip = match b.skip {
+        Some(n) => n,
+        None => skip_of(&machine, &job).await?,
+    };
+    let mut request = job.request.clone();
+    let object = request.as_object_mut().ok_or_else(|| {
+        ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "bad_request",
+            "the saved request is not an object",
+        )
+    })?;
+    object.insert("skip".into(), json!(skip));
+    if let Some(t) = b.skip_tools {
+        object.insert("skip_tools".into(), json!(t));
+    }
+    if let Some(r) = b.restore_outputs {
+        object.insert("restore_outputs".into(), json!(r));
+    }
+    if let Some(n) = b.name {
+        object.insert("name".into(), json!(n));
+    }
+    let shown = make_job(&s, &who.name, machine, request, job.id).await?;
     Ok(Json(shown))
 }
 
