@@ -4,6 +4,7 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **Files that survive a power cut:** the JSON files of the server (users, tokens, machines, the list of the jobs and the request of each job) are flushed to the disk before they replace the old file and the folder is flushed after it; the file that is replaced (and the list of the jobs) is kept once as `<name>.bak`. A damaged file is still an error, but when the copy is good the error names it and says how to recover; it is never loaded by itself.
 - **The slowest turn of the original spindle is 5000 rpm** (the figure of the maker's page; it started from 3000), and the documentation of the starting limits says 5000 to 63000 turns.
 - **The stop button reaches the machine at once:** `POST /machines/:id/stop` ends the job that is active on a machine whoever asks and whatever the job is; on a GRBL machine the feed hold and the soft reset are written to the port from another thread (the port is shared, the waits are made in short turns), so a homing cycle or a long move no longer has to end before the stop is heard. A line that was waiting when the stop came does not make the job fail: it is cancelled. `POST /jobs/:id/cancel` takes the same way.
 - **The token stays out of the address:** `POST /tickets` gives a ticket good for one use within 30 seconds, for the camera and the websocket; `?token=` in the address is refused unless `url_token = true` is set.

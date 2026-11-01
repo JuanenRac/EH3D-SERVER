@@ -122,16 +122,10 @@ impl Pending {
 
 type Shared = Arc<(Mutex<Pending>, Condvar)>;
 
+/// The list of the jobs is kept once as `jobs.json.bak` (it is what the server cannot start without); the request of each job is not.
 fn write_bytes(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, bytes)?;
-    if cfg!(windows) && path.exists() {
-        std::fs::remove_file(path)?;
-    }
-    std::fs::rename(&tmp, path)
+    let is_list = path.file_name().is_some_and(|n| n == "jobs.json");
+    crate::store::write_durable(path, bytes, is_list)
 }
 
 fn writer_loop(shared: Shared, list_path: PathBuf, requests_dir: PathBuf) {
