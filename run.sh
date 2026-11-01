@@ -4,7 +4,8 @@ set -u
 cd "$(dirname "$0")"
 pause() { [ -n "${NOPAUSE:-}" ] || { read -r -p "Press Enter to close..." _ || true; }; }
 trap pause EXIT
-if [ ! -x "target/release/eh3d-server" ]; then
+BIN="${CARGO_TARGET_DIR:-target}/release/eh3d-server"
+if [ ! -x "$BIN" ]; then
     NOPAUSE=1 ./build.sh || exit 1
 fi
-"target/release/eh3d-server" "$@"
+"$BIN" "$@"
