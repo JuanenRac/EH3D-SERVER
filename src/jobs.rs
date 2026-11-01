@@ -139,8 +139,13 @@ fn writer_loop(shared: Shared, list_path: PathBuf, requests_dir: PathBuf) {
             if p.is_empty() && p.stop {
                 return;
             }
+            // taking the work leaves a fresh `Pending` behind: the marks of this one (the writer is busy, the stop was asked) are set again after it,
+            // or `flush` would return while the work is still being written
+            let stop = p.stop;
+            let work = std::mem::take(&mut *p);
             p.busy = true;
-            std::mem::take(&mut *p)
+            p.stop = stop;
+            work
         };
         // a request is written before the list that names its job, and removed after it
         for (id, bytes) in &work.writes {
