@@ -4,6 +4,7 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **The slowest turn of the original spindle is 5000 rpm** (the figure of the maker's page; it started from 3000), and the documentation of the starting limits says 5000 to 63000 turns.
 - **The stop button reaches the machine at once:** `POST /machines/:id/stop` ends the job that is active on a machine whoever asks and whatever the job is; on a GRBL machine the feed hold and the soft reset are written to the port from another thread (the port is shared, the waits are made in short turns), so a homing cycle or a long move no longer has to end before the stop is heard. A line that was waiting when the stop came does not make the job fail: it is cancelled. `POST /jobs/:id/cancel` takes the same way.
 - **The token stays out of the address:** `POST /tickets` gives a ticket good for one use within 30 seconds, for the camera and the websocket; `?token=` in the address is refused unless `url_token = true` is set.
 - **`local_until_setup` in `server.cfg`** (off by default: the server answers whoever reaches it, as it always did): while there is no user yet, only connections from 127.0.0.1 are answered (`403 local_only` for the rest), so nobody else on the network can make the first administrator; once there is a user it makes no difference.

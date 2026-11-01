@@ -40,7 +40,7 @@ pub struct Override {
 pub fn defaults(id: &str) -> Option<Limits> {
     match id {
         "original" => Some(Limits {
-            min_rpm: 3_000,
+            min_rpm: 5_000,
             max_rpm: 63_000,
             power_w: 150,
             max_xy_mm_min: 3_000,
@@ -204,7 +204,7 @@ mod tests {
     #[test]
     fn the_starting_limits_are_those_of_the_two_spindles() {
         let (o, v) = (defaults("original").unwrap(), defaults("vfd").unwrap());
-        assert_eq!((o.max_rpm, v.max_rpm), (63_000, 24_000));
+        assert_eq!((o.min_rpm, o.max_rpm, v.max_rpm), (5_000, 63_000, 24_000));
         assert!(o.valid() && v.valid() && defaults("steam").is_none());
     }
 

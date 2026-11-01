@@ -1775,6 +1775,7 @@ async fn a_machine_without_a_spindle_chosen_runs_any_job_as_it_always_did() {
     );
     assert_eq!(view["limits"]["vfd"]["max_rpm"], 24000);
     assert_eq!(view["limits"]["original"]["max_rpm"], 63000);
+    assert_eq!(view["limits"]["original"]["min_rpm"], 5000);
     assert!(view["active"].is_null() && view["node_max_rpm"].is_null());
     let (status, view) = preview_of(&s, &token, "m1", drill_job_at(60_000, 9_000)).await;
     assert_eq!(status, StatusCode::OK, "{view}");
