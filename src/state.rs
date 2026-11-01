@@ -128,6 +128,10 @@ impl AppState {
                 return Err(StartError::MachineBusy);
             }
             let job = jobs.get_mut(id).ok_or(StartError::UnknownJob)?;
+            // the plan took time: a job cancelled or removed meanwhile must not start
+            if job.state != JobState::Ready {
+                return Err(StartError::NotReady);
+            }
             job.state = JobState::Connecting;
             job.started = Some(now());
             job.items_total = items_total;
@@ -164,6 +168,10 @@ impl AppState {
                 return Err(StartError::MachineBusy);
             }
             let job = jobs.get_mut(id).ok_or(StartError::UnknownJob)?;
+            // the plan took time: a job cancelled or removed meanwhile must not start
+            if job.state != JobState::Ready {
+                return Err(StartError::NotReady);
+            }
             job.state = JobState::Connecting;
             job.started = Some(now());
             job.items_total = view.items;

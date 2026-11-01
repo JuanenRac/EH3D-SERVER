@@ -2639,3 +2639,107 @@ async fn the_dollar_lines_of_grbl_are_refused_unless_an_administrator_allows_the
         (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_gcode"))
     );
 }
+
+#[tokio::test]
+async fn a_viewer_never_sees_the_secrets_of_the_tuning_text_and_a_busy_machine_is_not_edited() {
+    let s = server("secrets-busy");
+    let token = admin(&s).await;
+    let (status, _) = call(
+        &s,
+        Method::POST,
+        "/api/v1/users",
+        Some(&token),
+        Some(json!({"name": "viewer1", "role": "viewer", "password": "otra-clave-larga"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, login) = call(
+        &s,
+        Method::POST,
+        "/api/v1/login",
+        None,
+        Some(json!({"name": "viewer1", "password": "otra-clave-larga"})),
+    )
+    .await;
+    let viewer = login["token"].as_str().unwrap().to_string();
+    let (status, body) = call(&s, Method::POST, "/api/v1/machines", Some(&token), Some(json!({"id": "m1", "name": "Bungard", "model": "ccd-mtc", "connection": {"kind": "demo"}, "cfg": "head_token = SECRETHEAD123\n"}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, one) = call(&s, Method::GET, "/api/v1/machines/m1", Some(&viewer), None).await;
+    let (_, all) = call(&s, Method::GET, "/api/v1/machines", Some(&viewer), None).await;
+    assert!(!one.to_string().contains("SECRETHEAD123"));
+    assert!(!all.to_string().contains("SECRETHEAD123"));
+    // the panel sends back what it was shown: the secret stays
+    let (status, _) = call(&s, Method::PUT, "/api/v1/machines/m1", Some(&token), Some(json!({"id": "m1", "name": "Bungard", "model": "ccd-mtc", "connection": {"kind": "demo"}, "cfg": one["cfg"]}))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(s
+        .state
+        .machines
+        .lock()
+        .unwrap()
+        .get("m1")
+        .unwrap()
+        .cfg
+        .contains("SECRETHEAD123"));
+    // a node can be made without a token, and a body that does not read says why
+    let (status, body) = call(&s, Method::POST, "/api/v1/machines", Some(&token), Some(json!({"id": "n1", "name": "N", "connection": {"kind": "node", "address": "10.0.0.2:5800"}}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines",
+        Some(&token),
+        Some(json!({"id": 5})),
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_request"))
+    );
+    // a machine with a job running is not edited
+    let job = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines/m1/jobs",
+        Some(&token),
+        Some(drill_job()),
+    )
+    .await
+    .1["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        call(
+            &s,
+            Method::POST,
+            &format!("/api/v1/jobs/{job}/start"),
+            Some(&token),
+            None
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    wait_for(&s, &token, &job, &["waiting_operator"], false).await;
+    let (status, body) = call(
+        &s,
+        Method::PUT,
+        "/api/v1/machines/m1",
+        Some(&token),
+        Some(json!({"id": "m1", "name": "Other", "connection": {"kind": "demo"}})),
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::CONFLICT, Some("machine_busy"))
+    );
+    call(
+        &s,
+        Method::POST,
+        &format!("/api/v1/jobs/{job}/cancel"),
+        Some(&token),
+        None,
+    )
+    .await;
+    wait_for(&s, &token, &job, &["cancelled"], false).await;
+}

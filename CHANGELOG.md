@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **The secrets of the tuning text stay on the server:** `GET /machines` and `GET /machines/:id` show `head_token`, `node_token` and any other `*_token`, `*password` or `*_secret` key with an empty value, and a `PUT` that sends them empty keeps the stored ones.
+- **A started job cannot be undone by a late start:** a job cancelled or removed while it was being planned is not started any more, and `DELETE /jobs/:id` checks and removes under one lock.
+- **A machine with a job running is not edited:** `PUT /machines/:id` answers `409 machine_busy`, and `POST /updates/apply` answers `409 machines_busy` while any job is active (the update restarts the server).
+- **A node without a token can be saved** (the token is optional in the connection) and a request body that does not read comes back as `{error, detail}` (`bad_request`, `too_big`) like every other refusal.
+- **Guessing the setup code is slowed down** like the passwords, and the table of wrong passwords per name no longer grows without limit.
+- **The websocket of the events** asks every 30 seconds whether its session is still good and closes when it is not.
+- **The published binaries are built with `--features serial`** and the CI builds and tests that variant too.
+
 ## [0.0.7] - Times of the GRBL lines and the homing
 
 - **Waits of a GRBL machine by the kind of line:** `grbl_line_timeout_s` (5 s), `grbl_homing_timeout_s` (120 s) and `grbl_jog_timeout_s` (60 s) in `server.cfg` (each from 1 to 3600), so that a `$H` of a machine that allows the `$` lines has time to finish while an ordinary line still fails quickly. A line that does not end in time holds the machine (a homing cycle is reset, a jog cancelled) and fails the job with the line. Needs the controller crate of EH3D-COMMON with the same change.

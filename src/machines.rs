@@ -18,7 +18,11 @@ pub enum Connection {
     /// No machine: the job runs on the built-in simulator.
     Demo,
     /// An EH3D-NODE-BUNGARD on the network.
-    Node { address: String, token: String },
+    Node {
+        address: String,
+        #[serde(default)]
+        token: String,
+    },
     /// A GRBL controller on a serial port of the computer the server runs on: it takes free G-code jobs (needs a server built with the `serial` feature).
     Grbl {
         port: String,
@@ -111,6 +115,63 @@ pub fn valid_id(id: &str) -> bool {
         && id
             .chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// True for the keys of the tuning text that hold a secret (`head_token`, `node_token`, any `*_token` or `*password`).
+fn is_secret_key(key: &str) -> bool {
+    let k = key.trim().to_ascii_lowercase();
+    k == "token" || k.ends_with("_token") || k.contains("password") || k.ends_with("_secret")
+}
+
+fn cfg_pair(line: &str) -> Option<(&str, &str)> {
+    let t = line.trim_start();
+    if t.starts_with('#') {
+        return None;
+    }
+    let (k, v) = t.split_once('=')?;
+    Some((k, v))
+}
+
+/// The tuning text as the API shows it: the secrets keep their key and lose their value.
+pub fn redact_cfg(cfg: &str) -> String {
+    let mut out = String::with_capacity(cfg.len());
+    for line in cfg.split_inclusive('\n') {
+        match cfg_pair(line) {
+            Some((k, _)) if is_secret_key(k) => {
+                out.push_str(k.trim());
+                out.push_str(" =");
+                if line.ends_with('\n') {
+                    out.push('\n');
+                }
+            }
+            _ => out.push_str(line),
+        }
+    }
+    out
+}
+
+/// Puts back the secrets the panel left empty (it never saw them) from the text that was stored.
+fn restore_secrets(new: &str, old: &str) -> String {
+    let mut out = String::with_capacity(new.len());
+    for line in new.split_inclusive('\n') {
+        if let Some((k, v)) = cfg_pair(line) {
+            if is_secret_key(k) && v.trim().is_empty() {
+                let kept = old.lines().find_map(|l| match cfg_pair(l) {
+                    Some((ok, ov)) if ok.trim() == k.trim() => Some(ov.trim().to_string()),
+                    _ => None,
+                });
+                if let Some(value) = kept {
+                    out.push_str(&format!("{} = {}", k.trim(), value));
+                    if line.ends_with('\n') {
+                        out.push('\n');
+                    }
+                    continue;
+                }
+            }
+        }
+        out.push_str(line);
+    }
+    out
 }
 
 impl MachineRecord {
@@ -247,7 +308,7 @@ impl MachineRecord {
         serde_json::json!({
             "id": self.id, "name": self.name, "model": self.model, "station": self.station,
             "connection": connection,
-            "dcf": self.dcf, "rcf": self.rcf, "cfg": self.cfg,
+            "dcf": self.dcf, "rcf": self.rcf, "cfg": redact_cfg(&self.cfg),
             "spindle": self.spindle, "spindle_guard": self.spindle_guard,
             "spindle_original": self.spindle_original, "spindle_vfd": self.spindle_vfd,
             "allow_dollar": self.allow_dollar,
@@ -305,6 +366,7 @@ impl Machines {
                 };
             }
         }
+        record.cfg = restore_secrets(&record.cfg, &self.list[index].cfg);
         record.validate()?;
         self.list[index] = record;
         self.save()
@@ -463,6 +525,29 @@ mod tests {
             (c.kind, c.node_address.as_str(), c.node_token.as_str()),
             (Kind::Node, "10.0.0.2:5800", "t")
         );
+    }
+
+    #[test]
+    fn the_secrets_of_the_tuning_text_are_not_shown_and_survive_an_edit() {
+        let mut r = demo("secret");
+        r.cfg = "y_search_hz = 2000\nhead_token = SECRETHEAD123\nnode_token=abc\n".into();
+        let shown = r.public().to_string();
+        assert!(!shown.contains("SECRETHEAD123") && !shown.contains("abc"));
+        assert!(shown.contains("head_token ="));
+        let mut m = Machines {
+            path: std::env::temp_dir().join(format!("eh3d_secret_{}.json", std::process::id())),
+            list: vec![r.clone()],
+        };
+        let mut edited = r.clone();
+        edited.cfg = redact_cfg(&r.cfg);
+        m.replace(edited).unwrap();
+        assert!(m
+            .get("secret")
+            .unwrap()
+            .cfg
+            .contains("head_token = SECRETHEAD123"));
+        assert!(m.get("secret").unwrap().cfg.contains("node_token = abc"));
+        let _ = std::fs::remove_file(&m.path);
     }
 
     #[test]

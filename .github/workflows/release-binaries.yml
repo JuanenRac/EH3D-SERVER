@@ -33,7 +33,7 @@ jobs:
       - name: Rust toolchain
         run: rustup toolchain install stable --profile minimal
       - name: Build
-        run: cargo build --release
+        run: cargo build --release --features serial
       - name: Package
         shell: bash
         run: |

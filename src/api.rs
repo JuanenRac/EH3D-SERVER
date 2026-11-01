@@ -52,6 +52,33 @@ impl IntoResponse for ApiError {
     }
 }
 
+/// The body of a request as JSON; a body that does not read comes back as `{error, detail}` like every other refusal.
+pub struct ApiJson<T>(pub T);
+
+#[async_trait]
+impl<S, T> axum::extract::FromRequest<S> for ApiJson<T>
+where
+    S: Send + Sync,
+    Json<T>: axum::extract::FromRequest<S, Rejection = axum::extract::rejection::JsonRejection>,
+{
+    type Rejection = ApiError;
+
+    async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
+        match Json::<T>::from_request(req, state).await {
+            Ok(Json(v)) => Ok(ApiJson(v)),
+            Err(rejection) => {
+                let status = rejection.status();
+                let code = if status == StatusCode::PAYLOAD_TOO_LARGE {
+                    "too_big"
+                } else {
+                    "bad_request"
+                };
+                Err(ApiError::new(status, code, rejection.body_text()))
+            }
+        }
+    }
+}
+
 impl From<AuthError> for ApiError {
     fn from(e: AuthError) -> Self {
         let status = match e {
@@ -225,7 +252,7 @@ struct SetupBody {
     password: String,
 }
 
-async fn setup(State(s): State<Shared>, Json(b): Json<SetupBody>) -> ApiResult {
+async fn setup(State(s): State<Shared>, ApiJson(b): ApiJson<SetupBody>) -> ApiResult {
     // hashing a password takes a moment of work: not on the thread that serves the others
     tokio::task::spawn_blocking(move || {
         s.auth
@@ -244,7 +271,7 @@ struct LoginBody {
     password: String,
 }
 
-async fn login(State(s): State<Shared>, Json(b): Json<LoginBody>) -> ApiResult {
+async fn login(State(s): State<Shared>, ApiJson(b): ApiJson<LoginBody>) -> ApiResult {
     let name = b.name.clone();
     let (token, role, expires) = tokio::task::spawn_blocking(move || {
         s.auth
@@ -279,7 +306,7 @@ struct PasswordBody {
 async fn change_password(
     State(s): State<Shared>,
     Authed(who, _): Authed,
-    Json(b): Json<PasswordBody>,
+    ApiJson(b): ApiJson<PasswordBody>,
 ) -> ApiResult {
     if who.is_token {
         return Err(forbidden());
@@ -336,9 +363,23 @@ struct ApplyBody {
 async fn updates_apply(
     State(s): State<Shared>,
     Authed(who, _): Authed,
-    Json(b): Json<ApplyBody>,
+    ApiJson(b): ApiJson<ApplyBody>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
+    // the helper restarts the server, which stops every running job
+    if s.jobs
+        .lock()
+        .expect("jobs lock")
+        .list()
+        .iter()
+        .any(|j| j.state.active())
+    {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "machines_busy",
+            "a job is running: the update restarts the server and would stop it",
+        ));
+    }
     updates_of(&s)?
         .request("apply", &b.components)
         .map_err(updates_fail)?;
@@ -368,7 +409,7 @@ struct NewUser {
 async fn add_user(
     State(s): State<Shared>,
     Authed(who, _): Authed,
-    Json(b): Json<NewUser>,
+    ApiJson(b): ApiJson<NewUser>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
     tokio::task::spawn_blocking(move || {
@@ -393,7 +434,7 @@ async fn update_user(
     State(s): State<Shared>,
     Authed(who, _): Authed,
     Path(name): Path<String>,
-    Json(b): Json<UserChange>,
+    ApiJson(b): ApiJson<UserChange>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
     tokio::task::spawn_blocking(move || {
@@ -441,7 +482,7 @@ struct NewToken {
 async fn add_token(
     State(s): State<Shared>,
     Authed(who, _): Authed,
-    Json(b): Json<NewToken>,
+    ApiJson(b): ApiJson<NewToken>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
     let (id, secret) = s
@@ -541,7 +582,7 @@ async fn fleet(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
 async fn add_machine(
     State(s): State<Shared>,
     Authed(who, _): Authed,
-    Json(record): Json<MachineRecord>,
+    ApiJson(record): ApiJson<MachineRecord>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
     let shown = record.public();
@@ -567,7 +608,7 @@ async fn put_machine(
     State(s): State<Shared>,
     Authed(who, _): Authed,
     Path(id): Path<String>,
-    Json(body): Json<Value>,
+    ApiJson(body): ApiJson<Value>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
     let mut record: MachineRecord = serde_json::from_value(body.clone()).map_err(|e| {
@@ -578,6 +619,18 @@ async fn put_machine(
         )
     })?;
     record.id = id;
+    if s.jobs
+        .lock()
+        .expect("jobs lock")
+        .active_on(&record.id)
+        .is_some()
+    {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "machine_busy",
+            "a job is running on this machine",
+        ));
+    }
     // a client that does not know about spindles must not undo what was set: what the request leaves out stays as it was
     if let Some(old) = s.machines.lock().expect("machines lock").get(&record.id) {
         let sent = |k: &str| body.get(k).is_some();
@@ -626,7 +679,7 @@ async fn spindle_put(
     State(s): State<Shared>,
     Authed(who, _): Authed,
     Path(id): Path<String>,
-    Json(b): Json<SpindleBody>,
+    ApiJson(b): ApiJson<SpindleBody>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
     let record = s
@@ -710,7 +763,7 @@ async fn preview(
     State(s): State<Shared>,
     Authed(who, _): Authed,
     Path(id): Path<String>,
-    Json(body): Json<Value>,
+    ApiJson(body): ApiJson<Value>,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
     let machine = machine_of(&s, &id)?;
@@ -728,7 +781,7 @@ async fn create_job(
     State(s): State<Shared>,
     Authed(who, _): Authed,
     Path(id): Path<String>,
-    Json(body): Json<Value>,
+    ApiJson(body): ApiJson<Value>,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
     let machine = machine_of(&s, &id)?;
@@ -1100,7 +1153,7 @@ async fn delete_job(
 ) -> ApiResult {
     need(&who, Role::Operator)?;
     {
-        let jobs = s.jobs.lock().expect("jobs lock");
+        let mut jobs = s.jobs.lock().expect("jobs lock");
         match jobs.get(&id) {
             None => return Err(ApiError::new(StatusCode::NOT_FOUND, "unknown_job", "")),
             Some(j) if j.state.active() => {
@@ -1112,8 +1165,9 @@ async fn delete_job(
             }
             Some(_) => {}
         }
+        // checked and removed under the same guard: a start cannot slip in between
+        jobs.remove(&id);
     }
-    s.jobs.lock().expect("jobs lock").remove(&id);
     s.publish(json!({ "type": "job_removed", "id": id }));
     Ok(Json(json!({ "ok": true })))
 }
@@ -1288,7 +1342,7 @@ async fn inspect_profile_put(
     State(s): State<Shared>,
     Authed(who, _): Authed,
     Path(id): Path<String>,
-    Json(body): Json<Value>,
+    ApiJson(body): ApiJson<Value>,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
     machine_of(&s, &id)?;
@@ -1556,11 +1610,17 @@ async fn events(
         .identify(&token, now())
         .ok_or_else(|| ApiError::new(StatusCode::UNAUTHORIZED, "unauthorized", ""))?;
     need(&who, Role::Viewer)?;
-    Ok(ws.on_upgrade(move |socket| relay(socket, s)))
+    Ok(ws.on_upgrade(move |socket| relay(socket, s, token)))
 }
 
-async fn relay(mut socket: WebSocket, s: Shared) {
+/// How often the websocket asks again whether its session is still good.
+const RECHECK_SECS: u64 = 30;
+
+async fn relay(mut socket: WebSocket, s: Shared, token: String) {
     let mut rx = s.events.subscribe();
+    // a session that ends (logout, expiry, a user taken off) ends the flow too
+    let mut recheck = tokio::time::interval(std::time::Duration::from_secs(RECHECK_SECS));
+    recheck.tick().await;
     let hello = {
         let jobs = s.jobs.lock().expect("jobs lock");
         json!({ "type": "hello", "jobs": jobs.list().iter().map(JobRecord::summary).collect::<Vec<_>>() }).to_string()
@@ -1570,6 +1630,12 @@ async fn relay(mut socket: WebSocket, s: Shared) {
     }
     loop {
         tokio::select! {
+            _ = recheck.tick() => {
+                let alive = s.auth.lock().expect("auth lock").identify(&token, now());
+                if !alive.is_some_and(|who| who.role >= Role::Viewer) {
+                    return;
+                }
+            },
             event = rx.recv() => match event {
                 Ok(text) => { if socket.send(Message::Text(text)).await.is_err() { return; } }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,

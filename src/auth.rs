@@ -113,11 +113,14 @@ pub struct Auth {
     setup_code: Option<String>,
     /// Wrong passwords per name: how many in a row and until when the name is blocked.
     failures: HashMap<String, (u32, u64)>,
+    /// Wrong setup codes in a row and until when the setup is blocked.
+    setup_failures: (u32, u64),
     session_secs: u64,
 }
 
 pub const TOKEN_PREFIX: &str = "eh3d_";
 const MAX_FAILURES: u32 = 5;
+const MAX_TRACKED_NAMES: usize = 1024;
 
 fn sha(text: &str) -> String {
     hex::encode(Sha256::digest(text.as_bytes()))
@@ -186,6 +189,7 @@ impl Auth {
             sessions: HashMap::new(),
             setup_code,
             failures: HashMap::new(),
+            setup_failures: (0, 0),
             session_secs: u64::from(session_hours) * 3600,
         })
     }
@@ -210,9 +214,21 @@ impl Auth {
 
     /// Makes the first administrator.
     pub fn setup(&mut self, code: &str, name: &str, password: &str) -> Result<(), AuthError> {
+        let at = crate::jobs::now();
+        if self.setup_failures.1 > at {
+            return Err(AuthError::Throttled);
+        }
         match &self.setup_code {
             Some(expected) if self.users.is_empty() && same(expected, code.trim()) => {}
-            _ => return Err(AuthError::BadSetup),
+            _ => {
+                // the code has 8 digits: guessing it is slowed down the same way as the passwords
+                self.setup_failures.0 += 1;
+                if self.setup_failures.0 >= MAX_FAILURES {
+                    self.setup_failures.1 =
+                        at + (30u64 << (self.setup_failures.0 - MAX_FAILURES).min(6));
+                }
+                return Err(AuthError::BadSetup);
+            }
         }
         if !valid_name(name) {
             return Err(AuthError::BadName);
@@ -254,6 +270,13 @@ impl Auth {
             }
         };
         if !good {
+            // names that were never real must not make the map grow for ever: the blocks that ended are forgotten
+            if self.failures.len() >= MAX_TRACKED_NAMES {
+                self.failures.retain(|_, &mut (_, until)| until > now);
+            }
+            if self.failures.len() >= MAX_TRACKED_NAMES && !self.failures.contains_key(name) {
+                return Err(AuthError::BadCredentials);
+            }
             let entry = self.failures.entry(name.to_string()).or_insert((0, 0));
             entry.0 += 1;
             if entry.0 >= MAX_FAILURES {
@@ -470,6 +493,26 @@ mod tests {
         let code = a.setup_code().unwrap().to_string();
         a.setup(&code, "juan", "una-clave-larga").unwrap();
         (a, d)
+    }
+
+    #[test]
+    fn guessing_the_setup_code_is_slowed_down() {
+        let d = dir("auth-setup-guess");
+        let mut a = Auth::open(&d, 12).unwrap();
+        let code = a.setup_code().unwrap().to_string();
+        for _ in 0..MAX_FAILURES {
+            assert_eq!(
+                a.setup("00000000x", "juan", "una-clave-larga"),
+                Err(AuthError::BadSetup)
+            );
+        }
+        // even the right code waits
+        assert_eq!(
+            a.setup(&code, "juan", "una-clave-larga"),
+            Err(AuthError::Throttled)
+        );
+        assert!(a.needs_setup());
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
