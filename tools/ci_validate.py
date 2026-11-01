@@ -185,6 +185,17 @@ def _depends_on_problems(root: Path, manifest: dict) -> list[str]:
     return out
 
 
+
+def _status_lights_ci(root: Path) -> list[str]:
+    """The lights of the Project status table stay inside what the manifest (maturity, evidence) allows; see tools/status_lights.py."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import status_lights as lights_tool
+    except ImportError:
+        return []
+    return lights_tool.run_in_ci(root)
+
+
 def main() -> int:
     problems: list[str] = []
     manifest = json.loads((ROOT / "eh3d.project.json").read_text(encoding="utf-8"))
@@ -234,6 +245,7 @@ def main() -> int:
     problems.extend(hygiene_problems())
     problems.extend(tree_problems())
     problems.extend(_universal_readme_ci(ROOT))
+    problems.extend(_status_lights_ci(ROOT))
     problems.extend(_depends_on_problems(ROOT, manifest))
     if problems:
         for problem in problems:

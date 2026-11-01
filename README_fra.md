@@ -45,14 +45,14 @@ Chaque ligne est une partie de ce dépôt et le feu dit où elle en est aujourd'
 | Domaine | État | Ce que cela veut dire ici |
 |---|---|---|
 | Logiciel | 🟡 | Un serveur Rust (axum) garde utilisateurs, machines et travaux, planifie des travaux de perçage et de défonçage avec les bibliothèques d'EH3D-DRILLPRO et d'EH3D-ROUTEPRO, montre un aperçu et exécute le travail avec des dialogues d'opérateur et un arrêt. |
-| Tests | 🟢 | 100 tests réussissent (`cargo test`) : 65 dans les modules et 35 sur l'interface de bout en bout, avec des travaux sur le simulateur (28 dans `tests/api.rs`, 7 avec les vrais programmes dans `tests/programs.rs`). |
+| Tests | 🟡 | 100 tests réussissent (`cargo test`) : 65 dans les modules et 35 sur l'interface de bout en bout, avec des travaux sur le simulateur (28 dans `tests/api.rs`, 7 avec les vrais programmes dans `tests/programs.rs`). |
 | Interface pour les clients (API) | 🟡 | Les requêtes REST et les événements websocket sont décrits dans `docs/API.md` et couverts par les tests ; seule la connexion au serveur des programmes eux-mêmes les utilise pour l'instant. |
 | Clients | 🔴 | EH3D-STUDIO l'utilise (jamais essayé avec une vraie machine) ; l'application Android et le panneau tactile à côté de la machine n'existent pas encore. |
 | Sécurité | 🟡 | Chaque requête exige un jeton avec l'un de trois rôles, les mots de passe sont des hachages Argon2 et les mauvais mots de passe sont ralentis ; le serveur ne termine pas le TLS (mets du HTTPS devant) et n'a pas eu de revue indépendante. |
 | Matériel réel | 🟠 | Les travaux n'ont tourné que contre le simulateur : rien n'a tourné sur une vraie machine par le serveur. |
 | Déploiement | 🟠 | Une unité systemd et `docs/DEPLOY.md` décrivent le service sur la CM5 ; ce dépôt n'enregistre aucun déploiement comme fait. |
-| Intégration | 🟡 | Il planifie avec les mêmes bibliothèques qu'EH3D-DRILLPRO et EH3D-ROUTEPRO (leurs dossiers doivent être à côté de celui-ci) et parle au lien d'EH3D-NODE-BUNGARD, qu'il n'a atteint que par le simulateur. |
-| Documentation | 🟢 | README en huit langues, la référence de l'API et le guide pour l'exécuter comme service. |
+| Intégration | 🟠 | Il planifie avec les mêmes bibliothèques qu'EH3D-DRILLPRO et EH3D-ROUTEPRO (leurs dossiers doivent être à côté de celui-ci) et parle au lien d'EH3D-NODE-BUNGARD, qu'il n'a atteint que par le simulateur. |
+| Documentation | 🟡 | README en huit langues, la référence de l'API et le guide pour l'exécuter comme service. |
 
 ## 🎯 Présentation
 

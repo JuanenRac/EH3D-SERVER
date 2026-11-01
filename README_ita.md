@@ -45,14 +45,14 @@ Ogni riga è una parte di questo repository e il semaforo dice a che punto è og
 | Area | Stato | Cosa significa qui |
 |---|---|---|
 | Software | 🟡 | Un server Rust (axum) tiene utenti, macchine e lavori, pianifica lavori di foratura e fresatura con le librerie di EH3D-DRILLPRO ed EH3D-ROUTEPRO, mostra un'anteprima ed esegue il lavoro con dialoghi dell'operatore e uno stop. |
-| Test | 🟢 | Passano 100 test (`cargo test`): 65 nei moduli e 35 sull'interfaccia end to end, con lavori sul simulatore (28 in `tests/api.rs`, 7 con i programmi reali in `tests/programs.rs`). |
+| Test | 🟡 | Passano 100 test (`cargo test`): 65 nei moduli e 35 sull'interfaccia end to end, con lavori sul simulatore (28 in `tests/api.rs`, 7 con i programmi reali in `tests/programs.rs`). |
 | Interfaccia per i client (API) | 🟡 | Le richieste REST e gli eventi websocket sono descritti in `docs/API.md` e coperti dai test; finora li usa solo la connessione al server dei programmi stessi. |
 | Client | 🔴 | EH3D-STUDIO lo usa (mai provato con una macchina reale); l'app Android e il pannello touch accanto alla macchina non esistono ancora. |
 | Sicurezza | 🟡 | Ogni richiesta richiede un token con uno di tre ruoli, le password sono hash Argon2 e le password sbagliate vengono rallentate; il server non termina il TLS (metti HTTPS davanti) e non ha avuto una revisione indipendente. |
 | Hardware reale | 🟠 | I lavori sono stati eseguiti solo contro il simulatore: nulla è stato eseguito su una macchina reale tramite il server. |
 | Distribuzione | 🟠 | Un'unità systemd e `docs/DEPLOY.md` descrivono il servizio sulla CM5; questo repository non registra alcuna distribuzione come fatta. |
-| Integrazione | 🟡 | Pianifica con le stesse librerie di EH3D-DRILLPRO ed EH3D-ROUTEPRO (le loro cartelle devono stare accanto a questa) e parla con il collegamento di EH3D-NODE-BUNGARD, raggiunto solo tramite il simulatore. |
-| Documentazione | 🟢 | README in otto lingue, il riferimento dell'API e la guida per eseguirlo come servizio. |
+| Integrazione | 🟠 | Pianifica con le stesse librerie di EH3D-DRILLPRO ed EH3D-ROUTEPRO (le loro cartelle devono stare accanto a questa) e parla con il collegamento di EH3D-NODE-BUNGARD, raggiunto solo tramite il simulatore. |
+| Documentazione | 🟡 | README in otto lingue, il riferimento dell'API e la guida per eseguirlo come servizio. |
 
 ## 🎯 Panoramica
 
