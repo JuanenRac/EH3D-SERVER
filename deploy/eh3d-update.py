@@ -114,7 +114,7 @@ def safe_members(tar: tarfile.TarFile, dest: Path):
     root = dest.resolve()
     for m in tar.getmembers():
         target = (dest / m.name).resolve()
-        if not str(target).startswith(str(root)) or m.islnk() or m.issym() or m.isdev():
+        if not target.is_relative_to(root) or m.islnk() or m.issym() or m.isdev():
             raise ValueError(f"the archive holds an unsafe entry: {m.name}")
         yield m
 

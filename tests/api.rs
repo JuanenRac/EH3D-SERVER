@@ -2721,6 +2721,9 @@ async fn a_viewer_never_sees_the_secrets_of_the_tuning_text_and_a_busy_machine_i
         StatusCode::OK
     );
     wait_for(&s, &token, &job, &["waiting_operator"], false).await;
+    // the fleet tells the line that a job has reached, like the job does
+    let (_, fleet) = call(&s, Method::GET, "/api/v1/fleet", Some(&token), None).await;
+    assert!(fleet.to_string().contains("\"line\":"), "{fleet}");
     let (status, body) = call(
         &s,
         Method::PUT,

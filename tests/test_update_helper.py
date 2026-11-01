@@ -167,6 +167,20 @@ class UpdateHelper(unittest.TestCase):
         self.assertEqual(self.folder.read("status.json")["state"], "error")
         self.assertFalse((self.root / "outside.txt").exists())
 
+    def test_a_name_that_only_starts_like_the_folder_is_outside_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stage = Path(tmp) / "stage"
+            stage.mkdir()
+            buf = io.BytesIO()
+            with tarfile.open(fileobj=buf, mode="w:gz") as t:
+                info = tarfile.TarInfo("../stage2/x.txt")
+                info.size = 1
+                t.addfile(info, io.BytesIO(b"x"))
+            buf.seek(0)
+            with tarfile.open(fileobj=buf) as t:
+                with self.assertRaises(ValueError):
+                    list(H.safe_members(t, stage))
+
     def test_a_component_this_helper_does_not_know_is_left_out_and_a_bad_request_is_an_error(self):
         self.ask({"action": "apply", "components": ["kernel"]})
         self.assertEqual(self.folder.read("status.json")["state"], "done")

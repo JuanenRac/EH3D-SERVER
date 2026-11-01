@@ -557,7 +557,7 @@ async fn fleet(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
                 "id": j.id, "name": j.name, "kind": j.kind, "state": j.state, "by": j.by,
                 "items_done": j.items_done, "items_total": j.items_total,
                 "holes_done": j.holes_done, "holes_total": j.holes_total,
-                "percent": percent, "pause": j.pause, "estimate_s": j.view.estimate_s,
+                "percent": percent, "pause": j.pause, "estimate_s": j.view.estimate_s, "line": j.line,
             })
         });
         match stations.iter_mut().find(|(id, _)| *id == m.station) {

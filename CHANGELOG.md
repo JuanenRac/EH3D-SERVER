@@ -10,6 +10,7 @@ All notable changes to this project are documented here.
 - **A node without a token can be saved** (the token is optional in the connection) and a request body that does not read comes back as `{error, detail}` (`bad_request`, `too_big`) like every other refusal.
 - **Guessing the setup code is slowed down** like the passwords, and the table of wrong passwords per name no longer grows without limit.
 - **The websocket of the events** asks every 30 seconds whether its session is still good and closes when it is not.
+- **The fleet tells the line** a G-code job has reached, and the manifest declares the service (port, health path and unit) so that an update checks it came back.
 - **The published binaries are built with `--features serial`** and the CI builds and tests that variant too.
 
 ## [0.0.7] - Times of the GRBL lines and the homing
