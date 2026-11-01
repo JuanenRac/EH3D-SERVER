@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.0.8] - A stop that reaches the machine at once, files that survive a power cut and a token out of the address
+
 - **Each dependency on a sibling repository by path says the version it needs** (`version = ">=0.0.1", path = "../EH3D-..."`), so Cargo stops at once when the sibling next to this one is older than the program expects.
 - **Files that survive a power cut:** the JSON files of the server (users, tokens, machines, the list of the jobs and the request of each job) are flushed to the disk before they replace the old file and the folder is flushed after it; the file that is replaced (and the list of the jobs) is kept once as `<name>.bak`. A damaged file is still an error, but when the copy is good the error names it and says how to recover; it is never loaded by itself.
 - **The slowest turn of the original spindle is 5000 rpm** (the figure of the maker's page; it started from 3000), and the documentation of the starting limits says 5000 to 63000 turns.
