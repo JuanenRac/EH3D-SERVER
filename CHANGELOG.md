@@ -4,6 +4,9 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **A dry run of the exact plan before any job exists:** the steps of a drilling or routing job are followed on paper, the way the control unit reads them, and the view of the job gets `dry_run` (how far each axis goes from its switches, where the plan ends, the steps and the seconds, and whether it stays inside the course of the machine file). A plan that takes an axis past its course is refused with `422 outside_course`, saying which axis and by how much; the tuning of the machine decides with `dry_run = reject` (the default) or `warn` (the job goes through and the excess is listed), and `dry_run_margin_mm` (0.5) is the play that is forgiven.
+- **Sanity checks of the work in the view:** `warnings` lists what looks wrong in the file (`tiny`: the whole work is smaller than `sanity_tiny_mm` in both directions, a wrong unit; `too_big`: bigger than the table; `far`: starts further than `sanity_far_mm` from the corner; `scale`: the machine file stretches the work; `out_of_course` with `warn`). They only warn; the thresholds are keys of the machine's tuning. 4 tests.
+
 ## [0.0.9] - The steps, the notes and the history of an update reach the Studio
 
 - **The steps of an update with a percent:** the helper writes the steps of the job (download, check, install and restart of each service) with their state and the percent of the whole, and the server gives them in `GET /api/v1/updates` (`steps`, `percent`); the step that was running when a job failed is marked as failed.

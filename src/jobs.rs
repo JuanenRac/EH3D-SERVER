@@ -381,6 +381,8 @@ mod tests {
                 skipped_tools: vec![],
                 skipped: 0,
                 spindle_warnings: vec![],
+                dry_run: None,
+                warnings: vec![],
             },
         }
     }

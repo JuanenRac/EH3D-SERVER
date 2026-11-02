@@ -66,6 +66,7 @@ Jede Zeile ist ein Teil dieses Repositorys, und die Ampel sagt, wie weit er heut
 * Die **Ereignisse**: ein Websocket, der jede Änderung eines Auftrags sofort sendet.
 * Der **Dienst**: eine Binärdatei und eine kleine Einstellungsdatei, standardmäßig auf Port 18200 (nicht der von ARMOR oder HYDRA-UMC), mit einer systemd-Unit für die CM5.
 * **Geplant, noch nicht gebaut**: die Clients (die Android-App, das Panel mit Touchscreen an der Maschine), HTTPS im Server selbst und die Nutzung der Lampen und des Puffers des Knotens, um einen festgehaltenen Auftrag zu beenden, wenn der Server wegfällt.
+* **Ein Trockenlauf des genauen Plans und Plausibilitätsprüfungen in der Ansicht jedes Auftrags:** die Schritte eines Bohr- oder Fräsauftrags werden auf dem Papier verfolgt, so wie die Steuereinheit sie liest, und die Ansicht trägt `dry_run` (wie weit jede Achse von ihren Endschaltern fährt, wo der Plan endet, die Schritte und die Sekunden) und `warnings` (eine wahrscheinlich falsche Einheit, eine Arbeit größer als der Tisch, ein Maßstab ungleich 1). Ein Plan, der eine Achse über den Verfahrweg der Maschinendatei hinausführt, wird mit `outside_course` abgelehnt oder nur aufgelistet, wenn die Abstimmung der Maschine `dry_run = warn` sagt; `dry_run_margin_mm`, `sanity_tiny_mm` und `sanity_far_mm` sind Schlüssel derselben Abstimmung.
 
 ## 🧩 Rolle in EH3D
 

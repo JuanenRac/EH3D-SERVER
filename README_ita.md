@@ -66,6 +66,7 @@ Ogni riga è una parte di questo repository e il semaforo dice a che punto è og
 * Gli **eventi**: un websocket che invia ogni cambiamento di un lavoro man mano che avviene.
 * Il **servizio**: un binario e un piccolo file di impostazioni di testo, sulla porta 18200 per impostazione predefinita (non quella di ARMOR né di HYDRA-UMC), con un'unità systemd per la CM5.
 * **Previsto, non ancora costruito**: i client (l'app Android, lo Studio, il pannello touch accanto alla macchina), HTTPS nel server stesso e l'uso dei LED del nodo e del suo buffer per finire un lavoro trattenuto quando il server sparisce.
+* **Una prova a secco del piano esatto e controlli di buon senso nella vista di ogni lavoro:** i passi di un lavoro di foratura o fresatura vengono seguiti su carta, come li legge l'unità di controllo, e la vista porta `dry_run` (fin dove arriva ogni asse dai finecorsa, dove finisce il piano, i passi e i secondi) e `warnings` (un'unità probabilmente sbagliata, un lavoro più grande del piano, una scala diversa da 1). Un piano che porta un asse fuori dalla corsa del file della macchina viene rifiutato con `outside_course`, o solo elencato quando la taratura della macchina dice `dry_run = warn`; `dry_run_margin_mm`, `sanity_tiny_mm` e `sanity_far_mm` sono chiavi della stessa taratura.
 
 ## 🧩 Ruolo in EH3D
 

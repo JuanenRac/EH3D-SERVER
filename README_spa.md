@@ -66,6 +66,7 @@ Cada línea es una parte de este repositorio y la luz dice hasta dónde llega ho
 * Los **eventos**: un websocket que envía cada cambio de un trabajo según ocurre.
 * El **servicio**: un binario y un pequeño fichero de texto de ajustes, en el puerto 18200 por defecto (no el de ARMOR ni el de HYDRA-UMC), con una unidad de systemd para la CM5.
 * **Previsto, aún sin construir**: los clientes (la app de Android, el Studio, el panel con pantalla táctil junto a la máquina), HTTPS en el propio servidor y el uso de los LED del nodo y su búfer para terminar un trabajo retenido cuando el servidor desaparece.
+* **Una simulación en seco del plan exacto y comprobaciones de cordura en la vista de cada trabajo:** los pasos de un trabajo de taladrado o fresado se siguen sobre el papel, como los lee la controladora, y la vista lleva `dry_run` (hasta dónde llega cada eje desde sus finales, dónde acaba el plan, los pasos y los segundos) y `warnings` (una unidad probablemente equivocada, un trabajo mayor que la mesa, una escala distinta de 1). Un plan que saca un eje del recorrido del archivo de la máquina se rechaza con `outside_course`, o solo se lista cuando el ajuste de la máquina dice `dry_run = warn`; `dry_run_margin_mm`, `sanity_tiny_mm` y `sanity_far_mm` son claves del mismo ajuste.
 
 ## 🧩 Papel en EH3D
 

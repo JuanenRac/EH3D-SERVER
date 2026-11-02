@@ -4,9 +4,13 @@
 //! machine will do.
 
 use eh3d_drillpro::config::{self, MachineSettings};
+use eh3d_drillpro::dryrun;
 use eh3d_drillpro::job::{geometry_from, hole_end_indexes, job_machine, sort_holes, Sorting};
 use eh3d_drillpro::ncd::{self, MIL_MM};
 use eh3d_drillpro::protocol::job::{plan_drill_job, Item, JobHole, JobTool};
+use eh3d_drillpro::protocol::motion::Geometry;
+use eh3d_drillpro::protocol::tuning::Tuning;
+use eh3d_drillpro::summary;
 use eh3d_drillpro::tools as drill_tools;
 use eh3d_routepro::hpgl::{self, Polyline, UNIT_MM};
 use eh3d_routepro::job::plan_route_job;
@@ -171,6 +175,109 @@ pub struct JobView {
     /// What the job asks for beyond the spindle the machine carries, when the machine's switch is on `warn` (with `reject` such a job is refused with `spindle_limit`).
     #[serde(default)]
     pub spindle_warnings: Vec<crate::spindle::Finding>,
+    /// The dry run of the exact plan: how far each axis goes and how long the movements take. Absent for a G-code job.
+    #[serde(default)]
+    pub dry_run: Option<DryRunView>,
+    /// What looks wrong in the work that was loaded (a unit that is probably wrong, a work bigger than the table, a scale that is not 1, an axis that
+    /// goes past its course when the machine's switch is on `warn`). Each one has a `code` and the numbers it is about, in mm.
+    #[serde(default)]
+    pub warnings: Vec<WorkWarning>,
+}
+
+/// The dry run of a plan, from the switches of the machine, in mm.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct DryRunView {
+    pub min_mm: [f64; 3],
+    pub max_mm: [f64; 3],
+    pub end_mm: [f64; 3],
+    pub steps: u64,
+    pub seconds: f64,
+    pub within_course: bool,
+}
+
+/// One thing that looks wrong in the work: `tiny` (`values`: width, height), `too_big` (width, height, table x, table y), `far` (distance from the
+/// corner), `scale` (x, y) or `out_of_course` (`axis` is `X`, `Y` or `Z`; `values`: how far past the course).
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct WorkWarning {
+    pub code: String,
+    #[serde(default)]
+    pub axis: String,
+    pub values: Vec<f64>,
+}
+
+fn warning_view(w: &summary::Warning) -> WorkWarning {
+    let (code, axis, values) = match w {
+        summary::Warning::Tiny {
+            width_mm,
+            height_mm,
+        } => ("tiny", String::new(), vec![*width_mm, *height_mm]),
+        summary::Warning::TooBig {
+            width_mm,
+            height_mm,
+            table_x_mm,
+            table_y_mm,
+        } => (
+            "too_big",
+            String::new(),
+            vec![*width_mm, *height_mm, *table_x_mm, *table_y_mm],
+        ),
+        summary::Warning::Far { from_mm } => ("far", String::new(), vec![*from_mm]),
+        summary::Warning::Scale { x, y } => ("scale", String::new(), vec![*x, *y]),
+        summary::Warning::OutOfCourse { axis, excess_mm } => {
+            ("out_of_course", axis.letter().to_string(), vec![*excess_mm])
+        }
+    };
+    WorkWarning {
+        code: code.into(),
+        axis,
+        values,
+    }
+}
+
+/// The dry run of the exact plan against the course of the machine, and the sanity checks of the work. A plan that goes past the course is
+/// refused with `outside_course` when the machine's tuning says `dry_run = reject` (the default) and only listed when it says `warn`. Without a
+/// configuration file of the machine its course is not known and nothing is judged.
+fn measure(
+    items: &[Item],
+    geometry: &Geometry,
+    settings: Option<&MachineSettings>,
+    tuning: &Tuning,
+    bounds: Option<[f64; 4]>,
+    count: usize,
+) -> Result<(DryRunView, Vec<WorkWarning>), PlanError> {
+    let course = settings.map_or(
+        dryrun::Course {
+            x_mm: f64::INFINITY,
+            y_mm: f64::INFINITY,
+            z_mm: f64::INFINITY,
+        },
+        dryrun::Course::from_settings,
+    );
+    let dry = dryrun::run(items, geometry, &course, tuning.dry_run_margin_mm);
+    let mut warnings = summary::check_work(bounds, count, settings, tuning);
+    let out = summary::course_warnings(&dry);
+    if tuning.dry_run_reject {
+        if let Some(summary::Warning::OutOfCourse { axis, excess_mm }) = out.first() {
+            return fail(
+                "outside_course",
+                format!(
+                    "the exact steps of the plan take axis {} {:.1} mm past its course (the machine's tuning decides with dry_run: reject or warn)",
+                    axis.letter(),
+                    excess_mm
+                ),
+            );
+        }
+    }
+    warnings.extend(out);
+    let view = DryRunView {
+        min_mm: [dry.min_mm.0, dry.min_mm.1, dry.min_mm.2],
+        max_mm: [dry.max_mm.0, dry.max_mm.1, dry.max_mm.2],
+        end_mm: [dry.end_mm.0, dry.end_mm.1, dry.end_mm.2],
+        steps: dry.steps,
+        seconds: dry.seconds,
+        within_course: dry.within_course(),
+    };
+    Ok((view, warnings.iter().map(warning_view).collect()))
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -376,6 +483,8 @@ fn plan_gcode(machine: &MachineRecord, req: &GcodeRequest) -> Result<Planned, Pl
         skipped_tools: Vec::new(),
         skipped: req.skip,
         spindle_warnings,
+        dry_run: None,
+        warnings: Vec::new(),
     };
     Ok(Planned {
         items: Vec::new(),
@@ -569,6 +678,14 @@ fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, Pl
         }
     }
     let bounds = bounds_of(ordered.iter().map(|h| (h.x_mm, h.y_mm)));
+    let (dry_run, warnings) = measure(
+        &items,
+        &geometry,
+        settings.as_ref(),
+        &connection.tuning,
+        bounds,
+        holes.len(),
+    )?;
     let tools = job_tools
         .iter()
         .map(|t| ToolView {
@@ -594,6 +711,8 @@ fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, Pl
         skipped_tools: req.skip_tools.clone(),
         skipped,
         spindle_warnings,
+        dry_run: Some(dry_run),
+        warnings,
     };
     Ok(Planned {
         items,
@@ -773,6 +892,14 @@ fn plan_route(machine: &MachineRecord, req: &RouteRequest) -> Result<Planned, Pl
             .iter()
             .flat_map(|p| p.points_mm.iter().map(|q| (q[0], q[1]))),
     );
+    let (dry_run, warnings) = measure(
+        &items,
+        &geometry,
+        settings.as_ref(),
+        &connection.tuning,
+        bounds,
+        paths.len(),
+    )?;
     let tools = pens
         .iter()
         .filter_map(|&pen| tool_rows.iter().find(|t| t.number == pen))
@@ -799,6 +926,8 @@ fn plan_route(machine: &MachineRecord, req: &RouteRequest) -> Result<Planned, Pl
         skipped_tools: req.skip_tools.clone(),
         skipped,
         spindle_warnings,
+        dry_run: Some(dry_run),
+        warnings,
     };
     Ok(Planned {
         items,
@@ -979,6 +1108,114 @@ mod tests {
                 .unwrap()
                 .code,
             "out_of_table"
+        );
+    }
+
+    const ONE_HOLE: &str = r#"{"kind":"drill","tools":[{"number":1,"feed_mm_min":900,"spindle_rpm":24000}],"holes":[{"tool":1,"x_mm":10,"y_mm":10},{"tool":1,"x_mm":540,"y_mm":390}]}"#;
+
+    /// The sample configuration file of the programs, when the sibling repository is next to this one.
+    fn sample_dcf() -> Option<String> {
+        let dcf = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../EH3D-DRILLPRO/testdata/DRILLPRO.DCF"
+        ))
+        .ok()?;
+        settings_of(&dcf).map(|_| dcf)
+    }
+
+    #[test]
+    fn a_job_has_a_dry_run_of_its_exact_plan_that_stays_inside_the_course() {
+        let planned = plan(&machine(), &serde_json::from_str(TWO_TOOLS).unwrap()).unwrap();
+        let d = planned.view.dry_run.as_ref().expect("the dry run");
+        assert!(d.within_course && d.steps > 100);
+        assert!(d.max_mm[0] >= 29.9 && d.max_mm[1] >= 19.9, "{:?}", d.max_mm);
+        assert!(d.min_mm[0] >= -0.5 && d.min_mm[1] >= -0.5, "{:?}", d.min_mm);
+        assert!(d.seconds > 1.0 && (d.seconds - planned.view.estimate_s).abs() < 1.0);
+        assert!(planned.view.warnings.is_empty());
+        // a routing job has one too
+        let json = r#"{"kind":"route","tools":[{"number":1,"depth_mm":1.7,"iterations":2,"feed_xy_mm_min":800,"feed_z_mm_min":300,"spindle_rpm":24000}],
+            "paths":[{"pen":1,"points_mm":[[10,10],[40,10],[40,30],[10,30],[10,10]]}]}"#;
+        let routed = plan(&machine(), &serde_json::from_str(json).unwrap()).unwrap();
+        assert!(routed.view.dry_run.as_ref().unwrap().within_course);
+    }
+
+    #[test]
+    fn a_work_at_the_far_corner_of_the_table_stays_inside_the_course() {
+        let Some(dcf) = sample_dcf() else { return };
+        let mut m = machine();
+        m.dcf = dcf;
+        let planned = plan(&m, &serde_json::from_str(ONE_HOLE).unwrap()).unwrap();
+        let d = planned.view.dry_run.unwrap();
+        assert!(d.within_course, "{d:?}");
+        assert!(d.max_mm[0] > 540.0 && d.max_mm[1] > 390.0, "{:?}", d.max_mm);
+        assert!(d.max_mm[2] > 1.0, "the drill goes down: {:?}", d.max_mm);
+    }
+
+    #[test]
+    fn a_plan_that_goes_past_the_course_is_refused_unless_the_tuning_says_warn() {
+        let Some(dcf) = sample_dcf() else { return };
+        let mut m = machine();
+        // a course of Z shorter than the drilling needs
+        let short = dcf.replace(
+            "37.30         * Max. Z depth",
+            "5.00          * Max. Z depth",
+        );
+        assert_ne!(short, dcf, "the line of the sample file is as expected");
+        m.dcf = short;
+        let err = plan(&m, &serde_json::from_str(ONE_HOLE).unwrap())
+            .err()
+            .unwrap();
+        assert_eq!(err.code, "outside_course");
+        assert!(err.detail.contains("axis Z"), "{}", err.detail);
+        m.cfg = "dry_run = warn
+"
+        .into();
+        let planned = plan(&m, &serde_json::from_str(ONE_HOLE).unwrap()).unwrap();
+        assert!(!planned.view.dry_run.as_ref().unwrap().within_course);
+        let w = planned
+            .view
+            .warnings
+            .iter()
+            .find(|w| w.code == "out_of_course");
+        assert_eq!(w.map(|w| w.axis.as_str()), Some("Z"));
+    }
+
+    #[test]
+    fn a_work_that_looks_wrong_is_listed_in_the_view() {
+        let Some(dcf) = sample_dcf() else { return };
+        let mut m = machine();
+        m.dcf = dcf;
+        // two holes 2 mm apart: the file is probably in another unit
+        let tiny = r#"{"kind":"drill","tools":[{"number":1,"feed_mm_min":900,"spindle_rpm":24000}],"holes":[{"tool":1,"x_mm":10,"y_mm":10},{"tool":1,"x_mm":11,"y_mm":12}]}"#;
+        let planned = plan(&m, &serde_json::from_str(tiny).unwrap()).unwrap();
+        let codes: Vec<&str> = planned
+            .view
+            .warnings
+            .iter()
+            .map(|w| w.code.as_str())
+            .collect();
+        assert_eq!(codes, vec!["tiny"]);
+        assert_eq!(planned.view.warnings[0].values, vec![1.0, 2.0]);
+        // the thresholds are the machine's tuning
+        m.cfg = "sanity_tiny_mm = 0
+"
+        .into();
+        let planned = plan(&m, &serde_json::from_str(tiny).unwrap()).unwrap();
+        assert!(planned.view.warnings.is_empty());
+        // far from the corner
+        m.cfg = "sanity_far_mm = 100
+"
+        .into();
+        let far = r#"{"kind":"drill","tools":[{"number":1,"feed_mm_min":900,"spindle_rpm":24000}],"holes":[{"tool":1,"x_mm":200,"y_mm":10},{"tool":1,"x_mm":300,"y_mm":50}]}"#;
+        let planned = plan(&m, &serde_json::from_str(far).unwrap()).unwrap();
+        assert_eq!(
+            planned
+                .view
+                .warnings
+                .iter()
+                .map(|w| w.code.as_str())
+                .collect::<Vec<_>>(),
+            vec!["far"]
         );
     }
 
