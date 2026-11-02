@@ -6,17 +6,35 @@ Wants=network-online.target
 
 [Service]
 User=eh3d
+# the serial ports of GRBL controllers (/dev/ttyUSB0, /dev/ttyACM0) belong to this group on Raspberry Pi OS and Debian
+SupplementaryGroups=dialout
 WorkingDirectory=/var/lib/eh3d-server
 ExecStart=/opt/eh3d-server/eh3d-server --config /etc/eh3d-server/server.cfg
 Restart=on-failure
 RestartSec=5
-# a machine must never be left moving: the server stops its jobs on SIGTERM
-KillSignal=SIGINT
+# a machine must never be left moving: on SIGTERM (the signal of systemctl stop) the server stops its jobs first and then exits
+KillSignal=SIGTERM
 TimeoutStopSec=15
+# what the server writes (the data folder, its backups) can be read by its user only: it holds the hashes of the passwords and the tokens of the nodes
+UMask=0077
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=/var/lib/eh3d-server /var/lib/eh3d-updates
+ProtectHome=true
 PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+SystemCallArchitectures=native
+# the server talks IP (the API, the nodes) and uses unix sockets for the journal; nothing else
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# no PrivateDevices: the serial ports of the controllers are devices
 
 [Install]
 WantedBy=multi-user.target

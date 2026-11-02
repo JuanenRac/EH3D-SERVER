@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 
+use eh3d_server::sync::Locked;
 use eh3d_server::{api, config, state::AppState};
 
 #[tokio::main]
@@ -12,8 +13,12 @@ async fn main() {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--config" => path = args.next().map(PathBuf::from),
+            "--version" | "-V" => {
+                println!("eh3d-server {}", env!("CARGO_PKG_VERSION"));
+                return;
+            }
             "--help" | "-h" => {
-                println!("eh3d-server [--config FILE]\n\nReads server.cfg (or FILE): listen, data_dir, session_hours, max_body_mb, keep_jobs, studio_dir.");
+                println!("eh3d-server [--config FILE] [--version]\n\nReads server.cfg (or FILE): listen, data_dir, session_hours, max_body_mb, keep_jobs, studio_dir.\nStops the machines that are running and exits on Ctrl-C or SIGTERM.");
                 return;
             }
             other => {
@@ -39,7 +44,7 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    if let Some(code) = state.auth.lock().expect("auth lock").setup_code() {
+    if let Some(code) = state.auth.locked().setup_code() {
         println!("SETUP: this server has no user yet. Make the administrator with POST /api/v1/setup and the set-up code {code}");
     }
     let listener = match tokio::net::TcpListener::bind(cfg.listen).await {
@@ -61,7 +66,7 @@ async fn main() {
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .with_graceful_shutdown(async move {
-        let _ = tokio::signal::ctrl_c().await;
+        shutdown_signal().await;
         println!("eh3d-server: stopping; the machines that are running are stopped first");
         let stopper = stopper.clone();
         let _ = tokio::task::spawn_blocking(move || stopper.stop_all()).await;
@@ -70,4 +75,20 @@ async fn main() {
         eprintln!("eh3d-server: {e}");
         std::process::exit(1);
     }
+}
+
+/// Waits for the request to stop: Ctrl-C, or SIGTERM, which is what `systemctl stop` and a container send. Either way the machines that are running are stopped first.
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        if let Ok(mut term) = signal(SignalKind::terminate()) {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = term.recv() => {}
+            }
+            return;
+        }
+    }
+    let _ = tokio::signal::ctrl_c().await;
 }
