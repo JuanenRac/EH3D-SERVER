@@ -54,6 +54,8 @@ async fn main() {
             std::process::exit(1);
         }
     };
+    // the signals are taken before the server says it listens: a SIGTERM that comes right after must not find the default action
+    let stop = shutdown_signal();
     println!(
         "eh3d-server {} listening on {}",
         env!("CARGO_PKG_VERSION"),
@@ -66,7 +68,7 @@ async fn main() {
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .with_graceful_shutdown(async move {
-        shutdown_signal().await;
+        stop.await;
         println!("eh3d-server: stopping; the machines that are running are stopped first");
         let stopper = stopper.clone();
         let _ = tokio::task::spawn_blocking(move || stopper.stop_all()).await;
@@ -78,17 +80,20 @@ async fn main() {
 }
 
 /// Waits for the request to stop: Ctrl-C, or SIGTERM, which is what `systemctl stop` and a container send. Either way the machines that are running are stopped first.
-async fn shutdown_signal() {
+/// The handlers are installed when this is called, not when the result is first polled.
+#[allow(clippy::manual_async_fn)] // not an `async fn` on purpose: the handlers must be installed when it is called
+fn shutdown_signal() -> impl std::future::Future<Output = ()> {
     #[cfg(unix)]
-    {
-        use tokio::signal::unix::{signal, SignalKind};
-        if let Ok(mut term) = signal(SignalKind::terminate()) {
+    let term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok();
+    async move {
+        #[cfg(unix)]
+        if let Some(mut term) = term {
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => {}
                 _ = term.recv() => {}
             }
             return;
         }
+        let _ = tokio::signal::ctrl_c().await;
     }
-    let _ = tokio::signal::ctrl_c().await;
 }
