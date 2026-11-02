@@ -36,6 +36,11 @@ jobs:
         run: cargo test --all-targets
       - name: Build
         run: cargo build --release --features serial
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Smoke test of the binary (it starts, answers its health check and stops on SIGTERM)
+        run: python -I tools/smoke_binary.py target/release/eh3d-server${{ matrix.ext }}
       - name: Package
         shell: bash
         run: |
