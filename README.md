@@ -18,7 +18,7 @@
 
 ---
 
-**Honesty check - what actually runs today:** a Rust server (axum) with a REST and websocket interface that keeps users, machines and jobs, plans a drilling or routing job (holes and paths, or an Excellon or HP-GL file with its tool table) with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator, a stop and every change told as it happens. 133 tests run on a computer, the jobs against the simulator. **Nothing has run on a real machine through it yet**, it does not terminate TLS, and of the clients besides the programs, EH3D-STUDIO exists (never tried against a real machine) and the Android app and the panel next to the machine do not exist yet.
+**Honesty check - what actually runs today:** a Rust server (axum) with a REST and websocket interface that keeps users, machines and jobs, plans a drilling or routing job (holes and paths, or an Excellon or HP-GL file with its tool table) with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator, a stop and every change told as it happens. 160 tests run on a computer, the jobs against the simulator. **Nothing has run on a real machine through it yet**, it does not terminate TLS, and of the clients besides the programs, EH3D-STUDIO exists (never tried against a real machine) and the Android app and the panel next to the machine do not exist yet.
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.1.0` |
 | Maturity | Functional |
-| Tests | 133 |
+| Tests | 160 |
 | Stack | Rust (axum, tokio) |
 | On real hardware | No: tested against the simulator; nothing has run on a real machine through the server yet |
 
@@ -45,7 +45,7 @@ Each line is one part of this repository and the light says how far it is today.
 | Area | State | What it means here |
 |---|---|---|
 | Software | 🟡 | A Rust server (axum) keeps users, machines and jobs, plans drilling and routing jobs with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview and runs the job with operator dialogs and a stop. |
-| Tests | 🟡 | 133 tests pass (`cargo test`): 87 in the modules and 46 on the interface end to end, with jobs running on the simulator (35 in `tests/api.rs`, 7 with the real programs in `tests/programs.rs`). |
+| Tests | 🟡 | 160 tests pass (`cargo test`): 102 in the modules and 58 on the interface end to end, with jobs running on the simulator (41 in `tests/api.rs`, 7 with the real programs in `tests/programs.rs`). |
 | Interface for clients (API) | 🟡 | The REST requests and the websocket events are written down in `docs/API.md` and covered by the tests; only the programs' own server connection uses them so far. |
 | Clients | 🔴 | EH3D-STUDIO uses it (never tried against a real machine); the Android app and the touch panel next to the machine do not exist yet. |
 | Security | 🟡 | Every request needs a token with one of three roles, passwords are Argon2 hashes and wrong passwords are slowed down; the server does not terminate TLS (put HTTPS in front) and has had no independent review. |
@@ -108,6 +108,10 @@ How the parts of this repository fit together: who uses it, what it holds and wh
 | A plan that would hit the table or use a missing tool | the planning refuses holes and paths outside the table, and tools that are missing or out of range, with a code |
 | The server dies while the machine moves | the node stops by itself when its link goes quiet; the job is marked failed and never resumes by itself; the service stops its jobs on SIGINT |
 | A huge request | the body is limited (`max_body_mb`, 8 MB by default) |
+| Not knowing who did what | an audit line for every login (failed ones too), job, stop and change, on the console and in `audit.jsonl`; a job says who started and who stopped it; no secret is written |
+| A client that writes its own address in a proxy header | `X-Forwarded-For` is believed only with `trust_forwarded_for` on and only on a connection from 127.0.0.1; off by default |
+| A program token forgotten on a borrowed laptop | tokens can expire (`days`, `token_default_days`) and the list shows when each was last used |
+| A thread of the server panics | with `exit_on_panic` (on) the running jobs are stopped and the server exits so that systemd starts it again |
 | A damaged data file | an error, never a silent start from nothing |
 | A service with too many rights | the systemd unit runs as its own user with `NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp` and one writable folder |
 | A job that asks the spindle for more than it gives | with a spindle chosen for the machine, the planning refuses (`422 spindle_limit`) turns or feeds beyond its limits, both when the job is made and when it starts; the switch is `reject` unless an administrator sets `warn` |
@@ -126,7 +130,7 @@ How the parts of this repository fit together: who uses it, what it holds and wh
 
 ## ⚙️ Configuration
 
-`server.cfg` (or the file given with `--config`) holds eleven optional keys; an unknown key or a value out of range is an error at start. `server.cfg.example` explains them.
+`server.cfg` (or the file given with `--config`) holds twenty-four optional keys; an unknown key or a value out of range is an error at start. `server.cfg.example` explains them.
 
 | Key | Default | Range | What it does |
 |---|---|---|---|
@@ -135,6 +139,15 @@ How the parts of this repository fit together: who uses it, what it holds and wh
 | `session_hours` | 12 | 1 to 720 | how long a login lasts |
 | `max_body_mb` | 8 | 1 to 256 | the largest request, in megabytes |
 | `keep_jobs` | 200 | 10 to 100,000 | how many finished jobs the list keeps |
+| `exit_on_panic` | `true` | true or false | when a thread panics: stop the machines and exit so that the service restarts it (false: only write the panic) |
+| `trust_forwarded_for` | `false` | true or false | take the client's address from `X-Forwarded-For`, only on a connection from 127.0.0.1 (the local proxy) |
+| `persist_sessions` | `true` | true or false | keep the logins on the disk (only the hash of each token) so a restart logs nobody out |
+| `token_default_days` | 0 | 0 to 3650 | days a token of a program lasts when none is given (0: it does not expire) |
+| `events_ping_s` | 30 | 1 to 3600 | seconds between the pings of the websocket of the events |
+| `events_idle_s` | 90 | 2 to 86400 | seconds without any sign of life (a pong counts) before that websocket is closed |
+| `audit_file` | `true` | true or false | write the audit (who did what) to `audit.jsonl` besides the console |
+| `job_log` | `true` | true or false | write a line at the start and at the end of every job to `eh3d-jobs.log` |
+| `log_max_kb` | 1024 | 16 to 1048576 | kilobytes at which the audit and the job log are set aside (one older copy is kept) |
 
 Names of users and tokens: letters, digits, `.`, `_` and `-`, up to 32 characters; passwords: 8 to 128 characters. The values tuned on each machine are not here: they live in the machine record, in the format of the machine file of the programs.
 
@@ -154,7 +167,7 @@ Run it with `run.bat` (Windows) or `./run.sh` (Linux); it builds first if needed
 
 ## 🧪 Testing
 
-The suite has 133 tests (`cargo test`, run on Windows and Linux in the CI with COMMON, DRILLPRO and ROUTEPRO checked out next to the server): 87 in the modules (settings and their ranges, users, roles, tokens, the slowdown on wrong passwords, the files and the job book, planning), 35 on the interface end to end through the real router (`tests/api.rs`), 2 that keep the examples of the answers that the clients read (`tests/examples.rs`), and 7 with the real programs sending their jobs to a real server on a real port, with the machine on the simulator (`tests/programs.rs`). The CI also runs `cargo fmt --all --check`, `cargo clippy` with warnings as errors and `python -I tools/ci_validate.py`. Nothing here has been tested against a real node or machine. The helper that does the updates has 21 more tests of its own (`python -I tests/test_update_helper.py`, with GitHub and systemd replaced by stand-ins). Two more test files check that a panic that poisons a lock does not stop the server (`tests/poison.rs`) and that the real binary stops on SIGTERM (`tests/sigterm.rs`, on Linux); the backup and the files of the deployment have 7 and 8 tests of their own (`tests/test_backup.py`, `tests/test_deploy_files.py`).
+The suite has 160 tests (`cargo test`, run on Windows and Linux in the CI with COMMON, DRILLPRO and ROUTEPRO checked out next to the server): 102 in the modules (settings and their ranges, users, roles, tokens, the slowdown on wrong passwords, the files and the job book, planning), 41 on the interface end to end through the real router (`tests/api.rs`), 2 that keep the examples of the answers that the clients read (`tests/examples.rs`), and 7 with the real programs sending their jobs to a real server on a real port, with the machine on the simulator (`tests/programs.rs`). The CI also runs `cargo fmt --all --check`, `cargo clippy` with warnings as errors and `python -I tools/ci_validate.py`. Nothing here has been tested against a real node or machine. The helper that does the updates has 21 more tests of its own (`python -I tests/test_update_helper.py`, with GitHub and systemd replaced by stand-ins). Two more test files check that a panic that poisons a lock does not stop the server (`tests/poison.rs`) and that the real binary stops on SIGTERM (`tests/sigterm.rs`, on Linux); the backup and the files of the deployment have 7 and 8 tests of their own (`tests/test_backup.py`, `tests/test_deploy_files.py`). Two more test files check the websocket of the events on a real socket (`tests/events.rs`, 3 tests) and the catalog of the error codes against the source of the server (`tests/errors.rs`, 3 tests).
 
 ## 🏗️ Build & Release
 
@@ -176,6 +189,7 @@ EH3D-SERVER/
 │   ├── auth.rs                                  users, roles, tokens and the slowdown on wrong passwords
 │   ├── plan.rs                                  from the request to the items the machine runs
 │   ├── jobs.rs state.rs                         the jobs and what the server is made of while it runs
+│   ├── audit.rs errors.rs panic.rs              audit, job log, error codes, panic exit
 │   ├── machines.rs store.rs                     the machines, and the files written through a temporary file
 │   ├── config.rs lib.rs main.rs                 the settings file, the library root and the program
 │   ├── updates.rs  head.rs                      the updates of the services

@@ -18,7 +18,7 @@
 
 ---
 
-**Comprobación de honestidad - lo que se ejecuta hoy:** un servidor en Rust (axum) con interfaz REST y websocket que guarda usuarios, máquinas y trabajos, planifica un trabajo de taladrado o de fresado (agujeros y trayectorias, o un fichero Excellon o HP-GL con su tabla de herramientas) con las bibliotecas de EH3D-DRILLPRO y EH3D-ROUTEPRO, muestra una vista previa y lo ejecuta en una máquina a través de su EH3D-NODE-BUNGARD o en un simulador, con los diálogos del operador, una parada y cada cambio contado según ocurre. 133 pruebas se ejecutan en un ordenador, los trabajos contra el simulador. **Todavía no se ha ejecutado nada en una máquina real a través de él**, no termina TLS y de los clientes además de los programas, EH3D-STUDIO existe (nunca probado con una máquina real) y la app de Android y el panel junto a la máquina todavía no existen.
+**Comprobación de honestidad - lo que se ejecuta hoy:** un servidor en Rust (axum) con interfaz REST y websocket que guarda usuarios, máquinas y trabajos, planifica un trabajo de taladrado o de fresado (agujeros y trayectorias, o un fichero Excellon o HP-GL con su tabla de herramientas) con las bibliotecas de EH3D-DRILLPRO y EH3D-ROUTEPRO, muestra una vista previa y lo ejecuta en una máquina a través de su EH3D-NODE-BUNGARD o en un simulador, con los diálogos del operador, una parada y cada cambio contado según ocurre. 160 pruebas se ejecutan en un ordenador, los trabajos contra el simulador. **Todavía no se ha ejecutado nada en una máquina real a través de él**, no termina TLS y de los clientes además de los programas, EH3D-STUDIO existe (nunca probado con una máquina real) y la app de Android y el panel junto a la máquina todavía no existen.
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|
 | Versión | `0.1.0` |
 | Madurez | Funcional |
-| Pruebas | 133 |
+| Pruebas | 160 |
 | Pila tecnológica | Rust (axum, tokio) |
 | En hardware real | No: probado contra el simulador; todavía no se ha ejecutado nada en una máquina real a través del servidor |
 
@@ -45,7 +45,7 @@ Cada línea es una parte de este repositorio y la luz dice hasta dónde llega ho
 | Área | Estado | Qué significa aquí |
 |---|---|---|
 | Software | 🟡 | Un servidor en Rust (axum) guarda usuarios, máquinas y trabajos, planifica trabajos de taladrado y fresado con las bibliotecas de EH3D-DRILLPRO y EH3D-ROUTEPRO, muestra una vista previa y ejecuta el trabajo con diálogos de operador y una parada. |
-| Pruebas | 🟡 | Pasan 133 pruebas (`cargo test`): 87 en los módulos y 46 de la interfaz de extremo a extremo, con trabajos en el simulador (35 en `tests/api.rs`, 7 con los programas reales en `tests/programs.rs`). |
+| Pruebas | 🟡 | Pasan 160 pruebas (`cargo test`): 102 en los módulos y 58 de la interfaz de extremo a extremo, con trabajos en el simulador (41 en `tests/api.rs`, 7 con los programas reales en `tests/programs.rs`). |
 | Interfaz para clientes (API) | 🟡 | Las peticiones REST y los eventos del websocket están escritos en `docs/API.md` y cubiertos por las pruebas; hasta ahora solo los usa la conexión al servidor de los propios programas. |
 | Clientes | 🔴 | EH3D-STUDIO lo usa (nunca probado con una máquina real); la app de Android y el panel táctil junto a la máquina todavía no existen. |
 | Seguridad | 🟡 | Cada petición necesita un token con uno de tres roles, las contraseñas son hashes Argon2 y las contraseñas erróneas se ralentizan; el servidor no termina TLS (pon HTTPS delante) y no ha tenido revisión independiente. |
@@ -108,6 +108,10 @@ Cómo encajan las partes de este repositorio: quién lo usa, qué contiene y de 
 | Un plan que chocaría con la mesa o usaría una herramienta que falta | la planificación rechaza con un código agujeros y trayectorias fuera de la mesa y herramientas que faltan o están fuera de rango |
 | El servidor muere mientras la máquina se mueve | el nodo se detiene solo cuando su enlace calla; el trabajo se marca como fallido y no se reanuda solo; el servicio detiene sus trabajos con SIGINT |
 | Una petición enorme | el cuerpo está limitado (`max_body_mb`, 8 MB por defecto) |
+| No saber quién hizo algo | una línea de auditoría por cada inicio de sesión (también los fallidos), trabajo, parada y cambio, en la consola y en `audit.jsonl`; un trabajo dice quién lo inició y quién lo detuvo; no se escribe ningún secreto |
+| Un cliente que escribe su propia dirección en la cabecera del proxy | `X-Forwarded-For` solo se cree con `trust_forwarded_for` activado y solo en una conexión desde 127.0.0.1; desactivado por defecto |
+| Un token de programa olvidado en un portátil prestado | los tokens pueden caducar (`days`, `token_default_days`) y la lista muestra cuándo se usó cada uno por última vez |
+| Un hilo del servidor entra en pánico | con `exit_on_panic` (activado) se detienen los trabajos en marcha y el servidor sale para que systemd lo arranque de nuevo |
 | Un fichero de datos dañado | un error, nunca un arranque silencioso desde cero |
 | Un servicio con demasiados derechos | la unidad de systemd corre con su propio usuario, con `NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp` y una sola carpeta escribible |
 | Un trabajo que pide al husillo más de lo que da | con un husillo elegido para la máquina, la planificación rechaza (`422 spindle_limit`) revoluciones o avances por encima de sus límites, tanto al crear el trabajo como al iniciarlo; el interruptor es `reject` salvo que un administrador ponga `warn` |
@@ -126,7 +130,7 @@ Cómo encajan las partes de este repositorio: quién lo usa, qué contiene y de 
 
 ## ⚙️ Configuración
 
-`server.cfg` (o el fichero dado con `--config`) tiene once claves opcionales; una clave desconocida o un valor fuera de rango es un error al arrancar. `server.cfg.example` las explica.
+`server.cfg` (o el fichero dado con `--config`) tiene veinticuatro claves opcionales; una clave desconocida o un valor fuera de rango es un error al arrancar. `server.cfg.example` las explica.
 
 | Clave | Por defecto | Rango | Qué hace |
 |---|---|---|---|
@@ -135,6 +139,15 @@ Cómo encajan las partes de este repositorio: quién lo usa, qué contiene y de 
 | `session_hours` | 12 | de 1 a 720 | cuánto dura un inicio de sesión |
 | `max_body_mb` | 8 | de 1 a 256 | la petición más grande, en megabytes |
 | `keep_jobs` | 200 | de 10 a 100 000 | cuántos trabajos terminados conserva la lista |
+| `exit_on_panic` | `true` | true o false | cuando un hilo entra en pánico: detiene las máquinas y sale para que el servicio lo reinicie (false: solo escribe el pánico) |
+| `trust_forwarded_for` | `false` | true o false | toma la dirección del cliente de `X-Forwarded-For`, solo en una conexión desde 127.0.0.1 (el proxy local) |
+| `persist_sessions` | `true` | true o false | guarda los inicios de sesión en el disco (solo el hash de cada token) para que un reinicio no cierre la sesión a nadie |
+| `token_default_days` | 0 | de 0 a 3650 | días que dura un token de programa cuando no se indica ninguno (0: no caduca) |
+| `events_ping_s` | 30 | de 1 a 3600 | segundos entre los pings del websocket de eventos |
+| `events_idle_s` | 90 | de 2 a 86400 | segundos sin ninguna señal (un pong cuenta) antes de cerrar ese websocket |
+| `audit_file` | `true` | true o false | escribe la auditoría (quién hizo qué) en `audit.jsonl` además de la consola |
+| `job_log` | `true` | true o false | escribe una línea al empezar y otra al terminar cada trabajo en `eh3d-jobs.log` |
+| `log_max_kb` | 1024 | de 16 a 1048576 | kilobytes a los que se aparta la auditoría y el registro de trabajos (se conserva una copia anterior) |
 
 Nombres de usuarios y tokens: letras, dígitos, `.`, `_` y `-`, hasta 32 caracteres; contraseñas: de 8 a 128 caracteres. Los valores ajustados en cada máquina no están aquí: viven en el registro de la máquina, en el formato del fichero de máquina de los programas.
 
@@ -154,7 +167,7 @@ Ejecútalo con `run.bat` (Windows) o `./run.sh` (Linux); compila primero si hace
 
 ## 🧪 Pruebas
 
-La suite tiene 133 pruebas (`cargo test`, ejecutadas en Windows y Linux en el CI con COMMON, DRILLPRO y ROUTEPRO descargados junto al servidor): 87 en los módulos (ajustes y sus rangos, usuarios, roles, tokens, la ralentización ante contraseñas erróneas, los ficheros y el libro de trabajos, la planificación), 35 de la interfaz de extremo a extremo a través del router real (`tests/api.rs`), 2 que mantienen los ejemplos de respuestas que leen los clientes (`tests/examples.rs`) y 7 con los programas reales enviando sus trabajos a un servidor real en un puerto real, con la máquina en el simulador (`tests/programs.rs`). El CI también ejecuta `cargo fmt --all --check`, `cargo clippy` con advertencias como errores y `python -I tools/ci_validate.py`. Nada de esto se ha probado contra un nodo o una máquina reales. El ayudante que hace las actualizaciones tiene 21 pruebas más propias (`python -I tests/test_update_helper.py`, con GitHub y systemd sustituidos por simulaciones). Dos ficheros de pruebas más comprueban que un pánico que envenena un cerrojo no detiene el servidor (`tests/poison.rs`) y que el binario real se detiene con SIGTERM (`tests/sigterm.rs`, en Linux); la copia de seguridad y los ficheros del despliegue tienen 7 y 8 pruebas propias (`tests/test_backup.py`, `tests/test_deploy_files.py`).
+La suite tiene 160 pruebas (`cargo test`, ejecutadas en Windows y Linux en el CI con COMMON, DRILLPRO y ROUTEPRO descargados junto al servidor): 102 en los módulos (ajustes y sus rangos, usuarios, roles, tokens, la ralentización ante contraseñas erróneas, los ficheros y el libro de trabajos, la planificación), 41 de la interfaz de extremo a extremo a través del router real (`tests/api.rs`), 2 que mantienen los ejemplos de respuestas que leen los clientes (`tests/examples.rs`) y 7 con los programas reales enviando sus trabajos a un servidor real en un puerto real, con la máquina en el simulador (`tests/programs.rs`). El CI también ejecuta `cargo fmt --all --check`, `cargo clippy` con advertencias como errores y `python -I tools/ci_validate.py`. Nada de esto se ha probado contra un nodo o una máquina reales. El ayudante que hace las actualizaciones tiene 21 pruebas más propias (`python -I tests/test_update_helper.py`, con GitHub y systemd sustituidos por simulaciones). Dos ficheros de pruebas más comprueban que un pánico que envenena un cerrojo no detiene el servidor (`tests/poison.rs`) y que el binario real se detiene con SIGTERM (`tests/sigterm.rs`, en Linux); la copia de seguridad y los ficheros del despliegue tienen 7 y 8 pruebas propias (`tests/test_backup.py`, `tests/test_deploy_files.py`). Otros dos ficheros de pruebas comprueban el websocket de eventos sobre un socket real (`tests/events.rs`, 3 pruebas) y el catálogo de códigos de error contra el código del servidor (`tests/errors.rs`, 3 pruebas).
 
 ## 🏗️ Compilación y publicación
 
@@ -176,6 +189,7 @@ EH3D-SERVER/
 │   ├── auth.rs                                  usuarios, roles, tokens y la ralentización ante contraseñas erróneas
 │   ├── plan.rs                                  de la petición a los elementos que ejecuta la máquina
 │   ├── jobs.rs state.rs                         los trabajos y de qué se compone el servidor mientras corre
+│   ├── audit.rs errors.rs panic.rs              auditoría, registro, códigos de error, salida por pánico
 │   ├── machines.rs store.rs                     las máquinas y los ficheros escritos a través de uno temporal
 │   ├── config.rs lib.rs main.rs                 el fichero de ajustes, la raíz de la biblioteca y el programa
 │   ├── updates.rs  head.rs                      las actualizaciones de los servicios

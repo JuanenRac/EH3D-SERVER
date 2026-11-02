@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.1.0` |
 | Maturité | Fonctionnel |
-| Tests | 133 |
+| Tests | 160 |
 | Pile technique | Rust (axum, tokio) |
 | Sur du matériel réel | Non : testé contre le simulateur ; rien n'a encore tourné sur une vraie machine par le serveur |
 
@@ -45,7 +45,7 @@ Chaque ligne est une partie de ce dépôt et le feu dit où elle en est aujourd'
 | Domaine | État | Ce que cela veut dire ici |
 |---|---|---|
 | Logiciel | 🟡 | Un serveur Rust (axum) garde utilisateurs, machines et travaux, planifie des travaux de perçage et de défonçage avec les bibliothèques d'EH3D-DRILLPRO et d'EH3D-ROUTEPRO, montre un aperçu et exécute le travail avec des dialogues d'opérateur et un arrêt. |
-| Tests | 🟡 | 133 tests réussissent (`cargo test`) : 87 dans les modules et 46 sur l'interface de bout en bout, avec des travaux sur le simulateur (35 dans `tests/api.rs`, 7 avec les vrais programmes dans `tests/programs.rs`). |
+| Tests | 🟡 | 160 tests réussissent (`cargo test`) : 102 dans les modules et 58 sur l'interface de bout en bout, avec des travaux sur le simulateur (41 dans `tests/api.rs`, 7 avec les vrais programmes dans `tests/programs.rs`). |
 | Interface pour les clients (API) | 🟡 | Les requêtes REST et les événements websocket sont décrits dans `docs/API.md` et couverts par les tests ; seule la connexion au serveur des programmes eux-mêmes les utilise pour l'instant. |
 | Clients | 🔴 | EH3D-STUDIO l'utilise (jamais essayé avec une vraie machine) ; l'application Android et le panneau tactile à côté de la machine n'existent pas encore. |
 | Sécurité | 🟡 | Chaque requête exige un jeton avec l'un de trois rôles, les mots de passe sont des hachages Argon2 et les mauvais mots de passe sont ralentis ; le serveur ne termine pas le TLS (mets du HTTPS devant) et n'a pas eu de revue indépendante. |
@@ -108,6 +108,10 @@ Comment les parties de ce dépôt s'articulent : qui l'utilise, ce qu'il contien
 | Un plan qui heurterait la table ou utiliserait un outil manquant | la planification refuse avec un code les trous et parcours hors de la table et les outils manquants ou hors plage |
 | Le serveur meurt pendant que la machine bouge | le nœud s'arrête de lui-même quand son lien se tait ; le travail est marqué en échec et ne reprend jamais tout seul ; le service arrête ses travaux sur SIGINT |
 | Une requête énorme | le corps est limité (`max_body_mb`, 8 Mo par défaut) |
+| Ne pas savoir qui a fait quoi | une ligne d'audit pour chaque connexion (aussi les échecs), travail, arrêt et modification, sur la console et dans `audit.jsonl` ; un travail dit qui l'a démarré et qui l'a arrêté ; aucun secret n'est écrit |
+| Un client qui écrit sa propre adresse dans l'en-tête du proxy | `X-Forwarded-For` n'est cru qu'avec `trust_forwarded_for` activé et seulement sur une connexion venant de 127.0.0.1 ; désactivé par défaut |
+| Un jeton de programme oublié sur un portable prêté | les jetons peuvent expirer (`days`, `token_default_days`) et la liste montre quand chacun a été utilisé pour la dernière fois |
+| Un fil du serveur panique | avec `exit_on_panic` (activé) les travaux en cours sont arrêtés et le serveur quitte pour que systemd le relance |
 | Un fichier de données endommagé | une erreur, jamais un démarrage silencieux à zéro |
 | Un service avec trop de droits | l'unité systemd tourne sous son propre utilisateur avec `NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp` et un seul dossier inscriptible |
 | Un travail qui demande à la broche plus qu'elle ne donne | avec une broche choisie pour la machine, la planification refuse (`422 spindle_limit`) vitesses ou avances au-delà de ses limites, à la création comme au démarrage ; l'interrupteur vaut `reject` sauf si un administrateur met `warn` |
@@ -126,7 +130,7 @@ Comment les parties de ce dépôt s'articulent : qui l'utilise, ce qu'il contien
 
 ## ⚙️ Configuration
 
-`server.cfg` (ou le fichier donné avec `--config`) contient onze clés facultatives ; une clé inconnue ou une valeur hors plage est une erreur au démarrage. `server.cfg.example` les explique.
+`server.cfg` (ou le fichier donné avec `--config`) contient vingt-quatre clés facultatives ; une clé inconnue ou une valeur hors plage est une erreur au démarrage. `server.cfg.example` les explique.
 
 | Clé | Défaut | Plage | Ce qu'elle fait |
 |---|---|---|---|
@@ -135,6 +139,15 @@ Comment les parties de ce dépôt s'articulent : qui l'utilise, ce qu'il contien
 | `session_hours` | 12 | de 1 à 720 | durée d'une connexion |
 | `max_body_mb` | 8 | de 1 à 256 | la plus grande requête, en mégaoctets |
 | `keep_jobs` | 200 | de 10 à 100 000 | combien de travaux terminés la liste garde |
+| `exit_on_panic` | `true` | true ou false | quand un fil panique : arrête les machines et quitte pour que le service redémarre (false : écrit seulement la panique) |
+| `trust_forwarded_for` | `false` | true ou false | prend l'adresse du client dans `X-Forwarded-For`, seulement sur une connexion venant de 127.0.0.1 (le proxy local) |
+| `persist_sessions` | `true` | true ou false | garde les connexions sur le disque (seulement le hachage de chaque jeton) pour qu'un redémarrage ne déconnecte personne |
+| `token_default_days` | 0 | de 0 à 3650 | jours de validité d'un jeton de programme quand aucun n'est indiqué (0 : n'expire pas) |
+| `events_ping_s` | 30 | de 1 à 3600 | secondes entre les pings du websocket des événements |
+| `events_idle_s` | 90 | de 2 à 86400 | secondes sans signe de vie (un pong compte) avant la fermeture de ce websocket |
+| `audit_file` | `true` | true ou false | écrit l'audit (qui a fait quoi) dans `audit.jsonl` en plus de la console |
+| `job_log` | `true` | true ou false | écrit une ligne au début et une à la fin de chaque travail dans `eh3d-jobs.log` |
+| `log_max_kb` | 1024 | de 16 à 1048576 | kilo-octets à partir desquels l'audit et le journal des travaux sont mis de côté (une copie plus ancienne est gardée) |
 
 Noms des utilisateurs et des jetons : lettres, chiffres, `.`, `_` et `-`, jusqu'à 32 caractères ; mots de passe : de 8 à 128 caractères. Les valeurs réglées sur chaque machine ne sont pas ici : elles vivent dans la fiche de la machine, au format du fichier de machine des programmes.
 
@@ -154,7 +167,7 @@ Lance-le avec `run.bat` (Windows) ou `./run.sh` (Linux) ; il compile d'abord si 
 
 ## 🧪 Tests
 
-La suite compte 133 tests (`cargo test`, exécutés sous Windows et Linux dans la CI avec COMMON, DRILLPRO et ROUTEPRO récupérés à côté du serveur) : 87 dans les modules (réglages et leurs plages, utilisateurs, rôles, jetons, le ralentissement sur mauvais mot de passe, les fichiers et le registre des travaux, la planification), 35 sur l'interface de bout en bout par le vrai routeur (`tests/api.rs`), 2 qui tiennent les exemples de réponses lus par les clients (`tests/examples.rs`) et 7 avec les vrais programmes envoyant leurs travaux à un vrai serveur sur un vrai port, la machine étant sur le simulateur (`tests/programs.rs`). La CI exécute aussi `cargo fmt --all --check`, `cargo clippy` avec les avertissements en erreurs et `python -I tools/ci_validate.py`. Rien de tout cela n'a été testé contre un vrai nœud ou une vraie machine. L'assistant qui fait les mises à jour a 21 tests de plus qui lui sont propres (`python -I tests/test_update_helper.py`, avec GitHub et systemd remplacés par des doublures). Deux autres fichiers de tests vérifient qu'une panique qui empoisonne un verrou n'arrête pas le serveur (`tests/poison.rs`) et que le vrai binaire s'arrête sur SIGTERM (`tests/sigterm.rs`, sous Linux) ; la sauvegarde et les fichiers du déploiement ont 7 et 8 tests propres (`tests/test_backup.py`, `tests/test_deploy_files.py`).
+La suite compte 160 tests (`cargo test`, exécutés sous Windows et Linux dans la CI avec COMMON, DRILLPRO et ROUTEPRO récupérés à côté du serveur) : 102 dans les modules (réglages et leurs plages, utilisateurs, rôles, jetons, le ralentissement sur mauvais mot de passe, les fichiers et le registre des travaux, la planification), 41 sur l'interface de bout en bout par le vrai routeur (`tests/api.rs`), 2 qui tiennent les exemples de réponses lus par les clients (`tests/examples.rs`) et 7 avec les vrais programmes envoyant leurs travaux à un vrai serveur sur un vrai port, la machine étant sur le simulateur (`tests/programs.rs`). La CI exécute aussi `cargo fmt --all --check`, `cargo clippy` avec les avertissements en erreurs et `python -I tools/ci_validate.py`. Rien de tout cela n'a été testé contre un vrai nœud ou une vraie machine. L'assistant qui fait les mises à jour a 21 tests de plus qui lui sont propres (`python -I tests/test_update_helper.py`, avec GitHub et systemd remplacés par des doublures). Deux autres fichiers de tests vérifient qu'une panique qui empoisonne un verrou n'arrête pas le serveur (`tests/poison.rs`) et que le vrai binaire s'arrête sur SIGTERM (`tests/sigterm.rs`, sous Linux) ; la sauvegarde et les fichiers du déploiement ont 7 et 8 tests propres (`tests/test_backup.py`, `tests/test_deploy_files.py`). Deux autres fichiers de tests vérifient le websocket des événements sur une vraie socket (`tests/events.rs`, 3 tests) et le catalogue des codes d'erreur contre le code du serveur (`tests/errors.rs`, 3 tests).
 
 ## 🏗️ Compilation et publication
 
@@ -176,6 +189,7 @@ EH3D-SERVER/
 │   ├── auth.rs                                  utilisateurs, rôles, jetons et ralentissement sur mauvais mot de passe
 │   ├── plan.rs                                  de la requête aux éléments que la machine exécute
 │   ├── jobs.rs state.rs                         les travaux et ce dont le serveur est fait pendant qu'il tourne
+│   ├── audit.rs errors.rs panic.rs              audit, journal, codes d'erreur, sortie sur panique
 │   ├── machines.rs store.rs                     les machines, et les fichiers écrits via un fichier temporaire
 │   ├── config.rs lib.rs main.rs                 le fichier de réglages, la racine de la bibliothèque et le programme
 │   ├── updates.rs  head.rs                      les mises à jour des services

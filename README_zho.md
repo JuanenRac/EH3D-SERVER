@@ -30,7 +30,7 @@
 |---|---|
 | 版本 | `0.1.0` |
 | 成熟度 | 可用 |
-| 测试 | 133 |
+| 测试 | 160 |
 | 技术栈 | Rust (axum, tokio) |
 | 真实硬件 | 否：已针对模拟器测试；尚未通过服务器在真实机床上运行过任何东西 |
 
@@ -45,7 +45,7 @@
 | 领域 | 状态 | 在这里的含义 |
 |---|---|---|
 | 软件 | 🟡 | Rust 服务器（axum）保存用户、机床和作业，使用 EH3D-DRILLPRO 和 EH3D-ROUTEPRO 的库规划钻孔和铣削作业，显示预览，并带有操作员对话框和停止功能地运行作业。 |
-| 测试 | 🟡 | 133 个测试通过（`cargo test`）：模块内 87 个，接口端到端 46 个，作业在模拟器上运行（`tests/api.rs` 35 个，使用真实程序的 `tests/programs.rs` 7 个）。 |
+| 测试 | 🟡 | 160 个测试通过（`cargo test`）：模块内 102 个，接口端到端 58 个，作业在模拟器上运行（`tests/api.rs` 41 个，使用真实程序的 `tests/programs.rs` 7 个）。 |
 | 面向客户端的接口（API） | 🟡 | REST 请求和 websocket 事件已写在 `docs/API.md` 中并被测试覆盖；目前只有程序自带的服务器连接在使用。 |
 | 客户端 | 🔴 | EH3D-STUDIO 在使用它（从未对真实机床试过）；Android 应用和机床旁的触摸面板尚不存在。 |
 | 安全 | 🟡 | 每个请求都需要带三种角色之一的令牌，密码是 Argon2 哈希，错误密码会被减速；服务器不终止 TLS（请在前面加 HTTPS），也未经独立审查。 |
@@ -108,6 +108,10 @@ EH3D-SERVER 是 EH3D 家族的中心：程序把作业发给它，它通过节�
 | 会撞到工作台或使用缺失刀具的计划 | 规划会以代码拒绝工作台之外的孔和路径，以及缺失或超出范围的刀具 |
 | 机床运动时服务器崩溃 | 节点在链路沉默时自行停止；作业被标记为失败，绝不自动恢复；服务在收到 SIGINT 时停止其作业 |
 | 巨大的请求 | 请求体有大小限制（`max_body_mb`，默认 8 MB） |
+| 不知道谁做了什么 | 每次登录（含失败）、作业、停止和更改都会在控制台和 `audit.jsonl` 中留下一行审计；作业会记录启动者和停止者；不写入任何机密 |
+| 客户端在代理头中写入自己的地址 | 仅当 `trust_forwarded_for` 开启且连接来自 127.0.0.1 时才信任 `X-Forwarded-For`；默认关闭 |
+| 遗留在借出笔记本电脑上的程序令牌 | 令牌可以设置过期（`days`、`token_default_days`），列表会显示每个令牌最后一次使用的时间 |
+| 服务器线程发生 panic | 启用 `exit_on_panic`（默认开启）时，正在运行的作业会被停止，服务器退出并由 systemd 重新启动 |
 | 损坏的数据文件 | 报错，绝不悄悄从零开始 |
 | 权限过多的服务 | systemd 单元以专用用户运行，带有 `NoNewPrivileges`、`ProtectSystem=strict`、`PrivateTmp` 和唯一一个可写文件夹 |
 | 作业向主轴要求超出其能力 | 机床选定主轴后，规划会拒绝超出限值的转速或进给（`422 spindle_limit`），创建作业和启动时都会检查；开关默认为 `reject`，除非管理员设为 `warn` |
@@ -126,7 +130,7 @@ EH3D-SERVER 是 EH3D 家族的中心：程序把作业发给它，它通过节�
 
 ## ⚙️ 配置
 
-`server.cfg`（或用 `--config` 指定的文件）有十一个可选键；未知的键或超出范围的值在启动时会报错。`server.cfg.example` 有说明。
+`server.cfg`（或用 `--config` 指定的文件）有二十四个可选键；未知的键或超出范围的值在启动时会报错。`server.cfg.example` 有说明。
 
 | 键 | 默认值 | 范围 | 作用 |
 |---|---|---|---|
@@ -135,6 +139,15 @@ EH3D-SERVER 是 EH3D 家族的中心：程序把作业发给它，它通过节�
 | `session_hours` | 12 | 1 到 720 | 登录持续多久 |
 | `max_body_mb` | 8 | 1 到 256 | 最大的请求，单位 MB |
 | `keep_jobs` | 200 | 10 到 100,000 | 列表保留多少已完成的作业 |
+| `exit_on_panic` | `true` | true 或 false | 线程发生 panic 时：停止机床并退出，由服务重启（false：只记录 panic） |
+| `trust_forwarded_for` | `false` | true 或 false | 仅在来自 127.0.0.1（本地代理）的连接上，从 `X-Forwarded-For` 取客户端地址 |
+| `persist_sessions` | `true` | true 或 false | 把登录保存在磁盘上（只存每个令牌的哈希），重启后无人被登出 |
+| `token_default_days` | 0 | 0 到 3650 | 未指定时程序令牌的有效天数（0：不过期） |
+| `events_ping_s` | 30 | 1 到 3600 | 事件 websocket 两次 ping 之间的秒数 |
+| `events_idle_s` | 90 | 2 到 86400 | 该 websocket 在多少秒无任何响应（pong 也算）后被关闭 |
+| `audit_file` | `true` | true 或 false | 除控制台外，把审计记录（谁做了什么）写入 `audit.jsonl` |
+| `job_log` | `true` | true 或 false | 在每个作业开始和结束时向 `eh3d-jobs.log` 写一行 |
+| `log_max_kb` | 1024 | 16 到 1048576 | 审计与作业记录达到多少 KB 时归档（保留一份旧副本） |
 
 用户和令牌的名称：字母、数字、`.`、`_` 和 `-`，最多 32 个字符；密码：8 到 128 个字符。各机床上调好的数值不在这里：它们保存在机床记录中，格式与程序的机床文件相同。
 
@@ -154,7 +167,7 @@ python -I tools/ci_validate.py
 
 ## 🧪 测试
 
-测试共 133 个（`cargo test`，CI 中在 Windows 和 Linux 上运行，COMMON, DRILLPRO 和 ROUTEPRO 检出在服务器旁）：模块内 87 个（设置及其范围、用户、角色、令牌、对错误密码的减速、文件和作业簿、规划），通过真实路由器的接口端到端 35 个（`tests/api.rs`），维护客户端所读响应示例的 2 个（`tests/examples.rs`），以及真实程序通过真实端口把作业发给真实服务器、机床使用模拟器的 7 个（`tests/programs.rs`）。CI 还运行 `cargo fmt --all --check`、将警告视为错误的 `cargo clippy` 和 `python -I tools/ci_validate.py`。这里没有任何东西针对真实节点或机床测试过。 负责更新的辅助程序另有 21 项自己的测试（`python -I tests/test_update_helper.py`，用替身替代 GitHub 和 systemd）。另有两个测试文件检查：使锁中毒的 panic 不会使服务器停止（`tests/poison.rs`），以及真实的二进制文件在收到 SIGTERM 时停止（`tests/sigterm.rs`，在 Linux 上）；备份和部署文件各有 7 个和 8 个自己的测试（`tests/test_backup.py`、`tests/test_deploy_files.py`）。
+测试共 160 个（`cargo test`，CI 中在 Windows 和 Linux 上运行，COMMON, DRILLPRO 和 ROUTEPRO 检出在服务器旁）：模块内 102 个（设置及其范围、用户、角色、令牌、对错误密码的减速、文件和作业簿、规划），通过真实路由器的接口端到端 41 个（`tests/api.rs`），维护客户端所读响应示例的 2 个（`tests/examples.rs`），以及真实程序通过真实端口把作业发给真实服务器、机床使用模拟器的 7 个（`tests/programs.rs`）。CI 还运行 `cargo fmt --all --check`、将警告视为错误的 `cargo clippy` 和 `python -I tools/ci_validate.py`。这里没有任何东西针对真实节点或机床测试过。 负责更新的辅助程序另有 21 项自己的测试（`python -I tests/test_update_helper.py`，用替身替代 GitHub 和 systemd）。另有两个测试文件检查：使锁中毒的 panic 不会使服务器停止（`tests/poison.rs`），以及真实的二进制文件在收到 SIGTERM 时停止（`tests/sigterm.rs`，在 Linux 上）；备份和部署文件各有 7 个和 8 个自己的测试（`tests/test_backup.py`、`tests/test_deploy_files.py`）。 另有两个测试文件分别在真实套接字上检查事件 websocket（`tests/events.rs`，3 个测试），并对照服务器源码检查错误代码目录（`tests/errors.rs`，3 个测试）。
 
 ## 🏗️ 构建与发布
 
@@ -176,6 +189,7 @@ EH3D-SERVER/
 │   ├── auth.rs                                  用户、角色、令牌和对错误密码的减速
 │   ├── plan.rs                                  从请求到机床执行的项目
 │   ├── jobs.rs state.rs                         作业以及服务器运行时的组成
+│   ├── audit.rs errors.rs panic.rs              审计、作业记录、错误代码、panic 退出
 │   ├── machines.rs store.rs                     机床以及通过临时文件写入的文件
 │   ├── config.rs lib.rs main.rs                 设置文件、库根和程序
 │   ├── updates.rs  head.rs                      服务的更新

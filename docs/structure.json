@@ -76,6 +76,20 @@
           "tree_name": "jobs.rs state.rs"
         },
         {
+          "name": "audit.rs  errors.rs  panic.rs",
+          "tree_name": "audit.rs errors.rs panic.rs",
+          "desc": {
+            "en": "audit, job log, error codes, panic exit",
+            "es": "auditoría, registro, códigos de error, salida por pánico",
+            "de": "Audit, Protokoll, Fehlercodes, Ausstieg bei Panik",
+            "fr": "audit, journal, codes d'erreur, sortie sur panique",
+            "it": "audit, registro, codici di errore, uscita in panico",
+            "ja": "監査、ジョブ記録、エラーコード、パニック終了",
+            "zh": "审计、作业记录、错误代码、panic 退出",
+            "pt": "auditoria, registo, códigos de erro, saída em pânico"
+          }
+        },
+        {
           "desc": {
             "en": "the machines, and the files written through a temporary file",
             "es": "las máquinas y los ficheros escritos a través de uno temporal",

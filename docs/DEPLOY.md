@@ -14,7 +14,7 @@ EH3D-SERVER/
 
 ## Settings
 
-`server.cfg` (or the file given with `--config`) holds `listen`, `data_dir`, `session_hours`, `max_body_mb`, `keep_jobs` and the settings of G-code jobs (`gcode_finish_wait_s`, `grbl_line_timeout_s`, `grbl_homing_timeout_s`, `grbl_jog_timeout_s`), `resume_margin_lines` (16), `local_until_setup` (off: with it on, a server that has no user yet answers only 127.0.0.1, so the first administrator is made from the computer itself), `url_token` (off) and `login_ip_limit` (10, 0 turns it off; behind a reverse proxy the address is the proxy's, so turn it off there); see `server.cfg.example`. The default port is **18200**, which is not one of ARMOR's (18080 to 18090) nor HYDRA-UMC's, so the three servers can share the CM5.
+`server.cfg` (or the file given with `--config`) holds `listen`, `data_dir`, `session_hours`, `max_body_mb`, `keep_jobs` and the settings of G-code jobs (`gcode_finish_wait_s`, `grbl_line_timeout_s`, `grbl_homing_timeout_s`, `grbl_jog_timeout_s`), `resume_margin_lines` (16), `local_until_setup` (off: with it on, a server that has no user yet answers only 127.0.0.1, so the first administrator is made from the computer itself), `url_token` (off) and `login_ip_limit` (10, 0 turns it off; behind a reverse proxy see `trust_forwarded_for` below); the switches `exit_on_panic` (on: a thread that panics stops the machines and the server exits, so that systemd starts it again), `trust_forwarded_for` (off), `persist_sessions` (on), `token_default_days` (0: no expiry), `events_ping_s` (30) and `events_idle_s` (90) for the websocket, and `audit_file` and `job_log` (on) with `log_max_kb` (1024) for the records described under "What the server records"; see `server.cfg.example`. The default port is **18200**, which is not one of ARMOR's (18080 to 18090) nor HYDRA-UMC's, so the three servers can share the CM5.
 
 ## First start
 
@@ -53,7 +53,7 @@ The server does not terminate TLS: put Caddy in front of it. With its own certif
 3. Make the devices trust it: copy `/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt` to each device that opens the server and install it as a trusted authority (the browser, the phone). Open `https://cm5.local/`; the Studio, the API and the websocket of the events are all there.
 4. Close the old port to the network (the line of step 1 does it) and change the address in the programs and the apps from `http://cm5:18200` to `https://cm5.local`.
 
-Behind the proxy every connection reaches the server from `127.0.0.1`, so `login_ip_limit` (wrong passwords counted by address) would count all the people together: set `login_ip_limit = 0`; the slowdown of wrong passwords by name stays. The configuration is written down and checked by `tests/test_deploy_files.py`, but it has not been run on the CM5: nothing of this has been tested on a real installation.
+Behind the proxy every connection reaches the server from `127.0.0.1`, so `login_ip_limit` (wrong passwords counted by address) would count all the people together. Either set `login_ip_limit = 0` (the slowdown of wrong passwords by name stays) or set `trust_forwarded_for = true`: then, and only on a connection that comes from `127.0.0.1`, the address that the proxy put last in `X-Forwarded-For` is the address of the client for the limit and for the audit (Caddy sets the header itself; what a client writes before it is ignored). A connection from any other address is never believed, whatever the header says. The configuration is written down and checked by `tests/test_deploy_files.py`, but it has not been run on the CM5: nothing of this has been tested on a real installation.
 
 ## Backups
 
@@ -81,9 +81,19 @@ To restore: stop the server, move the data folder aside, unpack a copy (`tar -xz
 - The data folder holds the users (Argon2 hashes), the tokens (SHA-256 hashes), the machines with the tokens of their nodes, and the jobs. Back it up (see Backups) and keep it private.
 - A job never starts by itself, and the node stops on its own when its link goes quiet (unless its setting for finishing a held job is on), so a crashed server does not leave a machine moving.
 
+## What the server records
+
+Three records, all in the data folder or the journal, and none of them holds a password, a token or a part of one:
+
+- **The audit** is a line for each thing somebody did: `event=login who=ana role=operator ip=10.0.0.7`, `login_failed`, `setup`, `logout`, `password_changed`, `job_create`, `job_start`, `job_confirm`, `job_pause`, `job_resume`, `job_cancel`, `job_delete`, `job_end` (how it ended and who stopped it), `machine_stop`, `machine_add`, `machine_update`, `machine_delete`, `spindle_update`, `user_add`, `user_update`, `user_delete`, `token_add`, `token_delete`, `update_check`, `update_apply`, `update_undo`, `update_clear_history` and `panic`. It goes to the console, so `journalctl -u eh3d-server | grep event=job_` is the history of the workshop, and, with `audit_file = true`, to `audit.jsonl` (one JSON object per line, with the time in `t`).
+- **The log of the jobs**, `eh3d-jobs.log`, has a line when a job starts (the job, its machine and how it is reached, who asked for it and who started it, a short hash and the size of the request so that two runs of the same file can be told from two different files, the holes or paths, the items, the estimate) and a line when it ends (`result`, `message`, how far it got, who stopped it, and the real duration against the estimate). It is plain text for whoever has to find out why a job failed.
+- **Who started and who stopped a job** are `started_by` and `stopped_by` in the job itself (`GET /api/v1/jobs`), so the Studio and the apps show them.
+
+`audit.jsonl` and `eh3d-jobs.log` are set aside as `<name>.1` at `log_max_kb` kilobytes, keeping one older copy, so they cannot fill the card. The data folder backup (below) includes them.
+
 ## Health check
 
-`GET /api/v1/health` needs no login and says the name, the version, `api_revision` (the revision of the interface of `docs/API.md`) and `status`: `ok`, or `degraded` when the data folder does not take a file (a full or read-only disk) or a thread panicked while it held a lock. Whoever is logged in also gets `uptime_s`, `storage`, `recovered_locks` and `features` (serial port support, the Studio, the updates, `url_token`, `local_until_setup`). A monitor can poll it and alert on anything but `ok`.
+`GET /api/v1/health` needs no login and says the name, the version, `api_revision` (the revision of the interface of `docs/API.md`) and `status`: `ok`, or `degraded` when the data folder does not take a file (a full or read-only disk) or a thread panicked while it held a lock. Whoever is logged in also gets `uptime_s`, `storage`, `recovered_locks` and `features` (serial port support, the Studio, the updates, `url_token`, `local_until_setup`, `trust_forwarded_for`, `exit_on_panic`, `persist_sessions`). A monitor can poll it and alert on anything but `ok`.
 
 ## Updates from GitHub
 
