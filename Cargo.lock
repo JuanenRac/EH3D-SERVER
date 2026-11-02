@@ -359,7 +359,7 @@ version = "0.0.1"
 
 [[package]]
 name = "eh3d-routepro"
-version = "0.1.3"
+version = "0.1.0"
 dependencies = [
  "eh3d-bungard-formats",
  "eh3d-drillpro",

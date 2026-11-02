@@ -141,7 +141,7 @@ Comment les parties de ce dépôt s'articulent : qui l'utilise, ce qu'il contien
 | `keep_jobs` | 200 | de 10 à 100 000 | combien de travaux terminés la liste garde |
 | `exit_on_panic` | `true` | true ou false | quand un fil panique : arrête les machines et quitte pour que le service redémarre (false : écrit seulement la panique) |
 | `trust_forwarded_for` | `false` | true ou false | prend l'adresse du client dans `X-Forwarded-For`, seulement sur une connexion venant de 127.0.0.1 (le proxy local) |
-| `persist_sessions` | `true` | true ou false | garde les connexions sur le disque (seulement le hachage de chaque jeton) pour qu'un redémarrage ne déconnecte personne |
+| `persist_sessions` | `false` | true ou false | garde les connexions sur le disque (seulement le hachage de chaque jeton) pour qu'un redémarrage ne déconnecte personne |
 | `token_default_days` | 0 | de 0 à 3650 | jours de validité d'un jeton de programme quand aucun n'est indiqué (0 : n'expire pas) |
 | `events_ping_s` | 30 | de 1 à 3600 | secondes entre les pings du websocket des événements |
 | `events_idle_s` | 90 | de 2 à 86400 | secondes sans signe de vie (un pong compte) avant la fermeture de ce websocket |

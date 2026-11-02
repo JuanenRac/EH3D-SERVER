@@ -92,7 +92,7 @@ impl Default for ServerConfig {
             local_until_setup: false,
             exit_on_panic: true,
             trust_forwarded_for: false,
-            persist_sessions: true,
+            persist_sessions: false,
             token_default_days: 0,
             events_ping_s: 30,
             events_idle_s: 90,
@@ -346,7 +346,7 @@ mod tests {
         let c = parse("").unwrap();
         assert!(c.exit_on_panic, "a panic stops the machines and restarts");
         assert!(!c.trust_forwarded_for, "the proxy header is not trusted");
-        assert!(c.persist_sessions && c.audit_file && c.job_log);
+        assert!(!c.persist_sessions && c.audit_file && c.job_log);
         assert_eq!(
             (c.token_default_days, c.events_ping_s, c.events_idle_s),
             (0, 30, 90)
@@ -354,7 +354,7 @@ mod tests {
         let c = parse(
             "exit_on_panic = off
 trust_forwarded_for = yes
-persist_sessions = no
+persist_sessions = yes
 audit_file = 0
 job_log = false
 token_default_days = 90
@@ -364,7 +364,7 @@ log_max_kb = 64
 ",
         )
         .unwrap();
-        assert!(!c.exit_on_panic && c.trust_forwarded_for && !c.persist_sessions);
+        assert!(!c.exit_on_panic && c.trust_forwarded_for && c.persist_sessions);
         assert!(!c.audit_file && !c.job_log);
         assert_eq!(
             (

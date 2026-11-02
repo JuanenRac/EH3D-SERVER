@@ -42,6 +42,23 @@ fn server(name: &str) -> Server {
     }
 }
 
+/// A server that keeps its logins on the disk (it is off by default).
+fn server_persisting(name: &str) -> Server {
+    let dir = std::env::temp_dir().join(format!("eh3d-server-api-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let cfg = ServerConfig {
+        data_dir: dir.clone(),
+        persist_sessions: true,
+        ..ServerConfig::default()
+    };
+    let state = AppState::open(cfg).unwrap();
+    Server {
+        app: router(state.clone()),
+        state,
+        dir,
+    }
+}
+
 async fn call(
     s: &Server,
     method: Method,
@@ -3312,7 +3329,7 @@ async fn the_default_life_of_a_token_is_a_setting() {
 
 #[tokio::test]
 async fn a_login_survives_a_restart_of_the_server_and_a_logout_does_not() {
-    let s = server("sessions");
+    let s = server_persisting("sessions");
     let token = admin(&s).await;
     let (_, again) = call(
         &s,
@@ -3330,6 +3347,7 @@ async fn a_login_survives_a_restart_of_the_server_and_a_logout_does_not() {
     // the server starts again on the same data
     let state = AppState::open(ServerConfig {
         data_dir: s.dir.clone(),
+        persist_sessions: true,
         ..ServerConfig::default()
     })
     .unwrap();
@@ -3388,5 +3406,8 @@ async fn the_health_check_tells_the_switches_of_the_server() {
         "the proxy header is not trusted by default"
     );
     assert_eq!(f["exit_on_panic"], true);
-    assert_eq!(f["persist_sessions"], true);
+    assert_eq!(
+        f["persist_sessions"], false,
+        "the logins are not kept on the disk by default"
+    );
 }

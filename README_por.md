@@ -141,7 +141,7 @@ Como as partes deste repositório se encaixam: quem o usa, o que contém e de qu
 | `keep_jobs` | 200 | de 10 a 100 000 | quantos trabalhos terminados a lista guarda |
 | `exit_on_panic` | `true` | true ou false | quando um fio entra em pânico: para as máquinas e sai para que o serviço reinicie (false: só regista o pânico) |
 | `trust_forwarded_for` | `false` | true ou false | toma o endereço do cliente de `X-Forwarded-For`, só numa ligação a partir de 127.0.0.1 (o proxy local) |
-| `persist_sessions` | `true` | true ou false | guarda as sessões no disco (só o hash de cada token) para que um reinício não termine a sessão de ninguém |
+| `persist_sessions` | `false` | true ou false | guarda as sessões no disco (só o hash de cada token) para que um reinício não termine a sessão de ninguém |
 | `token_default_days` | 0 | de 0 a 3650 | dias de validade de um token de programa quando não se indica nenhum (0: não expira) |
 | `events_ping_s` | 30 | de 1 a 3600 | segundos entre os pings do websocket de eventos |
 | `events_idle_s` | 90 | de 2 a 86400 | segundos sem qualquer sinal (um pong conta) antes de fechar esse websocket |

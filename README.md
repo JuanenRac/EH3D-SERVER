@@ -141,7 +141,7 @@ How the parts of this repository fit together: who uses it, what it holds and wh
 | `keep_jobs` | 200 | 10 to 100,000 | how many finished jobs the list keeps |
 | `exit_on_panic` | `true` | true or false | when a thread panics: stop the machines and exit so that the service restarts it (false: only write the panic) |
 | `trust_forwarded_for` | `false` | true or false | take the client's address from `X-Forwarded-For`, only on a connection from 127.0.0.1 (the local proxy) |
-| `persist_sessions` | `true` | true or false | keep the logins on the disk (only the hash of each token) so a restart logs nobody out |
+| `persist_sessions` | `false` | true or false | keep the logins on the disk (only the hash of each token) so a restart logs nobody out |
 | `token_default_days` | 0 | 0 to 3650 | days a token of a program lasts when none is given (0: it does not expire) |
 | `events_ping_s` | 30 | 1 to 3600 | seconds between the pings of the websocket of the events |
 | `events_idle_s` | 90 | 2 to 86400 | seconds without any sign of life (a pong counts) before that websocket is closed |

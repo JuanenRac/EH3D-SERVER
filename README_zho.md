@@ -141,7 +141,7 @@ EH3D-SERVER 是 EH3D 家族的中心：程序把作业发给它，它通过节�
 | `keep_jobs` | 200 | 10 到 100,000 | 列表保留多少已完成的作业 |
 | `exit_on_panic` | `true` | true 或 false | 线程发生 panic 时：停止机床并退出，由服务重启（false：只记录 panic） |
 | `trust_forwarded_for` | `false` | true 或 false | 仅在来自 127.0.0.1（本地代理）的连接上，从 `X-Forwarded-For` 取客户端地址 |
-| `persist_sessions` | `true` | true 或 false | 把登录保存在磁盘上（只存每个令牌的哈希），重启后无人被登出 |
+| `persist_sessions` | `false` | true 或 false | 把登录保存在磁盘上（只存每个令牌的哈希），重启后无人被登出 |
 | `token_default_days` | 0 | 0 到 3650 | 未指定时程序令牌的有效天数（0：不过期） |
 | `events_ping_s` | 30 | 1 到 3600 | 事件 websocket 两次 ping 之间的秒数 |
 | `events_idle_s` | 90 | 2 到 86400 | 该 websocket 在多少秒无任何响应（pong 也算）后被关闭 |

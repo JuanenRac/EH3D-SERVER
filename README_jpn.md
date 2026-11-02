@@ -141,7 +141,7 @@ EH3D-SERVER は EH3D ファミリーの中心です。プログラムはジョ�
 | `keep_jobs` | 200 | 10 〜 100,000 | 一覧に残す終了済みジョブの数 |
 | `exit_on_panic` | `true` | true または false | スレッドがパニックしたとき：マシンを停止して終了し、サービスが再起動します（false：パニックを記録するだけ） |
 | `trust_forwarded_for` | `false` | true または false | 127.0.0.1（ローカルのプロキシ）からの接続に限り、`X-Forwarded-For` からクライアントのアドレスを取得します |
-| `persist_sessions` | `true` | true または false | ログインをディスクに保存し（各トークンのハッシュのみ）、再起動しても誰もログアウトされません |
+| `persist_sessions` | `false` | true または false | ログインをディスクに保存し（各トークンのハッシュのみ）、再起動しても誰もログアウトされません |
 | `token_default_days` | 0 | 0 〜 3650 | 指定がないときのプログラム用トークンの有効日数（0：期限なし） |
 | `events_ping_s` | 30 | 1 〜 3600 | イベント用 websocket の ping の間隔（秒） |
 | `events_idle_s` | 90 | 2 〜 86400 | 無応答（pong も含む）でその websocket を閉じるまでの秒数 |

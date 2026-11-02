@@ -36,8 +36,8 @@ grbl_jog_timeout_s = 60
 exit_on_panic = true
 # Take the address of a client from the X-Forwarded-For header, but only on a connection that comes from 127.0.0.1 (the reverse proxy of docs/DEPLOY.md on this very computer); the address the proxy put last is used. Off by default: the address of the socket is the one that counts, and a client that reaches the server directly cannot choose it by writing the header. With it on behind the proxy, login_ip_limit counts each person's own address instead of the proxy's.
 trust_forwarded_for = false
-# Keep the logins in the data folder (sessions.json, only the SHA-256 of each token) so that a restart of the server (an update, a power cut) does not log anybody out. Off: every restart logs everybody out and the file is removed.
-persist_sessions = true
+# Keep the logins in the data folder (sessions.json, only the SHA-256 of each token) so that a restart of the server (an update, a power cut) does not log anybody out. Off by default: every restart logs everybody out and the file is removed.
+persist_sessions = false
 # How many days a token of a program lasts when the request that makes it gives no number (0 to 3650; 0: it does not expire). A request can always give its own number of days.
 token_default_days = 0
 # The websocket of the events sends a ping every events_ping_s seconds (1 to 3600) and is closed when nothing at all, not even the answer to a ping, has come for events_idle_s seconds (longer than events_ping_s).
