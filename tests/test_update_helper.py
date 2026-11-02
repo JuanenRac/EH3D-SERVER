@@ -347,6 +347,27 @@ class UpdateHelper(unittest.TestCase):
         self.assertEqual(self.run.calls, [["systemctl", "restart", "eh3d-server"]])
         self.assertEqual([st["id"] for st in self.folder.read("status.json")["steps"]], ["server.restore", "server.restart"])
 
+    def test_the_helper_of_the_release_takes_the_place_of_this_one_only_when_it_parses_and_differs(self):
+        tree = self.root / "tree"
+        (tree / "deploy").mkdir(parents=True)
+        own = self.root / "installed-helper.py"
+        own.write_text("print('old')\n", encoding="utf-8")
+        comp = {"helper": "deploy/eh3d-update.py"}
+        # a component that does not carry the file, or that does not name it, changes nothing
+        self.assertFalse(H.refresh_helper(self.folder, "server", comp, tree, own))
+        self.assertFalse(H.refresh_helper(self.folder, "studio", {}, tree, own))
+        # a copy that does not parse is left aside and said
+        (tree / "deploy" / "eh3d-update.py").write_text("def broken(:\n", encoding="utf-8")
+        self.assertFalse(H.refresh_helper(self.folder, "server", comp, tree, own))
+        self.assertEqual(own.read_text(encoding="utf-8"), "print('old')\n")
+        self.assertTrue(any("left aside" in line for line in self.folder.read("status.json")["log"]))
+        # a good one replaces it, and the same one again is nothing to do
+        (tree / "deploy" / "eh3d-update.py").write_text("print('new')\n", encoding="utf-8")
+        self.assertTrue(H.refresh_helper(self.folder, "server", comp, tree, own))
+        self.assertEqual(own.read_text(encoding="utf-8"), "print('new')\n")
+        self.assertFalse(H.refresh_helper(self.folder, "server", comp, tree, own))
+        self.assertFalse((self.root / "installed-helper.py.new").exists())
+
     def test_the_history_is_emptied_on_request_and_that_request_is_not_kept_in_it(self):
         self.ask({"action": "check"})
         self.ask({"action": "check"})

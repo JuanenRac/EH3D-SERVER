@@ -46,6 +46,8 @@ SIGNATURE_IDENTITY = "eh3d-release"
 SIGNERS = DEFAULT_SIGNERS if os.path.exists(DEFAULT_SIGNERS) else None
 #: The file the helper leaves in what it installs, so that the version left behind by the next update can be told.
 VERSION_MARK = ".eh3d-version"
+#: This script: the release of the server carries a newer copy of it (`deploy/eh3d-update.py`), which takes its place when the server is installed.
+HELPER_PATH = Path(__file__).resolve()
 DEFAULT_CONFIG = {
     "server": {
         "repo": "EH3D-SERVER",
@@ -54,6 +56,8 @@ DEFAULT_CONFIG = {
         "install_dir": "/opt/eh3d-server",
         "program": "eh3d-server",
         "restart": ["systemctl", "restart", "eh3d-server"],
+        # the file of the release that replaces this script, so that what the pages show (steps, notes, undo) does not wait for somebody to copy it by hand
+        "helper": "deploy/eh3d-update.py",
     },
     "studio": {
         "repo": "EH3D-STUDIO",
@@ -190,6 +194,35 @@ def verify_signature(archive: Path, signature: bytes, signers: str, run=subproce
     return done.returncode == 0
 
 
+def refresh_helper(folder: Folder, comp_id: str, comp: dict, tree: Path, own: Path = None) -> bool:
+    """Puts the copy of this script that comes in the release in its place (written beside it and moved, never half written). Only a file that parses is taken; the next
+    request is answered by it. True when the script was replaced."""
+    rel = comp.get("helper")
+    if not rel:
+        return False
+    own = own or HELPER_PATH
+    new = tree / rel
+    if not new.is_file():
+        return False
+    data = new.read_bytes()
+    try:
+        if own.read_bytes() == data:
+            return False
+    except OSError:
+        pass
+    try:
+        compile(data, str(new), "exec")
+    except SyntaxError as e:
+        folder.say("updating", f"{comp_id}: the update helper in this release was left aside ({e.msg}, line {e.lineno})")
+        return False
+    tmp = own.with_name(own.name + ".new")
+    tmp.write_bytes(data)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, own)
+    folder.say("updating", f"{comp_id}: the update helper was replaced by the one of this release")
+    return True
+
+
 def install(folder: Folder, comp_id: str, comp: dict, release: dict, get=http_get, run=subprocess.run) -> None:
     version = release["latest"]
     name = comp["asset"].format(version=version, arch=arch())
@@ -238,6 +271,7 @@ def install(folder: Folder, comp_id: str, comp: dict, release: dict, get=http_ge
         if comp.get("program"):
             os.chmod(new / comp["program"], 0o755)
         (new / VERSION_MARK).write_text(version + chr(10), encoding="utf-8")
+        refresh_helper(folder, comp_id, comp, new)
         old = target.parent / (target.name + ".previous")
         if old.exists():
             shutil.rmtree(old)
