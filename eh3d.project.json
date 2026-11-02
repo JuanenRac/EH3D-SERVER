@@ -12,7 +12,7 @@
     "WebSocket"
   ],
   "deployment_target": "cm5",
-  "maturity": "scaffolding",
+  "maturity": "functional",
   "evidence": "host-test",
   "family": "CNC Workflow Tools",
   "parent": null,

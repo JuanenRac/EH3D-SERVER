@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/Stack-Rust-DEA584.svg" alt="Rust">
   <img src="https://img.shields.io/badge/Languages-8-00E5FF.svg" alt="Languages">
   <img src="https://img.shields.io/badge/Version-0.1.0-0f6cbd.svg" alt="Version">
-  <img src="https://img.shields.io/badge/Maturity-scaffolding-FFB020.svg" alt="Maturity">
+  <img src="https://img.shields.io/badge/Maturity-functional-4CAF50.svg" alt="Maturity">
 </p>
 
 ---
@@ -29,7 +29,7 @@
 | | |
 |---|---|
 | バージョン | `0.1.0` |
-| 成熟度 | 足場 |
+| 成熟度 | 機能する |
 | テスト | 133 |
 | 技術スタック | Rust (axum, tokio) |
 | 実機での動作 | いいえ：シミュレーターでテスト済み。サーバー経由で実機を動かしたことはまだありません |
