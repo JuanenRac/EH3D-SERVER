@@ -1,0 +1,62 @@
+{
+  "components": [
+    {
+      "can_undo": false,
+      "id": "server",
+      "installed": "0.0.0",
+      "latest": "9.9.9",
+      "name": "EH3D-SERVER",
+      "newer": true,
+      "notes": "- A change\n- Another change",
+      "previous": null,
+      "published": "2000-01-01T00:00:00Z",
+      "url": "https://example.org/server"
+    },
+    {
+      "can_undo": true,
+      "id": "studio",
+      "installed": null,
+      "latest": "9.9.9",
+      "name": "EH3D-STUDIO",
+      "newer": true,
+      "notes": "",
+      "previous": "9.9.8",
+      "published": "2000-01-01T00:00:00Z",
+      "url": "https://example.org/studio"
+    }
+  ],
+  "enabled": true,
+  "history": [
+    {
+      "id": "946684800",
+      "kind": "apply",
+      "label": "studio",
+      "started": 946684800,
+      "state": "done"
+    }
+  ],
+  "log": [
+    "studio: installed 9.9.9"
+  ],
+  "message": "updated: studio",
+  "pending": false,
+  "percent": 100,
+  "state": "done",
+  "steps": [
+    {
+      "id": "studio.download",
+      "percent": 100,
+      "state": "done"
+    },
+    {
+      "id": "studio.verify",
+      "percent": 100,
+      "state": "done"
+    },
+    {
+      "id": "studio.install",
+      "percent": 100,
+      "state": "done"
+    }
+  ]
+}

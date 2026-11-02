@@ -1,0 +1,22 @@
+[
+  {
+    "by": "juan",
+    "created": 946684800,
+    "estimate_s": 28.8,
+    "finished": null,
+    "holes_done": 0,
+    "holes_total": 3,
+    "id": "j-0000000000000000",
+    "items_done": 0,
+    "items_total": 34,
+    "kind": "drill",
+    "line": 0,
+    "machine": "bungard",
+    "message": "",
+    "name": "board",
+    "pause": null,
+    "resumed_from": "",
+    "started": null,
+    "state": "ready"
+  }
+]

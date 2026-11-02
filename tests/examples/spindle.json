@@ -1,0 +1,31 @@
+{
+  "active": {
+    "max_bit_mm": 6.0,
+    "max_rpm": 24000,
+    "max_xy_mm_min": 900,
+    "max_z_mm_min": 1200,
+    "min_rpm": 6000,
+    "power_w": 2200
+  },
+  "guard": "reject",
+  "limits": {
+    "original": {
+      "max_bit_mm": 3.2,
+      "max_rpm": 63000,
+      "max_xy_mm_min": 3000,
+      "max_z_mm_min": 4000,
+      "min_rpm": 5000,
+      "power_w": 150
+    },
+    "vfd": {
+      "max_bit_mm": 6.0,
+      "max_rpm": 24000,
+      "max_xy_mm_min": 900,
+      "max_z_mm_min": 1200,
+      "min_rpm": 6000,
+      "power_w": 2200
+    }
+  },
+  "node_max_rpm": 24000,
+  "spindle": "vfd"
+}

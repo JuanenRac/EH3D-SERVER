@@ -1,0 +1,40 @@
+{
+  "machines": [
+    {
+      "connection": "demo",
+      "id": "bungard",
+      "job": null,
+      "model": "ccd-mtc",
+      "name": "Bungard CCD",
+      "ready": 1,
+      "state": "idle",
+      "station": "bench"
+    },
+    {
+      "connection": "demo",
+      "id": "spare",
+      "job": null,
+      "model": "ccd-mtc",
+      "name": "Spare",
+      "ready": 0,
+      "state": "idle",
+      "station": "bench"
+    }
+  ],
+  "stations": [
+    {
+      "id": "bench",
+      "machines": [
+        "bungard",
+        "spare"
+      ]
+    }
+  ],
+  "summary": {
+    "busy": 0,
+    "idle": 2,
+    "machines": 2,
+    "stations": 1,
+    "waiting": 0
+  }
+}
