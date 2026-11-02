@@ -1,0 +1,17 @@
+[Unit]
+Description=Backup of the data folder of the EH3D server
+Documentation=https://github.com/JuanenRac/EH3D-SERVER
+
+[Service]
+Type=oneshot
+User=eh3d
+# settings (where the data is, where the copies go, how many to keep): /etc/eh3d-server/backup.cfg, see deploy/backup.cfg.example
+ExecStart=/usr/bin/python3 /usr/local/lib/eh3d/eh3d-backup.py --config /etc/eh3d-server/backup.cfg
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+# the data is only read; the copies go to the folder of the backups
+ReadOnlyPaths=/var/lib/eh3d-server
+ReadWritePaths=/var/backups/eh3d-server

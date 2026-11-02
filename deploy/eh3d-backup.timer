@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily backup of the data folder of the EH3D server
+
+[Timer]
+# every night; a machine that was off at that time makes it when it starts
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=15min
+Unit=eh3d-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,10 @@
+# Settings of the backup of the data folder (deploy/eh3d-backup.py). Copy to /etc/eh3d-server/backup.cfg. Every key is optional; an unknown key is an error.
+#
+# The data folder of the server (the data_dir of server.cfg).
+source = /var/lib/eh3d-server
+# Where the copies go, one .tar.gz for each run. The folder must exist and be writable by the user the backup runs as.
+dest = /var/backups/eh3d-server
+# How many copies are kept: after a run the oldest ones beyond this number are removed (1 to 3650).
+keep = 14
+# Every file the server writes is replaced whole, so a copy never holds a half-written file; two files can still come from two different moments, so the copy of a quiet server
+# (no job running; the nightly hour is chosen for that) is the one to trust.
