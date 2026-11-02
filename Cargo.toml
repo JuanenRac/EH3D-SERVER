@@ -40,6 +40,8 @@ eh3d-controller = { version = ">=0.0.1", path = "../EH3D-COMMON/crates/controlle
 # the test of the programs reads the fleet the way a program does
 eh3d-fleet = { version = ">=0.0.1", path = "../EH3D-COMMON/crates/fleet" }
 tower = { version = "0.4", features = ["util"] }
+# the test of the websocket speaks to the server on a real socket
+tokio = { version = "1", features = ["io-util"] }
 http-body-util = "0.1"
 # the test draws a board and sends it as the camera of the node would
 jpeg-encoder = "0.6"

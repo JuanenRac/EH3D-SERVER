@@ -84,7 +84,9 @@ impl From<AuthError> for ApiError {
     fn from(e: AuthError) -> Self {
         let status = match e {
             AuthError::BadSetup => StatusCode::FORBIDDEN,
-            AuthError::BadName | AuthError::WeakPassword => StatusCode::UNPROCESSABLE_ENTITY,
+            AuthError::BadName | AuthError::WeakPassword | AuthError::BadDays => {
+                StatusCode::UNPROCESSABLE_ENTITY
+            }
             AuthError::BadCredentials => StatusCode::UNAUTHORIZED,
             AuthError::Throttled => StatusCode::TOO_MANY_REQUESTS,
             AuthError::UnknownUser | AuthError::UnknownToken => StatusCode::NOT_FOUND,
@@ -115,6 +117,53 @@ fn forbidden() -> ApiError {
         "forbidden",
         "this needs a higher role",
     )
+}
+
+/// The address a request counts as coming from, for the limit of wrong passwords and for the audit: the address of the connection, and nothing else. Only when the
+/// settings say `trust_forwarded_for`, and only on a connection that comes from 127.0.0.1 (the reverse proxy on this very computer), the address the proxy put at the end of
+/// `X-Forwarded-For` is the one that counts: a client that reaches the server directly cannot choose its address by writing the header.
+pub fn client_ip(
+    s: &Shared,
+    peer: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>,
+    headers: &axum::http::HeaderMap,
+) -> Option<std::net::IpAddr> {
+    let forwarded = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok());
+    forwarded_ip(
+        s.cfg.trust_forwarded_for,
+        peer.map(|axum::extract::ConnectInfo(a)| a.ip()),
+        forwarded,
+    )
+}
+
+/// The decision of [`client_ip`], on plain values.
+pub fn forwarded_ip(
+    trust: bool,
+    peer: Option<std::net::IpAddr>,
+    forwarded: Option<&str>,
+) -> Option<std::net::IpAddr> {
+    let peer = peer?;
+    let from_the_proxy = match peer {
+        std::net::IpAddr::V4(a) => a == std::net::Ipv4Addr::LOCALHOST,
+        std::net::IpAddr::V6(a) => a.to_ipv4_mapped() == Some(std::net::Ipv4Addr::LOCALHOST),
+    };
+    if !(trust && from_the_proxy) {
+        return Some(peer);
+    }
+    // the proxy adds the address it saw at the end of the list; what is before it was written by the client
+    let last = forwarded.and_then(|h| h.rsplit(',').next()).map(str::trim);
+    let parsed = last.and_then(|v| {
+        v.parse::<std::net::IpAddr>()
+            .ok()
+            .or_else(|| v.parse::<std::net::SocketAddr>().ok().map(|a| a.ip()))
+    });
+    Some(parsed.unwrap_or(peer))
+}
+
+/// Tells the audit that `who` did something (and, in `more`, to what).
+fn note(s: &Shared, event: &str, who: &Identity, more: &[(&str, &str)]) {
+    let mut fields: Vec<(&str, &str)> = vec![("who", who.name.as_str()), ("role", who.role.name())];
+    fields.extend_from_slice(more);
+    s.audit.event(event, &fields);
 }
 
 fn need(who: &Identity, role: Role) -> Result<(), ApiError> {
@@ -309,6 +358,9 @@ async fn health(State(s): State<Shared>, headers: axum::http::HeaderMap) -> Json
             "updates": s.updates.is_some(),
             "url_token": s.cfg.url_token,
             "local_until_setup": s.cfg.local_until_setup,
+            "trust_forwarded_for": s.cfg.trust_forwarded_for,
+            "exit_on_panic": s.cfg.exit_on_panic,
+            "persist_sessions": s.cfg.persist_sessions,
         });
     }
     Json(answer)
@@ -325,11 +377,32 @@ struct SetupBody {
     password: String,
 }
 
-async fn setup(State(s): State<Shared>, ApiJson(b): ApiJson<SetupBody>) -> ApiResult {
+async fn setup(
+    State(s): State<Shared>,
+    peer: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>,
+    headers: axum::http::HeaderMap,
+    ApiJson(b): ApiJson<SetupBody>,
+) -> ApiResult {
+    let ip = client_ip(&s, peer, &headers)
+        .map(|a| a.to_string())
+        .unwrap_or_default();
+    let name = b.name.clone();
+    let audit = s.clone();
     // hashing a password takes a moment of work: not on the thread that serves the others
-    tokio::task::spawn_blocking(move || s.auth.locked().setup(&b.code, &b.name, &b.password))
-        .await
-        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))??;
+    let result =
+        tokio::task::spawn_blocking(move || s.auth.locked().setup(&b.code, &b.name, &b.password))
+            .await
+            .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))?;
+    match result {
+        Ok(()) => audit
+            .audit
+            .event("setup", &[("who", &name), ("role", "admin"), ("ip", &ip)]),
+        Err(e) => audit.audit.event(
+            "setup_failed",
+            &[("who", &name), ("ip", &ip), ("code", e.code())],
+        ),
+    }
+    result?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -342,23 +415,38 @@ struct LoginBody {
 async fn login(
     State(s): State<Shared>,
     peer: Option<axum::extract::ConnectInfo<std::net::SocketAddr>>,
+    headers: axum::http::HeaderMap,
     ApiJson(b): ApiJson<LoginBody>,
 ) -> ApiResult {
-    // the address of the socket: a header could be written by the one who is guessing
-    let ip = peer.map(|axum::extract::ConnectInfo(a)| a.ip());
+    // the address of the socket: a header could be written by the one who is guessing (see `client_ip`)
+    let ip = client_ip(&s, peer, &headers);
+    let shown_ip = ip.map(|a| a.to_string()).unwrap_or_default();
     let name = b.name.clone();
-    let (token, role, expires) = tokio::task::spawn_blocking(move || {
+    let audit = s.clone();
+    let result = tokio::task::spawn_blocking(move || {
         s.auth.locked().login_from(&b.name, &b.password, now(), ip)
     })
     .await
-    .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))??;
+    .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))?;
+    match &result {
+        Ok((_, role, _)) => audit.audit.event(
+            "login",
+            &[("who", &name), ("role", role.name()), ("ip", &shown_ip)],
+        ),
+        Err(e) => audit.audit.event(
+            "login_failed",
+            &[("who", &name), ("ip", &shown_ip), ("code", e.code())],
+        ),
+    }
+    let (token, role, expires) = result?;
     Ok(Json(
         json!({ "token": token, "name": name, "role": role, "expires_s": expires }),
     ))
 }
 
-async fn logout(State(s): State<Shared>, Authed(_, token): Authed) -> ApiResult {
+async fn logout(State(s): State<Shared>, Authed(who, token): Authed) -> ApiResult {
     s.auth.locked().logout(&token);
+    note(&s, "logout", &who, &[]);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -382,9 +470,23 @@ async fn change_password(
     if who.is_token {
         return Err(forbidden());
     }
-    tokio::task::spawn_blocking(move || s.auth.locked().change_password(&who.name, &b.old, &b.new))
-        .await
-        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))??;
+    let audit = s.clone();
+    let name = who.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        s.auth.locked().change_password(&who.name, &b.old, &b.new)
+    })
+    .await
+    .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))?;
+    match &result {
+        Ok(()) => note(&audit, "password_changed", &name, &[]),
+        Err(e) => note(
+            &audit,
+            "password_change_failed",
+            &name,
+            &[("code", e.code())],
+        ),
+    }
+    result?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -418,6 +520,7 @@ async fn updates_check(State(s): State<Shared>, Authed(who, _): Authed) -> ApiRe
     updates_of(&s)?
         .request("check", &[])
         .map_err(updates_fail)?;
+    note(&s, "update_check", &who, &[]);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -448,6 +551,12 @@ async fn updates_apply(
     updates_of(&s)?
         .request("apply", &b.components)
         .map_err(updates_fail)?;
+    note(
+        &s,
+        "update_apply",
+        &who,
+        &[("components", &b.components.join(","))],
+    );
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -462,6 +571,12 @@ async fn updates_undo(
     updates_of(&s)?
         .request("undo", &b.components)
         .map_err(updates_fail)?;
+    note(
+        &s,
+        "update_undo",
+        &who,
+        &[("components", &b.components.join(","))],
+    );
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -471,6 +586,7 @@ async fn updates_clear_history(State(s): State<Shared>, Authed(who, _): Authed) 
     updates_of(&s)?
         .request("clear_history", &[])
         .map_err(updates_fail)?;
+    note(&s, "update_clear_history", &who, &[]);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -499,9 +615,17 @@ async fn add_user(
     ApiJson(b): ApiJson<NewUser>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
+    let audit = s.clone();
+    let (name, role) = (b.name.clone(), b.role);
     tokio::task::spawn_blocking(move || s.auth.locked().add_user(&b.name, b.role, &b.password))
         .await
         .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))??;
+    note(
+        &audit,
+        "user_add",
+        &who,
+        &[("user", &name), ("user_role", role.name())],
+    );
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -519,6 +643,18 @@ async fn update_user(
     ApiJson(b): ApiJson<UserChange>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
+    let audit = s.clone();
+    let shown = name.clone();
+    let what = format!(
+        "{}{}{}",
+        if b.role.is_some() { "role " } else { "" },
+        if b.password.is_some() {
+            "password "
+        } else {
+            ""
+        },
+        if b.disabled.is_some() { "disabled" } else { "" }
+    );
     tokio::task::spawn_blocking(move || {
         s.auth
             .locked()
@@ -526,6 +662,12 @@ async fn update_user(
     })
     .await
     .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))??;
+    note(
+        &audit,
+        "user_update",
+        &who,
+        &[("user", &shown), ("changed", what.trim())],
+    );
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -536,6 +678,7 @@ async fn delete_user(
 ) -> ApiResult {
     need(&who, Role::Admin)?;
     s.auth.locked().delete_user(&name)?;
+    note(&s, "user_delete", &who, &[("user", &name)]);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -546,7 +689,12 @@ async fn list_tokens(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResu
         .locked()
         .tokens()
         .iter()
-        .map(|t| json!({ "id": t.id, "name": t.name, "role": t.role, "created": t.created }))
+        .map(|t| {
+            json!({
+                "id": t.id, "name": t.name, "role": t.role, "created": t.created,
+                "last_used": t.last_used, "expires": t.expires,
+            })
+        })
         .collect();
     Ok(Json(Value::Array(tokens)))
 }
@@ -555,6 +703,8 @@ async fn list_tokens(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResu
 struct NewToken {
     name: String,
     role: Role,
+    /// How many days the token lasts (1 to 3650); left out, the server's `token_default_days` (0: it does not expire).
+    days: Option<u32>,
 }
 
 async fn add_token(
@@ -563,7 +713,19 @@ async fn add_token(
     ApiJson(b): ApiJson<NewToken>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
-    let (id, secret) = s.auth.locked().create_token(&b.name, b.role, now())?;
+    let days = b.days.or(Some(s.cfg.token_default_days).filter(|d| *d > 0));
+    let (id, secret) = s.auth.locked().create_token(&b.name, b.role, now(), days)?;
+    note(
+        &s,
+        "token_add",
+        &who,
+        &[
+            ("token", &id),
+            ("name", &b.name),
+            ("token_role", b.role.name()),
+            ("days", &days.map(|d| d.to_string()).unwrap_or_default()),
+        ],
+    );
     // the secret is shown this once
     Ok(Json(json!({ "id": id, "token": secret })))
 }
@@ -575,6 +737,7 @@ async fn delete_token(
 ) -> ApiResult {
     need(&who, Role::Admin)?;
     s.auth.locked().delete_token(&id)?;
+    note(&s, "token_delete", &who, &[("token", &id)]);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -660,6 +823,12 @@ async fn add_machine(
     need(&who, Role::Admin)?;
     let shown = record.public();
     s.machines.locked().add(record)?;
+    note(
+        &s,
+        "machine_add",
+        &who,
+        &[("machine", shown["id"].as_str().unwrap_or(""))],
+    );
     s.publish(json!({ "type": "machine", "id": shown["id"] }));
     Ok(Json(shown))
 }
@@ -720,6 +889,12 @@ async fn put_machine(
     }
     let shown = record.public();
     s.machines.locked().replace(record)?;
+    note(
+        &s,
+        "machine_update",
+        &who,
+        &[("machine", shown["id"].as_str().unwrap_or(""))],
+    );
     s.publish(json!({ "type": "machine", "id": shown["id"] }));
     Ok(Json(shown))
 }
@@ -778,6 +953,7 @@ async fn spindle_put(
                 "the spindle must be original or vfd, the switch reject or warn, and the limits numbers that can be used (the slowest not above the fastest)",
             )
         })?;
+    note(&s, "spindle_update", &who, &[("machine", &id)]);
     s.publish(json!({ "type": "machine", "id": id }));
     Ok(Json(record.spindle_view()))
 }
@@ -796,6 +972,7 @@ async fn delete_machine(
         ));
     }
     s.machines.locked().remove(&id)?;
+    note(&s, "machine_delete", &who, &[("machine", &id)]);
     s.publish(json!({ "type": "machine", "id": id }));
     Ok(Json(json!({ "ok": true })))
 }
@@ -851,9 +1028,17 @@ async fn create_job(
 ) -> ApiResult {
     need(&who, Role::Operator)?;
     let machine = machine_of(&s, &id)?;
-    Ok(Json(
-        make_job(&s, &who.name, machine, body, String::new()).await?,
-    ))
+    let shown = make_job(&s, &who.name, machine, body, String::new()).await?;
+    note(
+        &s,
+        "job_create",
+        &who,
+        &[
+            ("job", shown["id"].as_str().unwrap_or("")),
+            ("machine", &id),
+        ],
+    );
+    Ok(Json(shown))
 }
 
 /// Plans a job request for a machine and puts it in the book as ready (it never starts by itself); `resumed_from` is the job it goes on from, if any.
@@ -884,6 +1069,8 @@ async fn make_job(
         started: None,
         finished: None,
         by: by.to_string(),
+        started_by: String::new(),
+        stopped_by: String::new(),
         items_total: view.items,
         items_done: 0,
         holes_total: match view.kind.as_str() {
@@ -1059,7 +1246,16 @@ async fn resume_from(
     if let Some(n) = b.name {
         object.insert("name".into(), json!(n));
     }
-    let shown = make_job(&s, &who.name, machine, request, job.id).await?;
+    let shown = make_job(&s, &who.name, machine, request, job.id.clone()).await?;
+    note(
+        &s,
+        "job_create",
+        &who,
+        &[
+            ("job", shown["id"].as_str().unwrap_or("")),
+            ("resumed_from", &job.id),
+        ],
+    );
     Ok(Json(shown))
 }
 
@@ -1113,11 +1309,13 @@ async fn start_job(
 ) -> ApiResult {
     need(&who, Role::Operator)?;
     let state = s.clone();
-    let result = tokio::task::spawn_blocking(move || state.start_job(&id).map(|_| id))
+    let by = who.name.clone();
+    let result = tokio::task::spawn_blocking(move || state.start_job(&id, &by).map(|_| id))
         .await
         .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))?;
     match result {
         Ok(id) => {
+            note(&s, "job_start", &who, &[("job", &id)]);
             let jobs = s.jobs.locked();
             Ok(Json(
                 jobs.get(&id).map(JobRecord::summary).unwrap_or(Value::Null),
@@ -1150,6 +1348,7 @@ async fn confirm_job(
 ) -> ApiResult {
     need(&who, Role::Operator)?;
     if s.confirm_job(&id) {
+        note(&s, "job_confirm", &who, &[("job", &id)]);
         Ok(Json(json!({ "ok": true })))
     } else {
         Err(ApiError::new(
@@ -1168,7 +1367,13 @@ async fn stop_machine(
 ) -> ApiResult {
     need(&who, Role::Operator)?;
     machine_of(&s, &id)?;
-    let job = s.stop_machine(&id);
+    let job = s.stop_machine(&id, &who.name);
+    note(
+        &s,
+        "machine_stop",
+        &who,
+        &[("machine", &id), ("job", job.as_deref().unwrap_or(""))],
+    );
     s.publish(json!({ "type": "machine", "id": id }));
     Ok(Json(
         json!({ "ok": true, "stopped": job.is_some(), "job": job }),
@@ -1181,7 +1386,8 @@ async fn cancel_job(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
-    if s.cancel_job(&id) {
+    if s.cancel_job(&id, &who.name) {
+        note(&s, "job_cancel", &who, &[("job", &id)]);
         Ok(Json(json!({ "ok": true })))
     } else {
         Err(ApiError::new(
@@ -1216,6 +1422,7 @@ async fn pause_job(
 ) -> ApiResult {
     need(&who, Role::Operator)?;
     s.pause_job(&id).map_err(pause_error)?;
+    note(&s, "job_pause", &who, &[("job", &id)]);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -1227,6 +1434,7 @@ async fn resume_job(
 ) -> ApiResult {
     need(&who, Role::Operator)?;
     s.resume_job(&id).map_err(pause_error)?;
+    note(&s, "job_resume", &who, &[("job", &id)]);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -1252,6 +1460,7 @@ async fn delete_job(
         // checked and removed under the same guard: a start cannot slip in between
         jobs.remove(&id);
     }
+    note(&s, "job_delete", &who, &[("job", &id)]);
     s.publish(json!({ "type": "job_removed", "id": id }));
     Ok(Json(json!({ "ok": true })))
 }
@@ -1698,6 +1907,7 @@ fn identify_open(
 
 /// A websocket that sends every change as a JSON text: `{"type":"job","job":{...}}` for a job, `{"type":"job_removed","id":...}` and
 /// `{"type":"machine","id":...}`. The token goes in the address (`?token=`), because a browser cannot set headers on a websocket.
+/// A client that has fallen behind (it did not read as fast as the events came) is told with `{"type":"resync","missed":N}`: it asks for the fleet and the jobs again.
 async fn events(
     State(s): State<Shared>,
     parts: Parts,
@@ -1711,11 +1921,21 @@ async fn events(
 /// How often the websocket asks again whether its session is still good.
 const RECHECK_SECS: u64 = 30;
 
+/// What the websocket sends to a client that missed `missed` events.
+pub fn resync_message(missed: u64) -> String {
+    json!({ "type": "resync", "missed": missed }).to_string()
+}
+
 async fn relay(mut socket: WebSocket, s: Shared, token: String) {
     let mut rx = s.events.subscribe();
     // a session that ends (logout, expiry, a user taken off) ends the flow too
     let mut recheck = tokio::time::interval(std::time::Duration::from_secs(RECHECK_SECS));
     recheck.tick().await;
+    // a ping now and then, and a connection that says nothing at all (not even the pong) for too long is closed: a phone that left the Wi-Fi does not hold a place for ever
+    let idle = std::time::Duration::from_secs(s.cfg.events_idle_s);
+    let mut ping = tokio::time::interval(std::time::Duration::from_secs(s.cfg.events_ping_s));
+    ping.tick().await;
+    let mut heard = std::time::Instant::now();
     let hello = {
         let jobs = s.jobs.locked();
         json!({ "type": "hello", "jobs": jobs.list().iter().map(JobRecord::summary).collect::<Vec<_>>() }).to_string()
@@ -1731,15 +1951,76 @@ async fn relay(mut socket: WebSocket, s: Shared, token: String) {
                     return;
                 }
             },
+            _ = ping.tick() => {
+                if heard.elapsed() >= idle {
+                    return;
+                }
+                if socket.send(Message::Ping(Vec::new())).await.is_err() {
+                    return;
+                }
+            },
             event = rx.recv() => match event {
                 Ok(text) => { if socket.send(Message::Text(text)).await.is_err() { return; } }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
+                    if socket.send(Message::Text(resync_message(missed))).await.is_err() { return; }
+                }
                 Err(_) => return,
             },
             incoming = socket.recv() => match incoming {
                 Some(Ok(Message::Close(_))) | None | Some(Err(_)) => return,
-                _ => {}
+                _ => heard = std::time::Instant::now(),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ip(text: &str) -> std::net::IpAddr {
+        text.parse().unwrap()
+    }
+
+    #[test]
+    fn the_forwarded_header_counts_only_from_the_local_proxy_and_only_when_asked() {
+        let h = Some("6.6.6.6, 203.0.113.9");
+        // off: the socket, always
+        assert_eq!(
+            forwarded_ip(false, Some(ip("127.0.0.1")), h),
+            Some(ip("127.0.0.1"))
+        );
+        // on, from the proxy: the address it added at the end, not what the client wrote before
+        assert_eq!(
+            forwarded_ip(true, Some(ip("127.0.0.1")), h),
+            Some(ip("203.0.113.9"))
+        );
+        assert_eq!(
+            forwarded_ip(true, Some(ip("::ffff:127.0.0.1")), h),
+            Some(ip("203.0.113.9"))
+        );
+        assert_eq!(
+            forwarded_ip(true, Some(ip("127.0.0.1")), Some("203.0.113.9:5555")),
+            Some(ip("203.0.113.9"))
+        );
+        // on, from anybody else (even another address of this computer): the socket, whatever the header says
+        assert_eq!(
+            forwarded_ip(true, Some(ip("10.0.0.7")), h),
+            Some(ip("10.0.0.7"))
+        );
+        assert_eq!(
+            forwarded_ip(true, Some(ip("127.0.0.2")), h),
+            Some(ip("127.0.0.2"))
+        );
+        // no header, or one that does not read: the socket
+        assert_eq!(
+            forwarded_ip(true, Some(ip("127.0.0.1")), None),
+            Some(ip("127.0.0.1"))
+        );
+        assert_eq!(
+            forwarded_ip(true, Some(ip("127.0.0.1")), Some("unknown")),
+            Some(ip("127.0.0.1"))
+        );
+        assert_eq!(forwarded_ip(true, None, h), None);
     }
 }

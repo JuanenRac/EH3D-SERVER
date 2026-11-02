@@ -18,7 +18,7 @@ async fn main() {
                 return;
             }
             "--help" | "-h" => {
-                println!("eh3d-server [--config FILE] [--version]\n\nReads server.cfg (or FILE): listen, data_dir, session_hours, max_body_mb, keep_jobs, studio_dir.\nStops the machines that are running and exits on Ctrl-C or SIGTERM.");
+                println!("eh3d-server [--config FILE] [--version]\n\nReads server.cfg (or FILE): listen, data_dir, session_hours, max_body_mb, keep_jobs, studio_dir and the rest of server.cfg.example.\nStops the machines that are running and exits on Ctrl-C or SIGTERM, and (exit_on_panic) when a thread panics.");
                 return;
             }
             other => {
@@ -44,6 +44,7 @@ async fn main() {
             std::process::exit(1);
         }
     };
+    eh3d_server::panic::install(state.clone());
     if let Some(code) = state.auth.locked().setup_code() {
         println!("SETUP: this server has no user yet. Make the administrator with POST /api/v1/setup and the set-up code {code}");
     }

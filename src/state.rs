@@ -38,6 +38,10 @@ pub struct AppState {
     pub inspections: Mutex<HashMap<String, serde_json::Value>>,
     /// The tickets that open the camera and the websocket without the token in the address.
     pub tickets: Mutex<crate::tickets::Tickets>,
+    /// What happens, as lines of the audit (who did what).
+    pub audit: crate::audit::Audit,
+    /// The line at the start and at the end of every job, for the diagnosis of a failure afterwards.
+    pub job_log: crate::audit::LogFile,
 }
 
 #[derive(Debug, PartialEq)]
@@ -66,9 +70,16 @@ impl AppState {
         std::fs::create_dir_all(&cfg.data_dir)?;
         let mut auth = Auth::open(&cfg.data_dir, cfg.session_hours)?;
         auth.set_ip_limit(cfg.login_ip_limit);
+        auth.set_persist_sessions(cfg.persist_sessions);
         let machines = Machines::open(&cfg.data_dir)?;
         let jobs = JobBook::open(&cfg.data_dir, cfg.keep_jobs)?;
         let (events, _) = broadcast::channel(256);
+        let audit = crate::audit::Audit::new(&cfg.data_dir, cfg.audit_file, cfg.log_max_kb);
+        let job_log = crate::audit::LogFile::new(
+            cfg.data_dir.join("eh3d-jobs.log"),
+            cfg.job_log,
+            cfg.log_max_kb,
+        );
         let updates = cfg.updates_dir.clone().map(|d| {
             crate::updates::Updates::new(d, env!("CARGO_PKG_VERSION"), cfg.studio_dir.clone())
         });
@@ -84,6 +95,8 @@ impl AppState {
             updates,
             inspections: Mutex::new(HashMap::new()),
             tickets: Mutex::new(crate::tickets::Tickets::default()),
+            audit,
+            job_log,
         }))
     }
 
@@ -97,7 +110,7 @@ impl AppState {
     }
 
     /// Starts a ready job on its machine: plans it again with the machine's constants of this moment, opens the link and runs.
-    pub fn start_job(self: &Arc<Self>, id: &str) -> Result<(), StartError> {
+    pub fn start_job(self: &Arc<Self>, id: &str, by: &str) -> Result<(), StartError> {
         let (machine_id, request) = {
             let jobs = self.jobs.locked();
             let job = jobs.get(id).ok_or(StartError::UnknownJob)?;
@@ -120,12 +133,13 @@ impl AppState {
         let planned =
             plan::plan(&machine, &request).map_err(|e| StartError::Plan(e.code, e.detail))?;
         if let Some(program) = planned.gcode {
-            return self.start_gcode(id, &machine, planned.view, program);
+            return self.start_gcode(id, &machine, planned.view, program, by);
         }
         let config = machine.connection_config().map_err(|e| {
             StartError::Plan(e.code(), "the machine's tuning does not parse".into())
         })?;
         let hole_ends = planned.view.hole_ends.clone();
+        let started_line;
         let items_total = planned.items.len();
 
         // the job is marked running before the thread starts, under the same lock that checked the machine was free
@@ -147,9 +161,13 @@ impl AppState {
             job.view = planned.view.clone();
             job.message.clear();
             job.pause = None;
+            job.started_by = by.to_string();
+            job.stopped_by.clear();
+            started_line = start_line(job, &machine);
             self.publish_job(job);
             jobs.changed();
         }
+        self.job_log.append(&started_line);
         let run = Arc::new(RealRun::start(config, planned.items));
         self.runs.locked().insert(id.to_string(), run.clone());
         let state = Arc::clone(self);
@@ -165,7 +183,9 @@ impl AppState {
         machine: &crate::machines::MachineRecord,
         view: crate::plan::JobView,
         program: crate::gcode::Program,
+        by: &str,
     ) -> Result<(), StartError> {
+        let started_line;
         {
             let mut jobs = self.jobs.locked();
             if jobs.active_on(&machine.id).is_some() {
@@ -185,9 +205,13 @@ impl AppState {
             job.view = view;
             job.message.clear();
             job.pause = None;
+            job.started_by = by.to_string();
+            job.stopped_by.clear();
+            started_line = start_line(job, machine);
             self.publish_job(job);
             jobs.changed();
         }
+        self.job_log.append(&started_line);
         let run = GcodeRun::start(
             machine.connection.clone(),
             program.entries,
@@ -232,6 +256,7 @@ impl AppState {
             let line = run.line();
             let now_view = (state, items_done, line, pause.clone(), message.clone());
             if last.as_ref() != Some(&now_view) {
+                let mut ended = None;
                 let mut jobs = self.jobs.locked();
                 if let Some(job) = jobs.get_mut(id) {
                     job.state = state;
@@ -241,6 +266,7 @@ impl AppState {
                     job.message = message;
                     if state.finished() {
                         job.finished = Some(now());
+                        ended = Some((end_line(job), job.stopped_by.clone()));
                     }
                     self.publish_job(job);
                     if state != JobState::Running
@@ -248,6 +274,18 @@ impl AppState {
                     {
                         jobs.changed();
                     }
+                }
+                drop(jobs);
+                if let Some((text, stopped_by)) = ended {
+                    self.job_log.append(&text);
+                    self.audit.event(
+                        "job_end",
+                        &[
+                            ("job", id),
+                            ("result", &state_name(state)),
+                            ("stopped_by", &stopped_by),
+                        ],
+                    );
                 }
                 last = Some(now_view);
             }
@@ -337,6 +375,7 @@ impl AppState {
                 message.clone(),
             );
             if last.as_ref() != Some(&now_view) {
+                let mut ended = None;
                 let mut jobs = self.jobs.locked();
                 if let Some(job) = jobs.get_mut(id) {
                     job.state = state;
@@ -350,6 +389,7 @@ impl AppState {
                     job.message = message;
                     if state.finished() {
                         job.finished = Some(now());
+                        ended = Some((end_line(job), job.stopped_by.clone()));
                     }
                     self.publish_job(job);
                     // the book is written when something that matters changes, not at every hole
@@ -358,6 +398,18 @@ impl AppState {
                     {
                         jobs.changed();
                     }
+                }
+                drop(jobs);
+                if let Some((text, stopped_by)) = ended {
+                    self.job_log.append(&text);
+                    self.audit.event(
+                        "job_end",
+                        &[
+                            ("job", id),
+                            ("result", &state_name(state)),
+                            ("stopped_by", &stopped_by),
+                        ],
+                    );
                 }
                 last = Some(now_view);
             }
@@ -386,7 +438,14 @@ impl AppState {
     }
 
     /// Stops a running job (the machine stops with the drivers off); a job that is only ready is cancelled where it stands.
-    pub fn cancel_job(&self, id: &str) -> bool {
+    pub fn cancel_job(&self, id: &str, by: &str) -> bool {
+        let running =
+            self.gcode_runs.locked().contains_key(id) || self.runs.locked().contains_key(id);
+        if running {
+            if let Some(job) = self.jobs.locked().get_mut(id) {
+                job.stopped_by = by.to_string();
+            }
+        }
         if let Some(run) = self.gcode_runs.locked().get(id) {
             run.cancel();
             return true;
@@ -399,6 +458,7 @@ impl AppState {
         match jobs.get_mut(id) {
             Some(job) if job.state == JobState::Ready => {
                 job.state = JobState::Cancelled;
+                job.stopped_by = by.to_string();
                 job.finished = Some(now());
                 self.publish_job(job);
                 jobs.changed();
@@ -410,18 +470,32 @@ impl AppState {
 
     /// The stop of a machine: the job that is active on it, if any, is stopped at once (a GRBL machine gets the real-time hold and reset on the port; a
     /// node gets its drivers switched off). The id of the job, or `None` when the machine had no job of this server.
-    pub fn stop_machine(&self, machine: &str) -> Option<String> {
+    pub fn stop_machine(&self, machine: &str, by: &str) -> Option<String> {
         let id = self
             .jobs
             .locked()
             .active_on(machine)
             .map(|j| j.id.clone())?;
-        self.cancel_job(&id);
+        self.cancel_job(&id, by);
         Some(id)
     }
 
     /// Stops every running job: for the end of the server, which never leaves a machine moving on its own.
     pub fn stop_all(&self) {
+        {
+            let mut jobs = self.jobs.locked();
+            let active: Vec<String> = jobs
+                .list()
+                .iter()
+                .filter(|j| j.state.active())
+                .map(|j| j.id.clone())
+                .collect();
+            for id in active {
+                if let Some(job) = jobs.get_mut(&id) {
+                    job.stopped_by = "server".into();
+                }
+            }
+        }
         let runs: Vec<Arc<RealRun>> = self.runs.locked().values().cloned().collect();
         let gcode: Vec<Arc<GcodeRun>> = self.gcode_runs.locked().values().cloned().collect();
         for run in &runs {
@@ -436,5 +510,110 @@ impl AppState {
             }
             std::thread::sleep(Duration::from_millis(100));
         }
+    }
+}
+
+fn state_name(state: JobState) -> String {
+    serde_json::to_value(state)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+/// The line of the log of the jobs at the start of a job: what was asked, of which file, for which machine and by whom.
+fn start_line(job: &JobRecord, machine: &crate::machines::MachineRecord) -> String {
+    use crate::machines::Connection;
+    use sha2::{Digest, Sha256};
+    let request = job.request.to_string();
+    let hash = hex::encode(&Sha256::digest(request.as_bytes())[..4]);
+    let connection = match &machine.connection {
+        Connection::Demo => "demo".to_string(),
+        Connection::Node { address, .. } => format!("node {address}"),
+        Connection::Grbl { port, baud } => format!("grbl {port}@{baud}"),
+    };
+    let work = match job.kind.as_str() {
+        "drill" => "holes",
+        "route" => "paths",
+        _ => "lines",
+    };
+    let count = if job.holes_total > 0 {
+        job.holes_total
+    } else {
+        job.items_total
+    };
+    let fields: [(&str, &str); 14] = [
+        ("job", job.id.as_str()),
+        ("name", job.name.as_str()),
+        ("kind", job.kind.as_str()),
+        ("machine", job.machine.as_str()),
+        ("connection", connection.as_str()),
+        ("by", job.by.as_str()),
+        ("started_by", job.started_by.as_str()),
+        ("request_bytes", &request.len().to_string()),
+        ("request_hash", hash.as_str()),
+        (work, &count.to_string()),
+        ("items", &job.items_total.to_string()),
+        ("skipped", &job.view.skipped.to_string()),
+        ("estimate_s", &format!("{:.0}", job.view.estimate_s)),
+        ("server", env!("CARGO_PKG_VERSION")),
+    ];
+    format!(
+        "{} start {}",
+        crate::audit::iso(job.started.unwrap_or_else(now)),
+        crate::audit::pairs(&fields)
+    )
+}
+
+/// The line of the log of the jobs at the end of a job: how it ended, where it was, and the real time against the estimate.
+fn end_line(job: &JobRecord) -> String {
+    let finished = job.finished.unwrap_or_else(now);
+    let duration = finished.saturating_sub(job.started.unwrap_or(finished));
+    let fields: [(&str, &str); 11] = [
+        ("job", job.id.as_str()),
+        ("result", &state_name(job.state)),
+        ("message", job.message.as_str()),
+        ("items_done", &job.items_done.to_string()),
+        ("items", &job.items_total.to_string()),
+        ("holes_done", &job.holes_done.to_string()),
+        ("line", &job.line.to_string()),
+        ("started_by", job.started_by.as_str()),
+        ("stopped_by", job.stopped_by.as_str()),
+        ("duration_s", &duration.to_string()),
+        ("estimate_s", &format!("{:.0}", job.view.estimate_s)),
+    ];
+    format!(
+        "{} end {}",
+        crate::audit::iso(finished),
+        crate::audit::pairs(&fields)
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_log_lines_of_a_job_tell_what_a_failure_needs() {
+        let mut job = crate::jobs::JobRecord::sample("ab12", JobState::Running);
+        job.name = "my board".into();
+        job.started = Some(951_782_400);
+        job.started_by = "juan".into();
+        let machine: crate::machines::MachineRecord = serde_json::from_value(serde_json::json!({
+            "id": "m1", "name": "M1", "connection": {"kind": "node", "address": "10.0.0.5:80", "token": "secret"}
+        }))
+        .unwrap();
+        let start = start_line(&job, &machine);
+        assert!(start.starts_with("2000-02-29T00:00:00Z start job=ab12 name=\"my board\""));
+        assert!(start.contains("connection=\"node 10.0.0.5:80\""));
+        assert!(start.contains("request_hash="));
+        assert!(!start.contains("secret"), "no token reaches the log");
+        job.state = JobState::Failed;
+        job.message = "the node stopped answering".into();
+        job.items_done = 7;
+        job.finished = Some(951_782_460);
+        let end = end_line(&job);
+        assert!(end.starts_with("2000-02-29T00:01:00Z end job=ab12 result=failed"));
+        assert!(end.contains("items_done=7") && end.contains("duration_s=60"));
+        assert!(end.contains("message=\"the node stopped answering\""));
     }
 }

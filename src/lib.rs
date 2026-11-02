@@ -4,15 +4,18 @@
 //! The planning and the execution are the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, so there is one implementation of them, not one per client.
 
 pub mod api;
+pub mod audit;
 pub mod auth;
 pub mod config;
 pub mod emergency;
+pub mod errors;
 pub mod gcode;
 pub mod gcode_run;
 pub mod head;
 pub mod inspect;
 pub mod jobs;
 pub mod machines;
+pub mod panic;
 pub mod plan;
 pub mod spindle;
 pub mod state;

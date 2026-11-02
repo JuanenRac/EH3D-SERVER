@@ -16,7 +16,9 @@
   "pause": null,
   "resumed_from": "",
   "started": null,
+  "started_by": "",
   "state": "ready",
+  "stopped_by": "",
   "view": {
     "bounds_mm": [
       10.0,

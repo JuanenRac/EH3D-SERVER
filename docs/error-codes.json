@@ -1,0 +1,312 @@
+[
+  {
+    "code": "bad_address",
+    "description": "The address of a machine or of its drill head node is missing or is not host:port.",
+    "status": 422
+  },
+  {
+    "code": "bad_board",
+    "description": "board_mm is not from 0 to 50.",
+    "status": 422
+  },
+  {
+    "code": "bad_cfg",
+    "description": "The tuning text of the machine does not read.",
+    "status": 422
+  },
+  {
+    "code": "bad_credentials",
+    "description": "The name or the password is wrong.",
+    "status": 401
+  },
+  {
+    "code": "bad_days",
+    "description": "The days a token lasts are not a number from 1 to 3650.",
+    "status": 422
+  },
+  {
+    "code": "bad_dcf",
+    "description": "The text of DRILLPRO.DCF or ROUTEPRO.RCF does not read.",
+    "status": 422
+  },
+  {
+    "code": "bad_gcode",
+    "description": "A line of the G-code program cannot be sent (control characters, a $ line that is not allowed, a line too long).",
+    "status": 422
+  },
+  {
+    "code": "bad_hole",
+    "description": "A hole has a coordinate that is not a number.",
+    "status": 422
+  },
+  {
+    "code": "bad_id",
+    "description": "The id of a machine is not made of lowercase letters, digits and hyphens (up to 32).",
+    "status": 422
+  },
+  {
+    "code": "bad_light",
+    "description": "The query of the ring of LEDs of the drill head is not valid.",
+    "status": 422
+  },
+  {
+    "code": "bad_name",
+    "description": "A name is empty, too long or has characters that are not allowed.",
+    "status": 422
+  },
+  {
+    "code": "bad_ncd",
+    "description": "The drilling file does not read.",
+    "status": 422
+  },
+  {
+    "code": "bad_path",
+    "description": "A point of a path has a coordinate that is not a number.",
+    "status": 422
+  },
+  {
+    "code": "bad_picture",
+    "description": "The picture the camera of the drill head sent cannot be read.",
+    "status": 502
+  },
+  {
+    "code": "bad_profile",
+    "description": "The inspection profile is not valid.",
+    "status": 422
+  },
+  {
+    "code": "bad_request",
+    "description": "The body of the request does not read as the request needs.",
+    "status": 400
+  },
+  {
+    "code": "bad_samples",
+    "description": "The number of samples of a measurement is out of range.",
+    "status": 422
+  },
+  {
+    "code": "bad_setup",
+    "description": "The set-up code is wrong, or the server already has a user.",
+    "status": 403
+  },
+  {
+    "code": "bad_sorting",
+    "description": "The sorting of the holes is not one the program knows.",
+    "status": 422
+  },
+  {
+    "code": "bad_spindle",
+    "description": "The spindle, the switch or the limits of a spindle are not valid.",
+    "status": 422
+  },
+  {
+    "code": "bad_station",
+    "description": "The station of a machine is not made of lowercase letters, digits and hyphens (up to 32).",
+    "status": 422
+  },
+  {
+    "code": "bad_tool",
+    "description": "A tool has values out of range.",
+    "status": 422
+  },
+  {
+    "code": "both_sources",
+    "description": "The job brings the work as data and as files; it must be one of them.",
+    "status": 422
+  },
+  {
+    "code": "forbidden",
+    "description": "The role of the caller is not enough for this request.",
+    "status": 403
+  },
+  {
+    "code": "head_refused",
+    "description": "The node of the drill head answered with a refusal.",
+    "status": 502
+  },
+  {
+    "code": "head_unreachable",
+    "description": "The node of the drill head does not answer.",
+    "status": 502
+  },
+  {
+    "code": "internal",
+    "description": "A task of the server failed; the server is still up.",
+    "status": 500
+  },
+  {
+    "code": "job_active",
+    "description": "The job is running: stop it first.",
+    "status": 409
+  },
+  {
+    "code": "last_admin",
+    "description": "The last administrator cannot be deleted, disabled or demoted.",
+    "status": 409
+  },
+  {
+    "code": "local_only",
+    "description": "While the server has no user, only the computer it runs on may make the first administrator.",
+    "status": 403
+  },
+  {
+    "code": "machine_busy",
+    "description": "A job is running on the machine.",
+    "status": 409
+  },
+  {
+    "code": "machine_exists",
+    "description": "A machine with this id already exists.",
+    "status": 409
+  },
+  {
+    "code": "machines_busy",
+    "description": "A job is running: the update would restart the server and stop it.",
+    "status": 409
+  },
+  {
+    "code": "no_head",
+    "description": "The machine has no node of the drill head.",
+    "status": 404
+  },
+  {
+    "code": "no_hole",
+    "description": "The picture of the drill head shows no hole to calibrate with.",
+    "status": 409
+  },
+  {
+    "code": "no_inspection",
+    "description": "No quality check has been made on this machine since the server started.",
+    "status": 404
+  },
+  {
+    "code": "no_work",
+    "description": "The job has no holes, no paths and no lines to run.",
+    "status": 422
+  },
+  {
+    "code": "not_cancellable",
+    "description": "The job is neither ready nor running.",
+    "status": 409
+  },
+  {
+    "code": "not_in_state",
+    "description": "A job is held while it runs and resumed while it is held.",
+    "status": 409
+  },
+  {
+    "code": "not_pausable",
+    "description": "Only a G-code job can be held.",
+    "status": 409
+  },
+  {
+    "code": "not_ready",
+    "description": "The job already ran or is running.",
+    "status": 409
+  },
+  {
+    "code": "not_running",
+    "description": "The job is not running.",
+    "status": 409
+  },
+  {
+    "code": "not_stopped",
+    "description": "Only a cancelled or failed job can be gone on from.",
+    "status": 409
+  },
+  {
+    "code": "out_of_table",
+    "description": "A hole or a path is outside the table of the machine.",
+    "status": 422
+  },
+  {
+    "code": "outside_course",
+    "description": "The work goes past the course of an axis (the machine's switch is on reject).",
+    "status": 422
+  },
+  {
+    "code": "spindle_limit",
+    "description": "The job asks for more than the spindle of the machine gives (the machine's switch is on reject).",
+    "status": 422
+  },
+  {
+    "code": "storage",
+    "description": "The data folder could not be written.",
+    "status": 500
+  },
+  {
+    "code": "store",
+    "description": "The inspection profile could not be saved.",
+    "status": 500
+  },
+  {
+    "code": "throttled",
+    "description": "Too many wrong passwords, or too many tickets waiting: try again later.",
+    "status": 429
+  },
+  {
+    "code": "too_big",
+    "description": "The request or the work is bigger than the server accepts (413 for a body over max_body_mb).",
+    "status": 422
+  },
+  {
+    "code": "too_many_holes",
+    "description": "More holes than one inspection takes.",
+    "status": 422
+  },
+  {
+    "code": "unauthorized",
+    "description": "The token is missing, not valid or has expired.",
+    "status": 401
+  },
+  {
+    "code": "unknown_job",
+    "description": "There is no job with this id.",
+    "status": 404
+  },
+  {
+    "code": "unknown_machine",
+    "description": "There is no machine with this id.",
+    "status": 404
+  },
+  {
+    "code": "unknown_token",
+    "description": "There is no token with this id.",
+    "status": 404
+  },
+  {
+    "code": "unknown_tool",
+    "description": "The job uses a tool that it does not describe.",
+    "status": 422
+  },
+  {
+    "code": "unknown_user",
+    "description": "There is no user with this name.",
+    "status": 404
+  },
+  {
+    "code": "update_refused",
+    "description": "The update helper refused the request.",
+    "status": 409
+  },
+  {
+    "code": "updates_off",
+    "description": "The updates are not set up on this server (updates_dir).",
+    "status": 501
+  },
+  {
+    "code": "user_exists",
+    "description": "A user with this name already exists.",
+    "status": 409
+  },
+  {
+    "code": "weak_password",
+    "description": "The password is not from 8 to 128 characters.",
+    "status": 422
+  },
+  {
+    "code": "wrong_machine",
+    "description": "The job is of a kind the machine does not take.",
+    "status": 422
+  }
+]

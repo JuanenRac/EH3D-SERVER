@@ -62,6 +62,12 @@ pub struct JobRecord {
     pub finished: Option<u64>,
     /// Who asked for it.
     pub by: String,
+    /// Who started it (empty for a job that was never started).
+    #[serde(default)]
+    pub started_by: String,
+    /// Who stopped it (cancelled it, or pressed the stop of its machine); `server` when the server itself ended while it ran. Empty when nobody did.
+    #[serde(default)]
+    pub stopped_by: String,
     pub items_total: usize,
     pub items_done: usize,
     pub holes_total: usize,
@@ -88,6 +94,7 @@ impl JobRecord {
         serde_json::json!({
             "id": self.id, "machine": self.machine, "name": self.name, "kind": self.kind, "state": self.state,
             "created": self.created, "started": self.started, "finished": self.finished, "by": self.by,
+            "started_by": self.started_by, "stopped_by": self.stopped_by,
             "items_total": self.items_total, "items_done": self.items_done, "holes_total": self.holes_total, "holes_done": self.holes_done,
             "line": self.line, "resumed_from": self.resumed_from, "message": self.message, "pause": self.pause, "estimate_s": self.view.estimate_s,
         })
@@ -333,11 +340,10 @@ pub fn now() -> u64 {
         .unwrap_or(0)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn record(id: &str, state: JobState) -> JobRecord {
+impl JobRecord {
+    /// A job for the tests of this crate.
+    #[cfg(test)]
+    pub(crate) fn sample(id: &str, state: JobState) -> JobRecord {
         JobRecord {
             id: id.into(),
             machine: "m".into(),
@@ -348,6 +354,8 @@ mod tests {
             started: None,
             finished: None,
             by: "juan".into(),
+            started_by: String::new(),
+            stopped_by: String::new(),
             items_total: 10,
             items_done: 0,
             holes_total: 3,
@@ -375,6 +383,15 @@ mod tests {
                 warnings: vec![],
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn record(id: &str, state: JobState) -> JobRecord {
+        JobRecord::sample(id, state)
     }
 
     fn dir(name: &str) -> PathBuf {

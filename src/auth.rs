@@ -54,7 +54,27 @@ pub struct ApiToken {
     /// SHA-256 of the token, in hexadecimal.
     hash: String,
     pub created: u64,
+    /// When the token was last used (seconds since 1970); `None` while it never was. Kept in memory at every use and written to the disk at most once an hour, so a
+    /// busy program does not wear out the SD card.
+    #[serde(default)]
+    pub last_used: Option<u64>,
+    /// When the token stops working (seconds since 1970); `None` for a token that does not expire.
+    #[serde(default)]
+    pub expires: Option<u64>,
 }
+
+/// A login as it is kept on the disk: only the SHA-256 of its token, never the token.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct SavedSession {
+    hash: String,
+    name: String,
+    expires: u64,
+}
+
+/// How long the disk may be behind the memory about when a token was last used, in seconds.
+pub const LAST_USED_SAVE_SECS: u64 = 3600;
+/// The longest life a token can be given, in days.
+pub const MAX_TOKEN_DAYS: u32 = 3650;
 
 /// Who a request comes from.
 #[derive(Clone, Debug, PartialEq)]
@@ -79,6 +99,8 @@ pub enum AuthError {
     /// The last administrator cannot be deleted, disabled or demoted.
     LastAdmin,
     UnknownToken,
+    /// The days a token should last are not a number from 1 to 3650.
+    BadDays,
     Storage,
 }
 
@@ -95,6 +117,7 @@ impl AuthError {
             AuthError::UserExists => "user_exists",
             AuthError::LastAdmin => "last_admin",
             AuthError::UnknownToken => "unknown_token",
+            AuthError::BadDays => "bad_days",
             AuthError::Storage => "storage",
         }
     }
@@ -120,6 +143,11 @@ pub struct Auth {
     /// How many wrong passwords in a row block an address; 0 turns the limit by address off.
     ip_limit: u32,
     session_secs: u64,
+    /// Whether the logins are kept in `sessions.json` (their hashes), so that they outlive a restart of the server.
+    persist_sessions: bool,
+    /// When the tokens were last written because of a use (see [`ApiToken::last_used`]).
+    tokens_saved_at: u64,
+    tokens_dirty: bool,
 }
 
 pub const TOKEN_PREFIX: &str = "eh3d_";
@@ -198,7 +226,72 @@ impl Auth {
             ip_failures: HashMap::new(),
             ip_limit: 10,
             session_secs: u64::from(session_hours) * 3600,
+            persist_sessions: false,
+            tokens_saved_at: 0,
+            tokens_dirty: false,
         })
+    }
+
+    /// Turns on (or off) the keeping of the logins on the disk. On, the logins of the file that are still good and belong to a user that still counts are taken up now;
+    /// off, the file is removed, so that no hash of a login stays behind.
+    pub fn set_persist_sessions(&mut self, on: bool) {
+        self.persist_sessions = on;
+        let path = self.dir.join("sessions.json");
+        if !on {
+            let _ = std::fs::remove_file(&path);
+            return;
+        }
+        let now = crate::jobs::now();
+        let saved: Vec<SavedSession> = match store::read_json(&path) {
+            Ok(Some(list)) => list,
+            Ok(None) => return,
+            Err(e) => {
+                // a damaged file only costs the logins: the people sign in again
+                eprintln!(
+                    "eh3d-server: the saved logins are not read ({e}); everybody signs in again"
+                );
+                return;
+            }
+        };
+        for s in saved {
+            let Some(user) = self.users.iter().find(|u| u.name == s.name && !u.disabled) else {
+                continue;
+            };
+            if s.expires > now {
+                self.sessions.insert(
+                    s.hash,
+                    Session {
+                        who: Identity {
+                            name: user.name.clone(),
+                            role: user.role,
+                            is_token: false,
+                        },
+                        expires: s.expires,
+                    },
+                );
+            }
+        }
+    }
+
+    /// Writes the logins that are still good (nothing happens when the keeping is off). A failure to write is told on the console and costs nothing else: the logins
+    /// are still good in memory.
+    fn save_sessions(&self, now: u64) {
+        if !self.persist_sessions {
+            return;
+        }
+        let list: Vec<SavedSession> = self
+            .sessions
+            .iter()
+            .filter(|(_, s)| s.expires > now)
+            .map(|(hash, s)| SavedSession {
+                hash: hash.clone(),
+                name: s.who.name.clone(),
+                expires: s.expires,
+            })
+            .collect();
+        if let Err(e) = store::write_json(&self.dir.join("sessions.json"), &list) {
+            eprintln!("eh3d-server: the logins could not be saved: {e}");
+        }
     }
 
     pub fn needs_setup(&self) -> bool {
@@ -346,26 +439,40 @@ impl Auth {
                 expires: now + self.session_secs,
             },
         );
+        self.save_sessions(now);
         Ok((token, role, self.session_secs))
     }
 
     pub fn logout(&mut self, token: &str) {
-        self.sessions.remove(&sha(token));
+        if self.sessions.remove(&sha(token)).is_some() {
+            self.save_sessions(crate::jobs::now());
+        }
     }
 
     /// Who a bearer token belongs to: a session of a person, or a program's token.
     pub fn identify(&mut self, bearer: &str, now: u64) -> Option<Identity> {
         let hash = sha(bearer);
         if bearer.starts_with(TOKEN_PREFIX) {
-            return self
-                .tokens
-                .iter()
-                .find(|t| same(&t.hash, &hash))
-                .map(|t| Identity {
-                    name: t.name.clone(),
-                    role: t.role,
-                    is_token: true,
-                });
+            let token = self.tokens.iter_mut().find(|t| same(&t.hash, &hash))?;
+            // a token that has expired is as good as one that was never made
+            if token.expires.is_some_and(|e| e <= now) {
+                return None;
+            }
+            token.last_used = Some(now);
+            let who = Identity {
+                name: token.name.clone(),
+                role: token.role,
+                is_token: true,
+            };
+            self.tokens_dirty = true;
+            if now.saturating_sub(self.tokens_saved_at) >= LAST_USED_SAVE_SECS {
+                self.tokens_saved_at = now;
+                self.tokens_dirty = false;
+                if let Err(e) = self.save_tokens() {
+                    eprintln!("eh3d-server: the last use of the tokens could not be saved ({e:?})");
+                }
+            }
+            return Some(who);
         }
         self.sessions.retain(|_, s| s.expires > now);
         let session = self.sessions.get(&hash)?;
@@ -450,6 +557,7 @@ impl Auth {
         }
         // whatever changed, the sessions already open must meet the new state
         self.sessions.retain(|_, s| s.who.name != name);
+        self.save_sessions(crate::jobs::now());
         self.save_users()
     }
 
@@ -467,6 +575,7 @@ impl Auth {
         }
         self.users.remove(index);
         self.sessions.retain(|_, s| s.who.name != name);
+        self.save_sessions(crate::jobs::now());
         self.save_users()
     }
 
@@ -489,15 +598,19 @@ impl Auth {
         &self.tokens
     }
 
-    /// Makes a token for a program; the secret is returned this once and never kept.
+    /// Makes a token for a program; the secret is returned this once and never kept. With `days` the token stops working after them; without, it does not expire.
     pub fn create_token(
         &mut self,
         name: &str,
         role: Role,
         now: u64,
+        days: Option<u32>,
     ) -> Result<(String, String), AuthError> {
         if name.is_empty() || name.len() > 64 {
             return Err(AuthError::BadName);
+        }
+        if days.is_some_and(|d| d == 0 || d > MAX_TOKEN_DAYS) {
+            return Err(AuthError::BadDays);
         }
         let secret = format!("{TOKEN_PREFIX}{}", random_hex(24));
         let id = random_hex(4);
@@ -507,6 +620,8 @@ impl Auth {
             role,
             hash: sha(&secret),
             created: now,
+            last_used: None,
+            expires: days.map(|d| now + u64::from(d) * 86_400),
         });
         self.save_tokens()?;
         Ok((id, secret))
@@ -734,7 +849,9 @@ mod tests {
     #[test]
     fn a_programs_token_is_shown_once_and_only_its_hash_is_kept() {
         let (mut a, d) = set_up("auth-f");
-        let (id, secret) = a.create_token("drillpro-pc", Role::Operator, 99).unwrap();
+        let (id, secret) = a
+            .create_token("drillpro-pc", Role::Operator, 99, None)
+            .unwrap();
         assert!(secret.starts_with(TOKEN_PREFIX));
         let who = a.identify(&secret, 100).unwrap();
         assert_eq!(
@@ -748,6 +865,136 @@ mod tests {
         a.delete_token(&id).unwrap();
         assert!(a.identify(&secret, 101).is_none());
         assert_eq!(a.delete_token(&id), Err(AuthError::UnknownToken));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_token_can_expire_and_it_says_when_it_was_last_used() {
+        let (mut a, d) = set_up("auth-token-days");
+        assert_eq!(
+            a.create_token("x", Role::Viewer, 0, Some(0)),
+            Err(AuthError::BadDays)
+        );
+        assert_eq!(
+            a.create_token("x", Role::Viewer, 0, Some(MAX_TOKEN_DAYS + 1)),
+            Err(AuthError::BadDays)
+        );
+        let (_, short) = a
+            .create_token("laptop", Role::Operator, 1_000, Some(2))
+            .unwrap();
+        let (_, forever) = a.create_token("fixed", Role::Viewer, 1_000, None).unwrap();
+        assert_eq!(a.tokens()[0].expires, Some(1_000 + 2 * 86_400));
+        assert_eq!(a.tokens()[1].expires, None);
+        assert_eq!(a.tokens()[0].last_used, None);
+        assert!(a.identify(&short, 5_000).is_some());
+        assert_eq!(a.tokens()[0].last_used, Some(5_000));
+        // the last day of its life is still good, the next moment is not
+        assert!(a.identify(&short, 1_000 + 2 * 86_400 - 1).is_some());
+        assert!(a.identify(&short, 1_000 + 2 * 86_400).is_none());
+        assert_eq!(a.tokens()[0].last_used, Some(1_000 + 2 * 86_400 - 1));
+        assert!(a.identify(&forever, 1_000 + 400 * 86_400).is_some());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_last_use_of_a_token_reaches_the_disk_once_an_hour_not_at_every_request() {
+        let (mut a, d) = set_up("auth-token-saves");
+        let (_, secret) = a.create_token("laptop", Role::Operator, 10, None).unwrap();
+        let on_disk = |d: &PathBuf| -> Option<u64> {
+            let text = std::fs::read_to_string(d.join("tokens.json")).unwrap();
+            let rows: Vec<ApiToken> = serde_json::from_str(&text).unwrap();
+            rows[0].last_used
+        };
+        assert_eq!(on_disk(&d), None);
+        a.identify(&secret, 10_000).unwrap();
+        assert_eq!(
+            on_disk(&d),
+            Some(10_000),
+            "the first use is written at once"
+        );
+        a.identify(&secret, 10_500).unwrap();
+        a.identify(&secret, 13_599).unwrap();
+        assert_eq!(
+            on_disk(&d),
+            Some(10_000),
+            "within the hour the disk is left alone"
+        );
+        assert_eq!(a.tokens()[0].last_used, Some(13_599), "the memory is exact");
+        a.identify(&secret, 13_600).unwrap();
+        assert_eq!(on_disk(&d), Some(13_600));
+        // a file of a version that had neither member still opens
+        std::fs::write(
+            d.join("tokens.json"),
+            r#"[{"id":"ab","name":"old","role":"viewer","hash":"00","created":1}]"#,
+        )
+        .unwrap();
+        let b = Auth::open(&d, 12).unwrap();
+        assert_eq!(
+            (b.tokens()[0].last_used, b.tokens()[0].expires),
+            (None, None)
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_logins_survive_a_restart_when_they_are_kept_and_only_as_hashes() {
+        let (mut a, d) = set_up("auth-sessions");
+        a.set_persist_sessions(true);
+        let now = crate::jobs::now();
+        let (token, _, _) = a.login("juan", "una-clave-larga", now).unwrap();
+        a.add_user("ana", Role::Operator, "otra-clave-larga")
+            .unwrap();
+        let (ana, _, _) = a.login("ana", "otra-clave-larga", now).unwrap();
+        let on_disk = std::fs::read_to_string(d.join("sessions.json")).unwrap();
+        assert!(!on_disk.contains(&token), "the token itself is not kept");
+        assert!(on_disk.contains(&sha(&token)));
+        // the server starts again
+        let mut b = Auth::open(&d, 12).unwrap();
+        assert!(
+            b.identify(&token, now + 1).is_none(),
+            "not before the file is asked for"
+        );
+        b.set_persist_sessions(true);
+        let who = b.identify(&token, now + 1).unwrap();
+        assert_eq!((who.name.as_str(), who.role), ("juan", Role::Admin));
+        assert!(b.identify(&ana, now + 1).is_some());
+        // a logout and a deleted user are forgotten for good
+        b.logout(&token);
+        b.delete_user("ana").unwrap();
+        let mut c = Auth::open(&d, 12).unwrap();
+        c.set_persist_sessions(true);
+        assert!(c.identify(&token, now + 2).is_none());
+        assert!(c.identify(&ana, now + 2).is_none());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn expired_logins_and_logins_of_disabled_users_are_not_taken_up_and_off_removes_the_file() {
+        let (mut a, d) = set_up("auth-sessions-old");
+        a.set_persist_sessions(true);
+        let now = crate::jobs::now();
+        // a login that ended a day ago
+        let (old, _, _) = a
+            .login("juan", "una-clave-larga", now - 2 * 86_400)
+            .unwrap();
+        a.add_user("bob", Role::Viewer, "clave-de-bob-1").unwrap();
+        let (bob, _, _) = a.login("bob", "clave-de-bob-1", now).unwrap();
+        let mut b = Auth::open(&d, 12).unwrap();
+        b.users
+            .iter_mut()
+            .find(|u| u.name == "bob")
+            .unwrap()
+            .disabled = true;
+        b.set_persist_sessions(true);
+        assert!(b.identify(&old, now).is_none());
+        assert!(b.identify(&bob, now).is_none());
+        b.set_persist_sessions(false);
+        assert!(!d.join("sessions.json").exists());
+        let mut c = Auth::open(&d, 12).unwrap();
+        c.set_persist_sessions(false);
+        let (t, _, _) = c.login("juan", "una-clave-larga", now).unwrap();
+        assert!(!d.join("sessions.json").exists(), "off: nothing is written");
+        assert!(c.identify(&t, now).is_some());
         let _ = std::fs::remove_dir_all(&d);
     }
 

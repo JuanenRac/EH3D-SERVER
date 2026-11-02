@@ -3049,3 +3049,344 @@ async fn a_data_folder_that_takes_no_file_makes_the_health_check_degraded() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["status"], "degraded");
 }
+
+/// The text of a file of the data folder once `wanted` is in it (the lines are written a moment after the state changes).
+async fn file_with(path: &std::path::Path, wanted: &str) -> String {
+    let limit = Instant::now() + Duration::from_secs(10);
+    loop {
+        let text = std::fs::read_to_string(path).unwrap_or_default();
+        if text.contains(wanted) || Instant::now() > limit {
+            return text;
+        }
+        tokio::time::sleep(Duration::from_millis(40)).await;
+    }
+}
+
+#[tokio::test]
+async fn the_audit_and_the_log_of_the_jobs_tell_who_did_what_and_never_a_secret() {
+    let s = server("audit");
+    let token = admin(&s).await;
+    // a wrong password is told, with the code and without the password
+    let (status, _) = call(
+        &s,
+        Method::POST,
+        "/api/v1/login",
+        None,
+        Some(json!({"name": "juan", "password": "mala-clave-larga"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    demo_machine(&s, &token, "m1").await;
+    let (_, job) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines/m1/jobs",
+        Some(&token),
+        Some(drill_job()),
+    )
+    .await;
+    let id = job["id"].as_str().unwrap().to_string();
+    assert_eq!(job["started_by"], "");
+    call(
+        &s,
+        Method::POST,
+        &format!("/api/v1/jobs/{id}/start"),
+        Some(&token),
+        None,
+    )
+    .await;
+    wait_for(&s, &token, &id, &["waiting_operator"], false).await;
+    let (status, _) = call(
+        &s,
+        Method::POST,
+        &format!("/api/v1/jobs/{id}/cancel"),
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let done = wait_for(&s, &token, &id, &["cancelled"], false).await;
+    assert_eq!(
+        (done["started_by"].as_str(), done["stopped_by"].as_str()),
+        (Some("juan"), Some("juan")),
+        "the detail of the job says who started it and who stopped it"
+    );
+
+    let audit = file_with(&s.dir.join("audit.jsonl"), "job_end").await;
+    let events: Vec<Value> = audit
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let names: Vec<&str> = events.iter().filter_map(|e| e["event"].as_str()).collect();
+    for wanted in [
+        "setup",
+        "login",
+        "login_failed",
+        "machine_add",
+        "job_create",
+        "job_start",
+        "job_cancel",
+        "job_end",
+    ] {
+        assert!(
+            names.contains(&wanted),
+            "{wanted} is in the audit: {names:?}"
+        );
+    }
+    let failed = events
+        .iter()
+        .find(|e| e["event"] == "login_failed")
+        .unwrap();
+    assert_eq!(
+        (failed["who"].as_str(), failed["code"].as_str()),
+        (Some("juan"), Some("bad_credentials"))
+    );
+    let started = events.iter().find(|e| e["event"] == "job_start").unwrap();
+    assert_eq!(
+        (
+            started["who"].as_str(),
+            started["role"].as_str(),
+            started["job"].as_str()
+        ),
+        (Some("juan"), Some("admin"), Some(id.as_str()))
+    );
+    let ended = events.iter().find(|e| e["event"] == "job_end").unwrap();
+    assert_eq!(
+        (ended["result"].as_str(), ended["stopped_by"].as_str()),
+        (Some("cancelled"), Some("juan"))
+    );
+    for secret in [&token[..], "una-clave-larga", "mala-clave-larga"] {
+        assert!(!audit.contains(secret), "no secret in the audit");
+    }
+
+    // the log of the jobs has the start and the end of the job
+    let log = file_with(&s.dir.join("eh3d-jobs.log"), " end job=").await;
+    let lines: Vec<&str> = log.lines().collect();
+    assert_eq!(lines.len(), 2, "{log}");
+    assert!(lines[0].contains(" start job=") && lines[0].contains(&format!("job={id}")));
+    assert!(lines[0].contains("machine=m1") && lines[0].contains("connection=demo"));
+    assert!(lines[0].contains("holes=3") && lines[0].contains("by=juan"));
+    assert!(lines[0].contains("request_hash=") && lines[0].contains("estimate_s="));
+    assert!(lines[1].contains(" end job=") && lines[1].contains("result=cancelled"));
+    assert!(lines[1].contains("stopped_by=juan") && lines[1].contains("duration_s="));
+    assert!(lines[0].starts_with("20") && lines[0].split(' ').next().unwrap().ends_with('Z'));
+    assert!(!log.contains(&token[..]));
+}
+
+#[tokio::test]
+async fn the_audit_and_the_log_of_the_jobs_can_be_turned_off() {
+    let dir = std::env::temp_dir().join(format!("eh3d-server-api-quiet-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let state = AppState::open(ServerConfig {
+        data_dir: dir.clone(),
+        audit_file: false,
+        job_log: false,
+        ..ServerConfig::default()
+    })
+    .unwrap();
+    let s = Server {
+        app: router(state.clone()),
+        state,
+        dir: dir.clone(),
+    };
+    let token = admin(&s).await;
+    demo_machine(&s, &token, "m1").await;
+    let (_, job) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines/m1/jobs",
+        Some(&token),
+        Some(drill_job()),
+    )
+    .await;
+    let id = job["id"].as_str().unwrap().to_string();
+    call(
+        &s,
+        Method::POST,
+        &format!("/api/v1/jobs/{id}/start"),
+        Some(&token),
+        None,
+    )
+    .await;
+    wait_for(&s, &token, &id, &["waiting_operator"], false).await;
+    call(
+        &s,
+        Method::POST,
+        &format!("/api/v1/jobs/{id}/cancel"),
+        Some(&token),
+        None,
+    )
+    .await;
+    wait_for(&s, &token, &id, &["cancelled"], false).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!dir.join("audit.jsonl").exists());
+    assert!(!dir.join("eh3d-jobs.log").exists());
+}
+
+#[tokio::test]
+async fn a_program_token_can_expire_and_the_list_says_when_it_was_last_used() {
+    let s = server("token-days");
+    let token = admin(&s).await;
+    let (status, body) = call(
+        &s,
+        Method::POST,
+        "/api/v1/tokens",
+        Some(&token),
+        Some(json!({"name": "laptop", "role": "operator", "days": 0})),
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_days"))
+    );
+    let (status, made) = call(
+        &s,
+        Method::POST,
+        "/api/v1/tokens",
+        Some(&token),
+        Some(json!({"name": "laptop", "role": "operator", "days": 30})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{made}");
+    let secret = made["token"].as_str().unwrap().to_string();
+    let (_, forever) = call(
+        &s,
+        Method::POST,
+        "/api/v1/tokens",
+        Some(&token),
+        Some(json!({"name": "fixed", "role": "viewer"})),
+    )
+    .await;
+    assert!(forever["id"].is_string());
+    let (_, list) = call(&s, Method::GET, "/api/v1/tokens", Some(&token), None).await;
+    let laptop = &list[0];
+    let created = laptop["created"].as_u64().unwrap();
+    assert_eq!(laptop["expires"].as_u64(), Some(created + 30 * 86_400));
+    assert!(laptop["last_used"].is_null());
+    assert!(list[1]["expires"].is_null());
+    // the program uses it: the list shows it
+    let (status, _) = call(&s, Method::GET, "/api/v1/machines", Some(&secret), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, list) = call(&s, Method::GET, "/api/v1/tokens", Some(&token), None).await;
+    assert!(list[0]["last_used"].as_u64().unwrap() >= created);
+    assert!(list[1]["last_used"].is_null());
+}
+
+#[tokio::test]
+async fn the_default_life_of_a_token_is_a_setting() {
+    let dir = std::env::temp_dir().join(format!("eh3d-server-api-tdays-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let state = AppState::open(ServerConfig {
+        data_dir: dir.clone(),
+        token_default_days: 7,
+        ..ServerConfig::default()
+    })
+    .unwrap();
+    let s = Server {
+        app: router(state.clone()),
+        state,
+        dir,
+    };
+    let token = admin(&s).await;
+    call(
+        &s,
+        Method::POST,
+        "/api/v1/tokens",
+        Some(&token),
+        Some(json!({"name": "a", "role": "viewer"})),
+    )
+    .await;
+    call(
+        &s,
+        Method::POST,
+        "/api/v1/tokens",
+        Some(&token),
+        Some(json!({"name": "b", "role": "viewer", "days": 2})),
+    )
+    .await;
+    let (_, list) = call(&s, Method::GET, "/api/v1/tokens", Some(&token), None).await;
+    let created = list[0]["created"].as_u64().unwrap();
+    assert_eq!(list[0]["expires"].as_u64(), Some(created + 7 * 86_400));
+    assert_eq!(list[1]["expires"].as_u64(), Some(created + 2 * 86_400));
+}
+
+#[tokio::test]
+async fn a_login_survives_a_restart_of_the_server_and_a_logout_does_not() {
+    let s = server("sessions");
+    let token = admin(&s).await;
+    let (_, again) = call(
+        &s,
+        Method::POST,
+        "/api/v1/login",
+        None,
+        Some(json!({"name": "juan", "password": "una-clave-larga"})),
+    )
+    .await;
+    let second = again["token"].as_str().unwrap().to_string();
+    call(&s, Method::POST, "/api/v1/logout", Some(&second), None).await;
+    let on_disk = std::fs::read_to_string(s.dir.join("sessions.json")).unwrap();
+    assert!(!on_disk.contains(&token) && !on_disk.contains(&second));
+
+    // the server starts again on the same data
+    let state = AppState::open(ServerConfig {
+        data_dir: s.dir.clone(),
+        ..ServerConfig::default()
+    })
+    .unwrap();
+    let restarted = Server {
+        app: router(state.clone()),
+        state,
+        dir: s.dir.clone(),
+    };
+    let (status, who) = call(
+        &restarted,
+        Method::GET,
+        "/api/v1/session",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, who["name"].as_str()),
+        (StatusCode::OK, Some("juan"))
+    );
+    let (status, _) = call(
+        &restarted,
+        Method::GET,
+        "/api/v1/session",
+        Some(&second),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    // with the keeping off the restart logs everybody out and no file is left
+    let state = AppState::open(ServerConfig {
+        data_dir: s.dir.clone(),
+        persist_sessions: false,
+        ..ServerConfig::default()
+    })
+    .unwrap();
+    let off = Server {
+        app: router(state.clone()),
+        state,
+        dir: s.dir.clone(),
+    };
+    let (status, _) = call(&off, Method::GET, "/api/v1/session", Some(&token), None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(!s.dir.join("sessions.json").exists());
+}
+
+#[tokio::test]
+async fn the_health_check_tells_the_switches_of_the_server() {
+    let s = server("health-switches");
+    let token = admin(&s).await;
+    let (_, health) = call(&s, Method::GET, "/api/v1/health", Some(&token), None).await;
+    let f = &health["features"];
+    assert_eq!(
+        f["trust_forwarded_for"], false,
+        "the proxy header is not trusted by default"
+    );
+    assert_eq!(f["exit_on_panic"], true);
+    assert_eq!(f["persist_sessions"], true);
+}

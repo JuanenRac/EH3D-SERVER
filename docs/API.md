@@ -6,16 +6,16 @@ Everything is under `/api/v1/` and answers JSON. A mistake is `{"error": "<code>
 
 | Request | Role | What it does |
 |---|---|---|
-| `GET /health` | none | `{"name":"eh3d-server","version":"...","api_revision":1,"status":"ok"}`; `status` is `degraded` when the data folder takes no file or a lock was taken over after a panic. With a valid token also `uptime_s`, `storage` (`writable`), `recovered_locks` and `features` (`serial`, `studio`, `updates`, `url_token`, `local_until_setup`) |
+| `GET /health` | none | `{"name":"eh3d-server","version":"...","api_revision":1,"status":"ok"}`; `status` is `degraded` when the data folder takes no file or a lock was taken over after a panic. With a valid token also `uptime_s`, `storage` (`writable`), `recovered_locks` and `features` (`serial`, `studio`, `updates`, `url_token`, `local_until_setup`, `trust_forwarded_for`, `exit_on_panic`, `persist_sessions`) |
 | `GET /setup` | none | `{"needed": true}` while there is no user |
 | `POST /setup` | none | `{"code","name","password"}`: makes the first administrator with the set-up code the server prints on its console |
-| `POST /login` | none | `{"name","password"}` gives `{"token","name","role","expires_s"}`; five wrong passwords block the name for a while (`429 throttled`) |
+| `POST /login` | none | `{"name","password"}` gives `{"token","name","role","expires_s"}`; five wrong passwords block the name for a while (`429 throttled`). The login survives a restart of the server (`persist_sessions` of `server.cfg`, on by default: only the SHA-256 of the token is kept on the disk) until it expires or is ended with `POST /logout` |
 | `POST /logout` | any | ends the login |
 | `GET /session` | any | `{"name","role","is_token"}` |
 | `PUT /account` | a person | `{"old","new"}`: changes the own password |
 | `GET /users`, `POST /users` | admin | `{"name","role","password"}` creates |
 | `PUT /users/:name`, `DELETE /users/:name` | admin | `{"role"?,"password"?,"disabled"?}`; the last administrator cannot be deleted, disabled or demoted (`409 last_admin`) |
-| `GET /tokens`, `POST /tokens`, `DELETE /tokens/:id` | admin | tokens for programs (`{"name","role"}` gives `{"id","token"}`: **the token is shown this once**); a program uses it like a login token |
+| `GET /tokens`, `POST /tokens`, `DELETE /tokens/:id` | admin | tokens for programs (`{"name","role","days"?}` gives `{"id","token"}`: **the token is shown this once**); a program uses it like a login token. `days` (1 to 3650, else `422 bad_days`) makes it stop working after them; without it the token lasts as many days as `token_default_days` of `server.cfg` says (0: it does not expire). The list has for each token `created`, `expires` (seconds since 1970, `null` when it does not expire) and `last_used` (`null` while it was never used; kept exact in memory and written to the disk at most once an hour) |
 
 Passwords are 8 to 128 characters; names are letters, digits, `.`, `_` and `-` up to 32.
 
@@ -90,7 +90,7 @@ The **view** is what a client draws and follows:
   "skipped_tools": [], "skipped": 0 }
 ```
 
-`holes` are in the order the machine drills them (by tool in order of first use). `hole_ends[i]` is the item at which the hole `i` is finished, so a client that knows the item the job has reached knows how many holes are done. `estimate_s` is the time of the movements without the dialogs of the operator.
+`holes` are in the order the machine drills them (by tool in order of first use). `hole_ends[i]` is the item at which the hole `i` is finished (for a routing job, the path `i`), so a client that knows the item the job has reached knows how many holes or paths are done. `estimate_s` is the time of the movements without the dialogs of the operator.
 
 | Request | Role | What it does |
 |---|---|---|
@@ -106,7 +106,7 @@ The **view** is what a client draws and follows:
 | `POST /jobs/:id/resume-from` | operator | makes a **new job, ready and not started**, from the saved request of a cancelled or failed job, with its `skip` brought forward to what that job had done, so the client need not ask for the file again: a drilling job leaves out the holes done (`holes_done` added to the `skip` it had), a G-code job goes on from its `line`, a routing job leaves out the paths it finished (the one it cut short is cut again). The sums add up over several stops. The body is optional: `{"skip"?,"skip_tools"?,"restore_outputs"?,"name"?}` (`skip` replaces what was worked out, in holes, paths or lines; `skip_tools` replaces the tools that are off). The answer is the new job like `POST /machines/:id/jobs` (with `resumed_from`); `409 not_stopped` for a job that is ready, running or done, `422 no_work` when nothing is left, and the same refusals as a new job. It never moves the machine: it is started with `POST /jobs/:id/start` by a person, a drilling job asks for its tool and spindle, and a G-code job waits for the operator before its first move |
 | `DELETE /jobs/:id` | operator | removes a job that is not running |
 
-States: `ready` → `connecting` → `running` ⇄ `waiting_operator` → `done`, `cancelled` or `failed` (`message` says why). A job that was running when the server stopped is marked `failed`: nobody knows where the machine was. While it waits, `pause` is `{"kind":"tool_change","tool":2}` (put the tool in and confirm) or `{"kind":"spindle_start"}` (confirm the spindle start); for a G-code job it is `{"kind":"hold"}` (the operator paused it) or `{"kind":"resume"}` (it goes on after a stop and waits before its first move). A job is also given its `line`: for a G-code job the line of the program text it has got to (where a job that goes on starts from), 0 for the others. A job has `items_done` of `items_total` and `holes_done` of `holes_total` (a routing job counts paths; a G-code job has no holes, and its items are the lines sent). A G-code job that is refused by the controller (a line it does not take, an alarm, a link that fails) is marked `failed` with the line in `message`, and the server stops the controller as far as it can: nobody is at the screen to decide. A job is done when the machine is still after its last line, and fails if it is not within `gcode_finish_wait_s` seconds of `server.cfg`.
+States: `ready` → `connecting` → `running` ⇄ `waiting_operator` → `done`, `cancelled` or `failed` (`message` says why). A job that was running when the server stopped is marked `failed`: nobody knows where the machine was. While it waits, `pause` is `{"kind":"tool_change","tool":2}` (put the tool in and confirm) or `{"kind":"spindle_start"}` (confirm the spindle start); for a G-code job it is `{"kind":"hold"}` (the operator paused it) or `{"kind":"resume"}` (it goes on after a stop and waits before its first move). A job also says who handled it: `by` asked for it, `started_by` started it and `stopped_by` stopped it (cancelled it or pressed the stop of its machine; `server` when the server itself ended while it ran), each empty while nobody did it; the same facts are in the audit and in `eh3d-jobs.log` (see `docs/DEPLOY.md`). A job is also given its `line`: for a G-code job the line of the program text it has got to (where a job that goes on starts from), 0 for the others. A job has `items_done` of `items_total` and `holes_done` of `holes_total` (a routing job counts paths; a G-code job has no holes, and its items are the lines sent). A G-code job that is refused by the controller (a line it does not take, an alarm, a link that fails) is marked `failed` with the line in `message`, and the server stops the controller as far as it can: nobody is at the screen to decide. A job is done when the machine is still after its last line, and fails if it is not within `gcode_finish_wait_s` seconds of `server.cfg`.
 
 ## Updates
 
@@ -158,4 +158,73 @@ With a spindle chosen, the planning (the preview, the creation of a job and its 
 
 ## What happens, as it happens
 
-`GET /events?ticket=<ticket>` upgrades to a websocket (a browser cannot set headers on one, so the address carries a ticket from `POST /tickets`; `Authorization: Bearer` works too, and `?token=` only with `url_token = true`). The server asks every 30 seconds whether the session is still good and closes the websocket when it is not. The first text is `{"type":"hello","jobs":[...]}` with the summaries of the jobs; after it every change arrives as `{"type":"job","job":{...}}`, `{"type":"job_removed","id":"..."}` or `{"type":"machine","id":"..."}`.
+`GET /events?ticket=<ticket>` upgrades to a websocket (a browser cannot set headers on one, so the address carries a ticket from `POST /tickets`; `Authorization: Bearer` works too, and `?token=` only with `url_token = true`). The server asks every 30 seconds whether the session is still good and closes the websocket when it is not. It also sends a ping every `events_ping_s` seconds (30) and closes a connection that has sent nothing at all, a pong included, for `events_idle_s` seconds (90), so a phone that left the Wi-Fi does not hold a place for ever. A client that read more slowly than the events came (the channel holds 256) is told `{"type":"resync","missed":N}`: it asks for the fleet and the jobs again, because it lost some. The first text is `{"type":"hello","jobs":[...]}` with the summaries of the jobs; after it every change arrives as `{"type":"job","job":{...}}`, `{"type":"job_removed","id":"..."}` or `{"type":"machine","id":"..."}`.
+
+## Error codes
+
+Every refusal carries one of these codes (the same list is in `error-codes.json`, which the clients read in their tests). The status is the usual one; a few codes come with another where the situation differs.
+
+| Code | Status | Meaning |
+|---|---|---|
+| `bad_address` | 422 | The address of a machine or of its drill head node is missing or is not host:port. |
+| `bad_board` | 422 | board_mm is not from 0 to 50. |
+| `bad_cfg` | 422 | The tuning text of the machine does not read. |
+| `bad_credentials` | 401 | The name or the password is wrong. |
+| `bad_days` | 422 | The days a token lasts are not a number from 1 to 3650. |
+| `bad_dcf` | 422 | The text of DRILLPRO.DCF or ROUTEPRO.RCF does not read. |
+| `bad_gcode` | 422 | A line of the G-code program cannot be sent (control characters, a $ line that is not allowed, a line too long). |
+| `bad_hole` | 422 | A hole has a coordinate that is not a number. |
+| `bad_id` | 422 | The id of a machine is not made of lowercase letters, digits and hyphens (up to 32). |
+| `bad_light` | 422 | The query of the ring of LEDs of the drill head is not valid. |
+| `bad_name` | 422 | A name is empty, too long or has characters that are not allowed. |
+| `bad_ncd` | 422 | The drilling file does not read. |
+| `bad_path` | 422 | A point of a path has a coordinate that is not a number. |
+| `bad_picture` | 502 | The picture the camera of the drill head sent cannot be read. |
+| `bad_profile` | 422 | The inspection profile is not valid. |
+| `bad_request` | 400 | The body of the request does not read as the request needs. |
+| `bad_samples` | 422 | The number of samples of a measurement is out of range. |
+| `bad_setup` | 403 | The set-up code is wrong, or the server already has a user. |
+| `bad_sorting` | 422 | The sorting of the holes is not one the program knows. |
+| `bad_spindle` | 422 | The spindle, the switch or the limits of a spindle are not valid. |
+| `bad_station` | 422 | The station of a machine is not made of lowercase letters, digits and hyphens (up to 32). |
+| `bad_tool` | 422 | A tool has values out of range. |
+| `both_sources` | 422 | The job brings the work as data and as files; it must be one of them. |
+| `forbidden` | 403 | The role of the caller is not enough for this request. |
+| `head_refused` | 502 | The node of the drill head answered with a refusal. |
+| `head_unreachable` | 502 | The node of the drill head does not answer. |
+| `internal` | 500 | A task of the server failed; the server is still up. |
+| `job_active` | 409 | The job is running: stop it first. |
+| `last_admin` | 409 | The last administrator cannot be deleted, disabled or demoted. |
+| `local_only` | 403 | While the server has no user, only the computer it runs on may make the first administrator. |
+| `machine_busy` | 409 | A job is running on the machine. |
+| `machine_exists` | 409 | A machine with this id already exists. |
+| `machines_busy` | 409 | A job is running: the update would restart the server and stop it. |
+| `no_head` | 404 | The machine has no node of the drill head. |
+| `no_hole` | 409 | The picture of the drill head shows no hole to calibrate with. |
+| `no_inspection` | 404 | No quality check has been made on this machine since the server started. |
+| `no_work` | 422 | The job has no holes, no paths and no lines to run. |
+| `not_cancellable` | 409 | The job is neither ready nor running. |
+| `not_in_state` | 409 | A job is held while it runs and resumed while it is held. |
+| `not_pausable` | 409 | Only a G-code job can be held. |
+| `not_ready` | 409 | The job already ran or is running. |
+| `not_running` | 409 | The job is not running. |
+| `not_stopped` | 409 | Only a cancelled or failed job can be gone on from. |
+| `out_of_table` | 422 | A hole or a path is outside the table of the machine. |
+| `outside_course` | 422 | The work goes past the course of an axis (the machine's switch is on reject). |
+| `spindle_limit` | 422 | The job asks for more than the spindle of the machine gives (the machine's switch is on reject). |
+| `storage` | 500 | The data folder could not be written. |
+| `store` | 500 | The inspection profile could not be saved. |
+| `throttled` | 429 | Too many wrong passwords, or too many tickets waiting: try again later. |
+| `too_big` | 422 | The request or the work is bigger than the server accepts (413 for a body over max_body_mb). |
+| `too_many_holes` | 422 | More holes than one inspection takes. |
+| `unauthorized` | 401 | The token is missing, not valid or has expired. |
+| `unknown_job` | 404 | There is no job with this id. |
+| `unknown_machine` | 404 | There is no machine with this id. |
+| `unknown_token` | 404 | There is no token with this id. |
+| `unknown_tool` | 422 | The job uses a tool that it does not describe. |
+| `unknown_user` | 404 | There is no user with this name. |
+| `update_refused` | 409 | The update helper refused the request. |
+| `updates_off` | 501 | The updates are not set up on this server (updates_dir). |
+| `user_exists` | 409 | A user with this name already exists. |
+| `weak_password` | 422 | The password is not from 8 to 128 characters. |
+| `wrong_machine` | 422 | The job is of a kind the machine does not take. |

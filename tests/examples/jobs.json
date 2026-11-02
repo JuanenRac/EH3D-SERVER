@@ -17,6 +17,8 @@
     "pause": null,
     "resumed_from": "",
     "started": null,
-    "state": "ready"
+    "started_by": "",
+    "state": "ready",
+    "stopped_by": ""
   }
 ]

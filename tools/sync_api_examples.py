@@ -26,6 +26,13 @@ CLIENTS = {
 }
 
 
+#: Files that are not examples of an answer but go to a client all the same: the catalog of the error codes, which the Studio checks against its texts.
+#: The repository and, for each file, the name it has in the folder of the examples there.
+CATALOGS = {
+    "EH3D-STUDIO": [(ROOT / "docs" / "error-codes.json", "error_codes.json")],
+}
+
+
 def lines_of(path: Path) -> bytes:
     return path.read_bytes().replace(b"\r\n", b"\n")
 
@@ -43,19 +50,20 @@ def main(argv: list[str]) -> int:
             print(f"  skipped {repo}: not next to this repository")
             continue
         target = base / folder
-        mine = [f for f in files if f.stem not in unused]
-        wanted = {f.name for f in mine}
-        for f in mine:
-            copy = target / f.name
+        mine = [(f, f.name) for f in files if f.stem not in unused]
+        mine += [(source, name) for source, name in CATALOGS.get(repo, []) if source.is_file()]
+        wanted = {name for _, name in mine}
+        for f, name in mine:
+            copy = target / name
             same = copy.is_file() and lines_of(copy) == lines_of(f)
             if not same:
                 differ += 1
                 if check:
-                    print(f"  DIFFERS {repo}/{folder}/{f.name}")
+                    print(f"  DIFFERS {repo}/{folder}/{name}")
                 else:
                     target.mkdir(parents=True, exist_ok=True)
                     copy.write_bytes(lines_of(f))
-                    print(f"  copied  {repo}/{folder}/{f.name}")
+                    print(f"  copied  {repo}/{folder}/{name}")
         for extra in sorted(target.glob("*.json")) if target.is_dir() else []:
             if extra.name not in wanted:
                 differ += 1

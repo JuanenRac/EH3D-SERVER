@@ -1,9 +1,12 @@
 {
   "api_revision": 1,
   "features": {
+    "exit_on_panic": true,
     "local_until_setup": false,
+    "persist_sessions": true,
     "serial": false,
     "studio": false,
+    "trust_forwarded_for": false,
     "updates": false,
     "url_token": false
   },
