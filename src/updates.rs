@@ -1,8 +1,9 @@
 //! Updates of the installed EH3D services from the releases of GitHub. The server does not talk to GitHub and does not replace itself: a small helper
 //! (`deploy/eh3d-update.py`), started by systemd with the rights it needs, does that. The two talk through files in one folder (`updates_dir`):
 //!
-//! - `request.json`: what the server asks for, `{"action": "check"}` or `{"action": "apply", "components": ["server", "studio"]}`; the helper takes it and removes it.
+//! - `request.json`: what the server asks for, `{"action": "check"}`, `{"action": "apply", "components": ["server", "studio"]}`, `{"action": "undo", "components": [...]}` (puts back the version an update left behind) or `{"action": "clear_history"}`; the helper takes it and removes it.
 //! - `components.json`: what the last check found, `[{"id", "latest", "url", "published"}]`.
+//! - `previous.json`: what the helper keeps of the version that an update left behind, `{"<id>": {"available": true, "version": "0.0.7"}}` (the version may be null).
 //! - `status.json`: what the helper is doing, `{"state": "idle|checking|updating|done|error", "message": "...", "log": [...]}`.
 //!
 //! The server adds what it knows itself (the version it is, the version of the pages it serves) and says which components have a newer release.
@@ -73,6 +74,22 @@ impl Updates {
         v.get("version")?.as_str().map(str::to_string)
     }
 
+    /// What the helper keeps of the version left behind by the last update of a component: whether it can be put back, and which version it is when known.
+    fn previous(&self, id: &str) -> (bool, Option<String>) {
+        let found = read_json(&self.dir.join("previous.json"));
+        let entry = found.as_ref().and_then(|f| f.get(id));
+        let available = entry
+            .and_then(|e| e.get("available"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let version = entry
+            .and_then(|e| e.get("version"))
+            .and_then(Value::as_str)
+            .filter(|_| available)
+            .map(str::to_string);
+        (available, version)
+    }
+
     fn installed(&self, id: &str) -> Option<String> {
         match id {
             "server" => Some(self.server_version.clone()),
@@ -101,10 +118,13 @@ impl Updates {
                     (None, Some(_)) => true,
                     _ => false,
                 };
+                let (can_undo, previous) = self.previous(id);
                 json!({
                     "id": id,
                     "name": name,
                     "installed": installed,
+                    "previous": previous,
+                    "can_undo": can_undo,
                     "latest": latest_v,
                     "newer": newer,
                     "url": latest.and_then(|c| c.get("url")).and_then(Value::as_str),
@@ -126,12 +146,13 @@ impl Updates {
         })
     }
 
-    /// Asks the helper for a check, or for the update of some components (only the ones that this server knows). Only one request waits at a time.
+    /// Asks the helper for a check, for the update of some components (only the ones that this server knows), for putting back the version an update left behind
+    /// or for emptying its history. Only one request waits at a time.
     pub fn request(&self, action: &str, components: &[String]) -> Result<(), String> {
-        if action != "check" && action != "apply" {
-            return Err("the action must be check or apply".into());
+        if !["check", "apply", "undo", "clear_history"].contains(&action) {
+            return Err("the action must be check, apply, undo or clear_history".into());
         }
-        if action == "apply" {
+        if action == "apply" || action == "undo" {
             if components.is_empty() {
                 return Err("say which components to update".into());
             }
@@ -140,6 +161,13 @@ impl Updates {
                 .find(|c| !COMPONENTS.iter().any(|k| k.0 == c.as_str()))
             {
                 return Err(format!("'{bad}' is not a component that can be updated"));
+            }
+        }
+        if action == "undo" {
+            if let Some(none) = components.iter().find(|c| !self.previous(c).0) {
+                return Err(format!(
+                    "there is no earlier version of '{none}' kept to put back"
+                ));
             }
         }
         let busy = read_json(&self.dir.join("status.json"))
@@ -290,6 +318,60 @@ mod tests {
         assert!(u.request("check", &[]).is_err());
         std::fs::write(d.join("status.json"), r#"{"state":"done"}"#).unwrap();
         u.request("check", &[]).unwrap();
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_version_left_behind_can_be_put_back_only_when_the_helper_kept_one() {
+        let d = dir("undo");
+        let u = Updates::new(d.clone(), "0.0.2", None);
+        // nothing kept: no component offers it and the request is refused
+        let v = u.view();
+        assert!(v["components"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|c| c["can_undo"] == false && c["previous"].is_null()));
+        assert!(u.request("undo", &["server".to_string()]).is_err());
+        assert!(u.request("undo", &[]).is_err());
+        std::fs::write(
+            d.join("previous.json"),
+            r#"{"server":{"available":true,"version":"0.0.1"},"studio":{"available":false,"version":"0.0.7"}}"#,
+        )
+        .unwrap();
+        let v = u.view();
+        let c = v["components"].as_array().unwrap();
+        assert_eq!(
+            (c[0]["can_undo"].clone(), c[0]["previous"].clone()),
+            (json!(true), json!("0.0.1"))
+        );
+        assert_eq!(
+            (c[1]["can_undo"].clone(), c[1]["previous"].clone()),
+            (json!(false), Value::Null)
+        );
+        // only what has a kept version can be put back, and what is not a component never
+        assert!(u.request("undo", &["studio".to_string()]).is_err());
+        assert!(u.request("undo", &["kernel".to_string()]).is_err());
+        u.request("undo", &["server".to_string()]).unwrap();
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(d.join("request.json")).unwrap())
+                .unwrap();
+        assert_eq!(written["action"], "undo");
+        assert_eq!(written["components"], json!(["server"]));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_history_is_emptied_by_a_request_that_names_no_component() {
+        let d = dir("clear");
+        let u = Updates::new(d.clone(), "0.0.1", None);
+        u.request("clear_history", &[]).unwrap();
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(d.join("request.json")).unwrap())
+                .unwrap();
+        assert_eq!(written["action"], "clear_history");
+        // one request at a time, as with the others
+        assert!(u.request("clear_history", &[]).is_err());
         let _ = std::fs::remove_dir_all(&d);
     }
 }

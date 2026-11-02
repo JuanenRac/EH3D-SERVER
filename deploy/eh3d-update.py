@@ -10,6 +10,10 @@ The server does not talk to GitHub and does not replace itself: this program doe
     components.json  what the last check found: [{"id", "repo", "latest", "url", "published"}]
     status.json      what this helper is doing: {"state": "idle|checking|updating|done|error", "message", "log": [...], "percent", "steps": [{"id", "state", "percent"}]}
     history.json     the last jobs: [{"id", "started", "kind", "label", "state"}]
+    previous.json    the version that each update left behind: {"<id>": {"available": true, "version": "0.0.7" | null}}
+
+A request may also be {"action": "undo", "components": [...]}, which puts back the version an update left behind (the one installed becomes the one left behind),
+or {"action": "clear_history"}, which empties history.json.
 
     eh3d-update.py --dir /var/lib/eh3d-updates [--config /etc/eh3d-update.json]     # does what request.json says, once
 
@@ -40,6 +44,8 @@ DEFAULT_SIGNERS = "/etc/eh3d-update.signers"
 SIGNATURE_NAMESPACE = "eh3d-release"
 SIGNATURE_IDENTITY = "eh3d-release"
 SIGNERS = DEFAULT_SIGNERS if os.path.exists(DEFAULT_SIGNERS) else None
+#: The file the helper leaves in what it installs, so that the version left behind by the next update can be told.
+VERSION_MARK = ".eh3d-version"
 DEFAULT_CONFIG = {
     "server": {
         "repo": "EH3D-SERVER",
@@ -231,6 +237,7 @@ def install(folder: Folder, comp_id: str, comp: dict, release: dict, get=http_ge
         shutil.copytree(src, new)
         if comp.get("program"):
             os.chmod(new / comp["program"], 0o755)
+        (new / VERSION_MARK).write_text(version + chr(10), encoding="utf-8")
         old = target.parent / (target.name + ".previous")
         if old.exists():
             shutil.rmtree(old)
@@ -244,6 +251,79 @@ def install(folder: Folder, comp_id: str, comp: dict, release: dict, get=http_ge
         folder.say("updating", f"{comp_id}: restarting")
         run(comp["restart"], check=True)
         folder.step(f"{comp_id}.restart", "done")
+
+
+def version_in(path: Path):
+    """The version of an installed folder: what the helper left in it, or the `version` of the `version.json` that the pages bring. None when it cannot be told."""
+    try:
+        text = (path / VERSION_MARK).read_text(encoding="utf-8").strip()
+        if text:
+            return text
+    except OSError:
+        pass
+    try:
+        value = json.loads((path / "version.json").read_text(encoding="utf-8")).get("version")
+        return str(value) if value else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def previous_of(comp: dict) -> Path:
+    target = Path(comp["install_dir"])
+    return target.parent / (target.name + ".previous")
+
+
+def write_previous(folder: Folder, config: dict) -> None:
+    """Says which components have a version left behind that can be put back, and which version it is."""
+    found = {}
+    for comp_id, comp in config.items():
+        old = previous_of(comp)
+        found[comp_id] = {"available": old.is_dir(), "version": version_in(old) if old.is_dir() else None}
+    folder.write("previous.json", found)
+
+
+def undo_steps(config: dict, ids: list) -> list:
+    out = []
+    for comp_id in ids:
+        comp = config.get(comp_id)
+        if comp is None:
+            continue
+        out.append(f"{comp_id}.restore")
+        if comp.get("restart"):
+            out.append(f"{comp_id}.restart")
+    return out
+
+
+def undo(folder: Folder, config: dict, ids: list, run=subprocess.run) -> None:
+    """Puts back the version that an update left behind. The one installed takes its place as the one left behind, so doing it twice goes forward again."""
+    if not ids:
+        raise RuntimeError("say which components to put back")
+    for comp_id in ids:
+        if not previous_of(config[comp_id]).is_dir():
+            raise RuntimeError(f"{comp_id}: there is no earlier version kept to put back")
+    folder.plan(undo_steps(config, ids))
+    for comp_id in ids:
+        comp = config[comp_id]
+        target, old = Path(comp["install_dir"]), previous_of(comp)
+        folder.step(f"{comp_id}.restore", "running")
+        before, after = version_in(target), version_in(old)
+        folder.say("updating", f"{comp_id}: putting back {after or 'the earlier version'}")
+        aside = target.parent / (target.name + ".undone")
+        if aside.exists():
+            shutil.rmtree(aside)
+        if target.exists():
+            target.rename(aside)
+        old.rename(target)
+        if aside.exists():
+            aside.rename(old)
+        folder.step(f"{comp_id}.restore", "done")
+        folder.say("updating", f"{comp_id}: back to {after or 'the earlier version'} (was {before or 'unknown'})")
+        if comp.get("restart"):
+            folder.step(f"{comp_id}.restart", "running")
+            folder.say("updating", f"{comp_id}: restarting")
+            run(comp["restart"], check=True)
+            folder.step(f"{comp_id}.restart", "done")
+    folder.say("done", "put back: " + ", ".join(ids))
 
 
 def check(folder: Folder, config: dict, get=http_get) -> list:
@@ -298,7 +378,13 @@ def handle(folder: Folder, config: dict, get=http_get, run=subprocess.run) -> bo
     folder.steps, folder.percent = [], 0
     started = int(time.time())
     kind = str(request.get("action", ""))
-    label = ", ".join(c for c in request.get("components", []) if c in config) if kind == "apply" else kind
+    if kind == "clear_history":
+        # emptying the list is not a job to put in it
+        folder.write("history.json", [])
+        folder.say("done", "the history is empty")
+        write_previous(folder, config)
+        return True
+    label = ", ".join(c for c in request.get("components", []) if c in config) if kind in ("apply", "undo") else kind
     state = "done"
     try:
         if kind == "check":
@@ -307,13 +393,19 @@ def handle(folder: Folder, config: dict, get=http_get, run=subprocess.run) -> bo
         elif kind == "apply":
             # the server may restart itself: the result is written before that, so the Studio can show it when it comes back
             apply(folder, config, [c for c in request.get("components", []) if c in config], get, run)
+        elif kind == "undo":
+            undo(folder, config, [c for c in request.get("components", []) if c in config], run)
         else:
-            raise RuntimeError("the request is neither check nor apply")
+            raise RuntimeError("the request is neither check, apply, undo nor clear_history")
     except Exception as e:
         state = "failed"
         folder.fail_running()
         folder.say("error", str(e))
     folder.remember(kind or "unknown", label, state, started)
+    try:
+        write_previous(folder, config)
+    except OSError:
+        pass
     return True
 
 

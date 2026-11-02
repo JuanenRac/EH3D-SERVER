@@ -246,6 +246,8 @@ pub fn router(state: Shared) -> Router {
         .route("/api/v1/updates", get(updates_view))
         .route("/api/v1/updates/check", post(updates_check))
         .route("/api/v1/updates/apply", post(updates_apply))
+        .route("/api/v1/updates/undo", post(updates_undo))
+        .route("/api/v1/updates/clear-history", post(updates_clear_history))
         .route("/api/v1/events", get(events))
         .layer(DefaultBodyLimit::max(limit))
         .layer(axum::middleware::from_fn_with_state(
@@ -397,13 +399,8 @@ struct ApplyBody {
     components: Vec<String>,
 }
 
-async fn updates_apply(
-    State(s): State<Shared>,
-    Authed(who, _): Authed,
-    ApiJson(b): ApiJson<ApplyBody>,
-) -> ApiResult {
-    need(&who, Role::Admin)?;
-    // the helper restarts the server, which stops every running job
+/// The update and its undoing restart the server, which stops every running job: neither is done while one runs.
+fn no_job_running(s: &Shared) -> Result<(), ApiError> {
     if s.jobs
         .lock()
         .expect("jobs lock")
@@ -417,8 +414,41 @@ async fn updates_apply(
             "a job is running: the update restarts the server and would stop it",
         ));
     }
+    Ok(())
+}
+
+async fn updates_apply(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    ApiJson(b): ApiJson<ApplyBody>,
+) -> ApiResult {
+    need(&who, Role::Admin)?;
+    no_job_running(&s)?;
     updates_of(&s)?
         .request("apply", &b.components)
+        .map_err(updates_fail)?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// Puts back the version that the last update of those components left behind.
+async fn updates_undo(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    ApiJson(b): ApiJson<ApplyBody>,
+) -> ApiResult {
+    need(&who, Role::Admin)?;
+    no_job_running(&s)?;
+    updates_of(&s)?
+        .request("undo", &b.components)
+        .map_err(updates_fail)?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// Empties the list of what the helper did before.
+async fn updates_clear_history(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
+    need(&who, Role::Admin)?;
+    updates_of(&s)?
+        .request("clear_history", &[])
         .map_err(updates_fail)?;
     Ok(Json(json!({ "ok": true })))
 }

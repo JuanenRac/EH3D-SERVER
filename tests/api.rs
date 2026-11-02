@@ -1186,6 +1186,157 @@ async fn the_updates_are_offered_to_an_administrator_when_the_server_has_a_folde
     assert_eq!(body["pending"], json!(true));
 }
 
+#[tokio::test]
+async fn an_administrator_puts_back_the_version_an_update_left_behind_and_empties_the_history() {
+    let dir = std::env::temp_dir().join(format!("eh3d-server-api-undo-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let folder = dir.join("meet");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("previous.json"),
+        r#"{"studio":{"available":true,"version":"0.0.1"}}"#,
+    )
+    .unwrap();
+    let cfg = ServerConfig {
+        data_dir: dir.join("data"),
+        updates_dir: Some(folder.clone()),
+        ..ServerConfig::default()
+    };
+    let state = AppState::open(cfg).unwrap();
+    let on = Server {
+        app: router(state.clone()),
+        state,
+        dir: dir.clone(),
+    };
+    let (status, _) = call(
+        &on,
+        Method::POST,
+        "/api/v1/updates/undo",
+        None,
+        Some(json!({"components": ["studio"]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let token = admin(&on).await;
+    let (_, body) = call(&on, Method::GET, "/api/v1/updates", Some(&token), None).await;
+    let studio = &body["components"][1];
+    assert_eq!(
+        (studio["can_undo"].clone(), studio["previous"].clone()),
+        (json!(true), json!("0.0.1"))
+    );
+    assert_eq!(body["components"][0]["can_undo"], json!(false));
+    // a viewer cannot ask for it
+    let viewer = {
+        let (status, _) = call(
+            &on,
+            Method::POST,
+            "/api/v1/users",
+            Some(&token),
+            Some(json!({"name": "ana", "password": "otra-clave-larga", "role": "viewer"})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, b) = call(
+            &on,
+            Method::POST,
+            "/api/v1/login",
+            None,
+            Some(json!({"name": "ana", "password": "otra-clave-larga"})),
+        )
+        .await;
+        b["token"].as_str().unwrap().to_string()
+    };
+    let (status, _) = call(
+        &on,
+        Method::POST,
+        "/api/v1/updates/undo",
+        Some(&viewer),
+        Some(json!({"components": ["studio"]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = call(
+        &on,
+        Method::POST,
+        "/api/v1/updates/clear-history",
+        Some(&viewer),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    // what has no version kept is refused, and so is a component that does not exist
+    for bad in ["server", "kernel"] {
+        let (status, body) = call(
+            &on,
+            Method::POST,
+            "/api/v1/updates/undo",
+            Some(&token),
+            Some(json!({"components": [bad]})),
+        )
+        .await;
+        assert_eq!(
+            (status, body["error"].as_str()),
+            (StatusCode::CONFLICT, Some("update_refused")),
+            "{bad}"
+        );
+    }
+    let (status, _) = call(
+        &on,
+        Method::POST,
+        "/api/v1/updates/undo",
+        Some(&token),
+        Some(json!({"components": ["studio"]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let request: Value =
+        serde_json::from_str(&std::fs::read_to_string(folder.join("request.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        (request["action"].clone(), request["components"].clone()),
+        (json!("undo"), json!(["studio"]))
+    );
+    // one request at a time, for the history too
+    let (status, _) = call(
+        &on,
+        Method::POST,
+        "/api/v1/updates/clear-history",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    std::fs::remove_file(folder.join("request.json")).unwrap();
+    let (status, _) = call(
+        &on,
+        Method::POST,
+        "/api/v1/updates/clear-history",
+        Some(&token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let request: Value =
+        serde_json::from_str(&std::fs::read_to_string(folder.join("request.json")).unwrap())
+            .unwrap();
+    assert_eq!(request["action"], json!("clear_history"));
+    // without the folder the server says it does not offer them
+    let off = server("undo-off");
+    let t = admin(&off).await;
+    let (status, body) = call(
+        &off,
+        Method::POST,
+        "/api/v1/updates/clear-history",
+        Some(&t),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::NOT_IMPLEMENTED, Some("updates_off"))
+    );
+}
+
 /// A node of the drill head that says what the real one says: a status, a measure (only with its token) and a camera that sends two pictures.
 fn fake_head(token: &'static str) -> String {
     use std::io::{Read, Write};

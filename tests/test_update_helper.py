@@ -299,5 +299,64 @@ class UpdateHelper(unittest.TestCase):
         self.ask({"action": "apply", "components": ["studio"]})
         self.assertEqual(self.folder.read("history.json")[-1]["state"], "failed")
 
+    def _two_studios(self):
+        """The studio updated once: 0.0.3 installed, the old pages left behind."""
+        studio = self.root / "opt" / "eh3d-studio"
+        studio.mkdir(parents=True)
+        (studio / "index.html").write_text("old", encoding="utf-8")
+        (studio / "version.json").write_text('{"version":"0.0.1"}', encoding="utf-8")
+        self.ask({"action": "apply", "components": ["studio"]})
+        return studio
+
+    def test_the_helper_says_which_version_an_update_left_behind(self):
+        self.ask({"action": "check"})
+        self.assertEqual(self.folder.read("previous.json")["studio"], {"available": False, "version": None})
+        self._two_studios()
+        self.assertEqual(self.folder.read("previous.json")["studio"], {"available": True, "version": "0.0.1"})
+        # the server had no marker before: it is told after the next update
+        self.ask({"action": "apply", "components": ["server"]})
+        self.assertEqual(self.folder.read("previous.json")["server"], {"available": False, "version": None})
+        self.ask({"action": "apply", "components": ["server"]})
+        self.assertEqual(self.folder.read("previous.json")["server"], {"available": True, "version": "0.0.2"})
+
+    def test_an_undo_puts_back_the_version_left_behind_and_a_second_one_goes_forward_again(self):
+        studio = self._two_studios()
+        self.assertEqual((studio / "index.html").read_text(encoding="utf-8"), "<html>new</html>")
+        self.ask({"action": "undo", "components": ["studio"]})
+        status = self.folder.read("status.json")
+        self.assertEqual(status["state"], "done", status)
+        self.assertEqual((studio / "index.html").read_text(encoding="utf-8"), "old")
+        self.assertEqual([st["id"] for st in status["steps"]], ["studio.restore"])
+        self.assertEqual(self.folder.read("previous.json")["studio"], {"available": True, "version": "0.0.3"})
+        self.assertEqual(self.folder.read("history.json")[-1]["kind"], "undo")
+        self.ask({"action": "undo", "components": ["studio"]})
+        self.assertEqual((studio / "index.html").read_text(encoding="utf-8"), "<html>new</html>")
+        self.assertFalse((self.root / "opt" / "eh3d-studio.undone").exists())
+
+    def test_an_undo_of_the_server_restarts_it_and_one_without_a_kept_version_is_an_error(self):
+        self.ask({"action": "undo", "components": ["studio"]})
+        status = self.folder.read("status.json")
+        self.assertEqual(status["state"], "error")
+        self.assertIn("no earlier version", status["message"])
+        self.ask({"action": "apply", "components": ["server"]})
+        self.run.calls.clear()
+        self.ask({"action": "apply", "components": ["server"]})
+        self.run.calls.clear()
+        self.ask({"action": "undo", "components": ["server"]})
+        self.assertEqual(self.folder.read("status.json")["state"], "done")
+        self.assertEqual(self.run.calls, [["systemctl", "restart", "eh3d-server"]])
+        self.assertEqual([st["id"] for st in self.folder.read("status.json")["steps"]], ["server.restore", "server.restart"])
+
+    def test_the_history_is_emptied_on_request_and_that_request_is_not_kept_in_it(self):
+        self.ask({"action": "check"})
+        self.ask({"action": "check"})
+        self.assertEqual(len(self.folder.read("history.json")), 2)
+        self.ask({"action": "clear_history"})
+        self.assertEqual(self.folder.read("history.json"), [])
+        self.assertEqual(self.folder.read("status.json")["state"], "done")
+        self.ask({"action": "check"})
+        self.assertEqual(len(self.folder.read("history.json")), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
