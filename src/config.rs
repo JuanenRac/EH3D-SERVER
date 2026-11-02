@@ -38,6 +38,26 @@ pub struct ServerConfig {
     pub url_token: bool,
     /// While the server has no user yet, answer only the connections that come from this very computer (127.0.0.1): the first administrator is made from here. Off by default: the server answers whoever reaches it, as it always did.
     pub local_until_setup: bool,
+    /// What happens when any thread of the server panics: true stops the machines that are running and exits (the service manager starts the server again); false
+    /// only writes the panic to the console and goes on, with the locks recovered.
+    pub exit_on_panic: bool,
+    /// Take the address of a client from the `X-Forwarded-For` header, but only on a connection that comes from 127.0.0.1 (the reverse proxy on this computer). Off by default:
+    /// the address of the socket is the one that counts.
+    pub trust_forwarded_for: bool,
+    /// Keep the logins in the data folder (only the SHA-256 of each token), so that a restart of the server does not log anybody out.
+    pub persist_sessions: bool,
+    /// How many days a token of a program lasts when the request that makes it gives no number; 0 is for ever.
+    pub token_default_days: u32,
+    /// How often, in seconds, the websocket of the events sends a ping.
+    pub events_ping_s: u64,
+    /// How long, in seconds, a websocket may stay without sending anything (a pong counts) before the server closes it.
+    pub events_idle_s: u64,
+    /// Write a line for every event of the audit (who did what) to `audit.jsonl` in the data folder, besides the console.
+    pub audit_file: bool,
+    /// Write a line at the start and at the end of every job to `eh3d-jobs.log` in the data folder.
+    pub job_log: bool,
+    /// The size, in kilobytes, at which `audit.jsonl` and `eh3d-jobs.log` are set aside (one older copy is kept).
+    pub log_max_kb: u64,
 }
 
 impl ServerConfig {
@@ -70,6 +90,15 @@ impl Default for ServerConfig {
             login_ip_limit: 10,
             url_token: false,
             local_until_setup: false,
+            exit_on_panic: true,
+            trust_forwarded_for: false,
+            persist_sessions: true,
+            token_default_days: 0,
+            events_ping_s: 30,
+            events_idle_s: 90,
+            audit_file: true,
+            job_log: true,
+            log_max_kb: 1024,
         }
     }
 }
@@ -82,6 +111,14 @@ fn number(key: &str, value: &str, low: u64, high: u64) -> Result<u64, String> {
         return Err(format!("{key} must be from {low} to {high}"));
     }
     Ok(n)
+}
+
+fn flag(key: &str, value: &str) -> Result<bool, String> {
+    match value.to_ascii_lowercase().as_str() {
+        "true" | "yes" | "on" | "1" => Ok(true),
+        "false" | "no" | "off" | "0" => Ok(false),
+        _ => Err(format!("{key} must be true or false, not '{value}'")),
+    }
 }
 
 pub fn parse(text: &str) -> Result<ServerConfig, String> {
@@ -167,8 +204,22 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
             "resume_margin_lines" => {
                 c.resume_margin_lines = number(&key, value, 0, 1_000).map_err(at)? as usize
             }
+            "exit_on_panic" => c.exit_on_panic = flag(&key, value).map_err(at)?,
+            "trust_forwarded_for" => c.trust_forwarded_for = flag(&key, value).map_err(at)?,
+            "persist_sessions" => c.persist_sessions = flag(&key, value).map_err(at)?,
+            "audit_file" => c.audit_file = flag(&key, value).map_err(at)?,
+            "job_log" => c.job_log = flag(&key, value).map_err(at)?,
+            "token_default_days" => {
+                c.token_default_days = number(&key, value, 0, 3_650).map_err(at)? as u32
+            }
+            "events_ping_s" => c.events_ping_s = number(&key, value, 1, 3_600).map_err(at)?,
+            "events_idle_s" => c.events_idle_s = number(&key, value, 2, 86_400).map_err(at)?,
+            "log_max_kb" => c.log_max_kb = number(&key, value, 16, 1_048_576).map_err(at)?,
             other => return Err(at(format!("unknown key '{other}'"))),
         }
+    }
+    if c.events_idle_s <= c.events_ping_s {
+        return Err("events_idle_s must be longer than events_ping_s".into());
     }
     Ok(c)
 }
@@ -288,6 +339,63 @@ mod tests {
         assert!(!parse("").unwrap().url_token);
         assert!(parse("url_token = yes\n").unwrap().url_token);
         assert!(parse("url_token = maybe\n").is_err());
+    }
+
+    #[test]
+    fn the_new_switches_have_conservative_defaults() {
+        let c = parse("").unwrap();
+        assert!(c.exit_on_panic, "a panic stops the machines and restarts");
+        assert!(!c.trust_forwarded_for, "the proxy header is not trusted");
+        assert!(c.persist_sessions && c.audit_file && c.job_log);
+        assert_eq!(
+            (c.token_default_days, c.events_ping_s, c.events_idle_s),
+            (0, 30, 90)
+        );
+        let c = parse(
+            "exit_on_panic = off
+trust_forwarded_for = yes
+persist_sessions = no
+audit_file = 0
+job_log = false
+token_default_days = 90
+events_ping_s = 10
+events_idle_s = 40
+log_max_kb = 64
+",
+        )
+        .unwrap();
+        assert!(!c.exit_on_panic && c.trust_forwarded_for && !c.persist_sessions);
+        assert!(!c.audit_file && !c.job_log);
+        assert_eq!(
+            (
+                c.token_default_days,
+                c.events_ping_s,
+                c.events_idle_s,
+                c.log_max_kb
+            ),
+            (90, 10, 40, 64)
+        );
+        assert!(parse(
+            "exit_on_panic = maybe
+"
+        )
+        .is_err());
+        assert!(parse(
+            "token_default_days = 99999
+"
+        )
+        .is_err());
+        assert!(parse(
+            "events_ping_s = 30
+events_idle_s = 30
+"
+        )
+        .is_err());
+        assert!(parse(
+            "log_max_kb = 1
+"
+        )
+        .is_err());
     }
 
     #[test]

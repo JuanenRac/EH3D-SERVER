@@ -32,3 +32,20 @@ local_until_setup = false
 grbl_homing_timeout_s = 120
 # A jog ($J=...) answers when the move is done: give it more than the longest slow move you send.
 grbl_jog_timeout_s = 60
+# What the server does when a thread of it panics: true stops the machines that are running and exits, so that the service manager (Restart=on-failure) starts it again with its data in order; false only writes the panic to the console and goes on. The conservative choice is true.
+exit_on_panic = true
+# Take the address of a client from the X-Forwarded-For header, but only on a connection that comes from 127.0.0.1 (the reverse proxy of docs/DEPLOY.md on this very computer); the address the proxy put last is used. Off by default: the address of the socket is the one that counts, and a client that reaches the server directly cannot choose it by writing the header. With it on behind the proxy, login_ip_limit counts each person's own address instead of the proxy's.
+trust_forwarded_for = false
+# Keep the logins in the data folder (sessions.json, only the SHA-256 of each token) so that a restart of the server (an update, a power cut) does not log anybody out. Off: every restart logs everybody out and the file is removed.
+persist_sessions = true
+# How many days a token of a program lasts when the request that makes it gives no number (0 to 3650; 0: it does not expire). A request can always give its own number of days.
+token_default_days = 0
+# The websocket of the events sends a ping every events_ping_s seconds (1 to 3600) and is closed when nothing at all, not even the answer to a ping, has come for events_idle_s seconds (longer than events_ping_s).
+events_ping_s = 30
+events_idle_s = 90
+# Write the audit (who did what: logins, jobs, machines, users, tokens, updates) to audit.jsonl in the data folder, one JSON object per line, besides the console. Off: only the console (the journal of the service) has it.
+audit_file = true
+# Write a line at the start and at the end of every job to eh3d-jobs.log in the data folder (which file, which machine and connection, how it ended, how long it took against the estimate), for diagnosing failures afterwards.
+job_log = true
+# The size in kilobytes (16 to 1048576) at which audit.jsonl and eh3d-jobs.log are set aside as <name>.1 (one older copy is kept) and a new file starts.
+log_max_kb = 1024
