@@ -8,7 +8,8 @@ The server does not talk to GitHub and does not replace itself: this program doe
 
     request.json     what the server asks for: {"action": "check"} or {"action": "apply", "components": ["server", "studio"]}
     components.json  what the last check found: [{"id", "repo", "latest", "url", "published"}]
-    status.json      what this helper is doing: {"state": "idle|checking|updating|done|error", "message", "log": [...]}
+    status.json      what this helper is doing: {"state": "idle|checking|updating|done|error", "message", "log": [...], "percent", "steps": [{"id", "state", "percent"}]}
+    history.json     the last jobs: [{"id", "started", "kind", "label", "state"}]
 
     eh3d-update.py --dir /var/lib/eh3d-updates [--config /etc/eh3d-update.json]     # does what request.json says, once
 
@@ -29,6 +30,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import urllib.request
 from pathlib import Path
 
@@ -68,6 +70,10 @@ class Folder:
     def __init__(self, path: Path):
         self.path = path
         self.log: list[str] = []
+        self.state = "idle"
+        self.message = ""
+        self.steps: list[dict] = []
+        self.percent = 0
 
     def read(self, name: str):
         try:
@@ -82,7 +88,41 @@ class Folder:
 
     def say(self, state: str, message: str) -> None:
         self.log = (self.log + [message])[-40:]
-        self.write("status.json", {"state": state, "message": message, "log": self.log})
+        self.state, self.message = state, message
+        self.flush()
+
+    def flush(self) -> None:
+        self.write("status.json", {"state": self.state, "message": self.message, "log": self.log, "percent": self.percent, "steps": self.steps})
+
+    def plan(self, ids: list) -> None:
+        """The steps that a job will go through, all waiting: the Studio draws a bar for each."""
+        self.steps = [{"id": i, "state": "pending", "percent": 0} for i in ids]
+        self.percent = 0
+        self.flush()
+
+    def step(self, step_id: str, state: str) -> None:
+        """Marks a step running, done or failed (a step that is not in the plan is ignored) and works out the percent of the whole job."""
+        for st in self.steps:
+            if st["id"] == step_id:
+                st["state"] = state
+                st["percent"] = 100 if state in ("done", "skipped") else 50 if state == "running" else st["percent"]
+        done = sum(1 for st in self.steps if st["state"] in ("done", "skipped"))
+        self.percent = round(100 * done / len(self.steps)) if self.steps else 0
+        self.flush()
+
+    def fail_running(self) -> None:
+        """The step that was running when the job stopped is the one that failed."""
+        for st in self.steps:
+            if st["state"] == "running":
+                st["state"] = "failed"
+        self.flush()
+
+    def remember(self, kind: str, label: str, state: str, started: int) -> None:
+        """Keeps the job in the history (the last fifteen)."""
+        history = self.read("history.json")
+        history = history if isinstance(history, list) else []
+        history.append({"id": str(started), "started": started, "kind": kind, "label": label, "state": state})
+        self.write("history.json", history[-15:])
 
 
 def http_get(url: str, timeout: int = 30) -> bytes:
@@ -98,6 +138,7 @@ def latest_release(repo: str, get=http_get) -> dict:
         "latest": str(data["tag_name"]).lstrip("v"),
         "url": data.get("html_url", ""),
         "published": data.get("published_at", ""),
+        "notes": str(data.get("body") or "")[:8000],
         "assets": {a["name"]: a["browser_download_url"] for a in data.get("assets", [])},
     }
 
@@ -149,11 +190,14 @@ def install(folder: Folder, comp_id: str, comp: dict, release: dict, get=http_ge
     url = release["assets"].get(name)
     if not url:
         raise RuntimeError(f"the release {version} has no file called {name}")
+    folder.step(f"{comp_id}.download", "running")
     folder.say("updating", f"{comp_id}: downloading {name}")
     with tempfile.TemporaryDirectory(prefix="eh3d-update-") as tmp:
         tmpdir = Path(tmp)
         archive = tmpdir / name
         archive.write_bytes(get(url, 600))
+        folder.step(f"{comp_id}.download", "done")
+        folder.step(f"{comp_id}.verify", "running")
         hash_url = release["assets"].get(name + ".sha256")
         if not hash_url:
             raise RuntimeError(f"the release has no {name}.sha256 to check the file with")
@@ -170,6 +214,8 @@ def install(folder: Folder, comp_id: str, comp: dict, release: dict, get=http_ge
         else:
             folder.say("updating", f"{comp_id}: no file of allowed signers: the hash proves the file arrived whole, not who made it")
         folder.say("updating", f"{comp_id}: the hash is right, unpacking")
+        folder.step(f"{comp_id}.verify", "done")
+        folder.step(f"{comp_id}.install", "running")
         stage = tmpdir / "stage"
         stage.mkdir()
         with tarfile.open(archive) as tar:
@@ -191,10 +237,13 @@ def install(folder: Folder, comp_id: str, comp: dict, release: dict, get=http_ge
         if target.exists():
             target.rename(old)
         new.rename(target)
+    folder.step(f"{comp_id}.install", "done")
     folder.say("updating", f"{comp_id}: installed {version}")
     if comp.get("restart"):
+        folder.step(f"{comp_id}.restart", "running")
         folder.say("updating", f"{comp_id}: restarting")
         run(comp["restart"], check=True)
+        folder.step(f"{comp_id}.restart", "done")
 
 
 def check(folder: Folder, config: dict, get=http_get) -> list:
@@ -203,14 +252,28 @@ def check(folder: Folder, config: dict, get=http_get) -> list:
         folder.say("checking", f"{comp_id}: asking GitHub for the latest release of {comp['repo']}")
         try:
             r = latest_release(comp["repo"], get)
-            found.append({"id": comp_id, "repo": comp["repo"], "latest": r["latest"], "url": r["url"], "published": r["published"]})
+            found.append({"id": comp_id, "repo": comp["repo"], "latest": r["latest"], "url": r["url"], "published": r["published"], "notes": r["notes"]})
         except Exception as e:  # a repository without a release, or no network: said, and the rest goes on
             folder.say("checking", f"{comp_id}: {e}")
     folder.write("components.json", found)
     return found
 
 
+def steps_of(config: dict, ids: list) -> list:
+    """The ids of the steps of an update: download, verify and install of each component, and its restart when it has one."""
+    out = []
+    for comp_id in ids:
+        comp = config.get(comp_id)
+        if comp is None:
+            continue
+        out += [f"{comp_id}.download", f"{comp_id}.verify", f"{comp_id}.install"]
+        if comp.get("restart"):
+            out.append(f"{comp_id}.restart")
+    return out
+
+
 def apply(folder: Folder, config: dict, ids: list, get=http_get, run=subprocess.run) -> None:
+    folder.plan(steps_of(config, ids))
     done = []
     for comp_id in ids:
         comp = config.get(comp_id)
@@ -232,17 +295,25 @@ def handle(folder: Folder, config: dict, get=http_get, run=subprocess.run) -> bo
     except OSError:
         pass
     folder.log = []
+    folder.steps, folder.percent = [], 0
+    started = int(time.time())
+    kind = str(request.get("action", ""))
+    label = ", ".join(c for c in request.get("components", []) if c in config) if kind == "apply" else kind
+    state = "done"
     try:
-        if request.get("action") == "check":
+        if kind == "check":
             found = check(folder, config, get)
             folder.say("done", f"{len(found)} component(s) checked")
-        elif request.get("action") == "apply":
+        elif kind == "apply":
             # the server may restart itself: the result is written before that, so the Studio can show it when it comes back
             apply(folder, config, [c for c in request.get("components", []) if c in config], get, run)
         else:
             raise RuntimeError("the request is neither check nor apply")
     except Exception as e:
+        state = "failed"
+        folder.fail_running()
         folder.say("error", str(e))
+    folder.remember(kind or "unknown", label, state, started)
     return True
 
 

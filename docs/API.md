@@ -112,7 +112,7 @@ For an administrator, when `updates_dir` is set in `server.cfg` (see `docs/DEPLO
 
 | Request | What it does |
 |---|---|
-| `GET /api/v1/updates` | `{ "enabled", "pending", "state", "message", "log", "components": [{ "id", "name", "installed", "latest", "newer", "url", "published" }] }`; `state` is `idle`, `checking`, `updating`, `done` or `error`. Without `updates_dir`: `{ "enabled": false, ... }`. |
+| `GET /api/v1/updates` | `{ "enabled", "pending", "state", "message", "log", "percent", "steps": [{ "id", "state", "percent" }], "history": [{ "id", "started", "kind", "label", "state" }], "components": [{ "id", "name", "installed", "latest", "newer", "url", "published", "notes" }] }`; `state` is `idle`, `checking`, `updating`, `done` or `error`; `percent` is how much of the whole job is done, each step (`<component>.download`, `.verify`, `.install` and `.restart` for the one that restarts) is `pending`, `running`, `done` or `failed`, `history` holds the last fifteen jobs and `notes` the text of the latest release of the component. Without `updates_dir`: `{ "enabled": false, ... }`. |
 | `POST /api/v1/updates/check` | Asks the helper to look at the latest releases on GitHub. 501 `updates_off` without `updates_dir`; 409 `update_refused` when a request waits or the helper is working. |
 | `POST /api/v1/updates/apply` | Body `{ "components": ["server", "studio"] }`: asks the helper to update those components (the ones that are not newer are not touched by the Studio, which sends only the newer). 409 for a component that cannot be updated or for a request that is already waiting. |
 

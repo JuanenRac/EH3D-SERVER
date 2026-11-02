@@ -256,5 +256,48 @@ class UpdateHelper(unittest.TestCase):
         self.assertEqual(H.expected_hash("not a hash", "file.tgz"), "")
 
 
+    def test_an_update_shows_its_steps_and_the_percent_of_the_whole(self):
+        studio = self.root / "opt" / "eh3d-studio"
+        studio.mkdir(parents=True)
+        self.ask({"action": "apply", "components": ["studio", "server"]})
+        status = self.folder.read("status.json")
+        ids = [st["id"] for st in status["steps"]]
+        # download, verify and install of each, and the restart of the one that has it
+        self.assertEqual(
+            ids,
+            ["studio.download", "studio.verify", "studio.install", "server.download", "server.verify", "server.install", "server.restart"],
+        )
+        self.assertTrue(all(st["state"] == "done" and st["percent"] == 100 for st in status["steps"]))
+        self.assertEqual(status["percent"], 100)
+
+    def test_the_step_that_was_running_when_it_failed_is_marked_failed(self):
+        for url in list(self.gh.files):
+            if url.endswith(".sha256") and "studio" in url:
+                self.gh.files[url] = (("0" * 64) + "  eh3d-studio-0.0.3.tar.gz\n").encode()
+        self.ask({"action": "apply", "components": ["studio"]})
+        status = self.folder.read("status.json")
+        by_id = {st["id"]: st["state"] for st in status["steps"]}
+        self.assertEqual((by_id["studio.download"], by_id["studio.verify"], by_id["studio.install"]), ("done", "failed", "pending"))
+        self.assertLess(status["percent"], 100)
+
+    def test_a_check_carries_the_notes_of_the_release(self):
+        self.gh.releases["EH3D-STUDIO"]["body"] = "- A thing that changed\n- Another"
+        self.ask({"action": "check"})
+        found = {c["id"]: c for c in self.folder.read("components.json")}
+        self.assertEqual(found["studio"]["notes"], "- A thing that changed\n- Another")
+        self.assertEqual(found["server"]["notes"], "")
+
+    def test_the_jobs_are_kept_in_a_history_of_fifteen(self):
+        self.ask({"action": "check"})
+        self.ask({"action": "apply", "components": ["studio"]})
+        history = self.folder.read("history.json")
+        self.assertEqual([(h["kind"], h["label"], h["state"]) for h in history], [("check", "check", "done"), ("apply", "studio", "done")])
+        for _ in range(20):
+            self.ask({"action": "check"})
+        self.assertEqual(len(self.folder.read("history.json")), 15)
+        self.gh.releases["EH3D-STUDIO"]["assets"] = []
+        self.ask({"action": "apply", "components": ["studio"]})
+        self.assertEqual(self.folder.read("history.json")[-1]["state"], "failed")
+
 if __name__ == "__main__":
     unittest.main()

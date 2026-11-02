@@ -109,6 +109,7 @@ impl Updates {
                     "newer": newer,
                     "url": latest.and_then(|c| c.get("url")).and_then(Value::as_str),
                     "published": latest.and_then(|c| c.get("published")).and_then(Value::as_str),
+                    "notes": latest.and_then(|c| c.get("notes")).and_then(Value::as_str).unwrap_or(""),
                 })
             })
             .collect();
@@ -118,6 +119,9 @@ impl Updates {
             "state": status.get("state").and_then(Value::as_str).unwrap_or("idle"),
             "message": status.get("message").and_then(Value::as_str).unwrap_or(""),
             "log": status.get("log").cloned().unwrap_or(Value::Array(vec![])),
+            "percent": status.get("percent").and_then(Value::as_u64).unwrap_or(0),
+            "steps": status.get("steps").cloned().unwrap_or(Value::Array(vec![])),
+            "history": read_json(&self.dir.join("history.json")).unwrap_or(Value::Array(vec![])),
             "components": components,
         })
     }
@@ -226,6 +230,40 @@ mod tests {
             .unwrap()
             .iter()
             .all(|c| c["newer"] == false));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_steps_the_notes_and_the_history_of_the_helper_reach_the_studio() {
+        let d = dir("steps");
+        std::fs::write(
+            d.join("components.json"),
+            r#"[{"id":"studio","latest":"0.0.2","notes":"- one\n- two"}]"#,
+        )
+        .unwrap();
+        std::fs::write(
+            d.join("status.json"),
+            r#"{"state":"updating","message":"m","log":[],"percent":40,"steps":[{"id":"studio.download","state":"done","percent":100},{"id":"studio.verify","state":"running","percent":50}]}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            d.join("history.json"),
+            r#"[{"id":"1","started":1,"kind":"apply","label":"studio","state":"done"}]"#,
+        )
+        .unwrap();
+        let v = Updates::new(d.clone(), "0.0.1", None).view();
+        assert_eq!(v["percent"], 40);
+        assert_eq!(v["steps"].as_array().unwrap().len(), 2);
+        assert_eq!(v["steps"][1]["state"], "running");
+        assert_eq!(v["history"][0]["label"], "studio");
+        let c = v["components"].as_array().unwrap();
+        assert_eq!(c[1]["notes"], "- one\n- two");
+        assert_eq!(c[0]["notes"], "");
+        // a helper that does not write them yet (an older one) leaves them empty and nothing breaks
+        let old = Updates::new(dir("old"), "0.0.1", None).view();
+        assert_eq!(old["percent"], 0);
+        assert!(old["steps"].as_array().unwrap().is_empty());
+        assert!(old["history"].as_array().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&d);
     }
 

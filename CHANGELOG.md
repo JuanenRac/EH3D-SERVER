@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.0.9] - The steps, the notes and the history of an update reach the Studio
+
+- **The steps of an update with a percent:** the helper writes the steps of the job (download, check, install and restart of each service) with their state and the percent of the whole, and the server gives them in `GET /api/v1/updates` (`steps`, `percent`); the step that was running when a job failed is marked as failed.
+- **The notes of the release:** the check keeps the text of the latest release of each service and the server gives it as `notes` of the component, so the Studio can show what changes before updating.
+- **A history of the jobs:** the last fifteen checks and updates (`history`), kept by the helper in `history.json`.
+- **Compatible both ways:** a helper that is older leaves the new fields empty and the Studio shows the page as before; tests for the helper (steps, failed step, notes and history) and for the answer of the server.
+
 ## [0.0.8] - A stop that reaches the machine at once, files that survive a power cut and a token out of the address
 
 - **Each dependency on a sibling repository by path says the version it needs** (`version = ">=0.0.1", path = "../EH3D-..."`), so Cargo stops at once when the sibling next to this one is older than the program expects.
