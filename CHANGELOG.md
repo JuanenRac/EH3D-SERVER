@@ -3,6 +3,7 @@
 All notable changes to this project are documented here.
 
 ## [Unreleased]
+- **The warnings and the course of a plan come from EH3D-COMMON (`eh3d-summary`):** the view of a plan says the same as before; the types are taken from the shared crate instead of through the drilling program.
 
 ## [0.1.0] - Operation, resuming and a dry run before moving a machine
 

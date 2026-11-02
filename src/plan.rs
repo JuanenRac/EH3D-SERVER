@@ -15,6 +15,8 @@ use eh3d_drillpro::tools as drill_tools;
 use eh3d_routepro::hpgl::{self, Polyline, UNIT_MM};
 use eh3d_routepro::job::plan_route_job;
 use eh3d_routepro::tools as route_tools;
+use eh3d_summary::dryrun::Course;
+use eh3d_summary::summary::{course_warnings, Warning};
 use serde::{Deserialize, Serialize};
 
 use crate::machines::MachineRecord;
@@ -205,13 +207,13 @@ pub struct WorkWarning {
     pub values: Vec<f64>,
 }
 
-fn warning_view(w: &summary::Warning) -> WorkWarning {
+fn warning_view(w: &Warning) -> WorkWarning {
     let (code, axis, values) = match w {
-        summary::Warning::Tiny {
+        Warning::Tiny {
             width_mm,
             height_mm,
         } => ("tiny", String::new(), vec![*width_mm, *height_mm]),
-        summary::Warning::TooBig {
+        Warning::TooBig {
             width_mm,
             height_mm,
             table_x_mm,
@@ -221,9 +223,9 @@ fn warning_view(w: &summary::Warning) -> WorkWarning {
             String::new(),
             vec![*width_mm, *height_mm, *table_x_mm, *table_y_mm],
         ),
-        summary::Warning::Far { from_mm } => ("far", String::new(), vec![*from_mm]),
-        summary::Warning::Scale { x, y } => ("scale", String::new(), vec![*x, *y]),
-        summary::Warning::OutOfCourse { axis, excess_mm } => {
+        Warning::Far { from_mm } => ("far", String::new(), vec![*from_mm]),
+        Warning::Scale { x, y } => ("scale", String::new(), vec![*x, *y]),
+        Warning::OutOfCourse { axis, excess_mm } => {
             ("out_of_course", axis.letter().to_string(), vec![*excess_mm])
         }
     };
@@ -246,18 +248,18 @@ fn measure(
     count: usize,
 ) -> Result<(DryRunView, Vec<WorkWarning>), PlanError> {
     let course = settings.map_or(
-        dryrun::Course {
+        Course {
             x_mm: f64::INFINITY,
             y_mm: f64::INFINITY,
             z_mm: f64::INFINITY,
         },
-        dryrun::Course::from_settings,
+        Course::from_settings,
     );
     let dry = dryrun::run(items, geometry, &course, tuning.dry_run_margin_mm);
     let mut warnings = summary::check_work(bounds, count, settings, tuning);
-    let out = summary::course_warnings(&dry);
+    let out = course_warnings(&dry);
     if tuning.dry_run_reject {
-        if let Some(summary::Warning::OutOfCourse { axis, excess_mm }) = out.first() {
+        if let Some(Warning::OutOfCourse { axis, excess_mm }) = out.first() {
             return fail(
                 "outside_course",
                 format!(
