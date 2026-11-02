@@ -11,6 +11,7 @@ use std::sync::{Arc, Condvar, Mutex};
 
 use crate::plan::JobView;
 use crate::store;
+use crate::sync::Locked;
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -132,9 +133,11 @@ fn writer_loop(shared: Shared, list_path: PathBuf, requests_dir: PathBuf) {
     let (lock, cv) = &*shared;
     loop {
         let work = {
-            let mut p = lock.lock().expect("pending lock");
+            let mut p = lock.locked();
             while p.is_empty() && !p.stop {
-                p = cv.wait(p).expect("pending lock");
+                p = cv
+                    .wait(p)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
             }
             if p.is_empty() && p.stop {
                 return;
@@ -161,7 +164,7 @@ fn writer_loop(shared: Shared, list_path: PathBuf, requests_dir: PathBuf) {
         for id in &work.deletes {
             let _ = std::fs::remove_file(requests_dir.join(format!("{id}.json")));
         }
-        let mut p = lock.lock().expect("pending lock");
+        let mut p = lock.locked();
         p.busy = false;
         cv.notify_all();
     }
@@ -215,12 +218,7 @@ impl JobBook {
             handle: Some(handle),
         };
         if !migrate.is_empty() {
-            book.shared
-                .0
-                .lock()
-                .expect("pending lock")
-                .writes
-                .extend(migrate);
+            book.shared.0.locked().writes.extend(migrate);
             book.save();
         }
         Ok(book)
@@ -230,26 +228,23 @@ impl JobBook {
     fn save(&self) {
         let bytes = serde_json::to_vec(&self.jobs).unwrap_or_default();
         let (lock, cv) = &*self.shared;
-        lock.lock().expect("pending lock").list = Some(bytes);
+        lock.locked().list = Some(bytes);
         cv.notify_all();
     }
 
     /// Waits until everything handed to the writer is on the disk (the end of the server, and the tests).
     pub fn flush(&self) {
         let (lock, cv) = &*self.shared;
-        let mut p = lock.lock().expect("pending lock");
+        let mut p = lock.locked();
         while !p.is_empty() || p.busy {
-            p = cv.wait(p).expect("pending lock");
+            p = cv
+                .wait(p)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
     }
 
     fn queue_delete(&self, id: &str) {
-        self.shared
-            .0
-            .lock()
-            .expect("pending lock")
-            .deletes
-            .push(id.to_string());
+        self.shared.0.locked().deletes.push(id.to_string());
     }
 
     /// Where the request of a job is kept.
@@ -271,12 +266,7 @@ impl JobBook {
 
     pub fn add(&mut self, job: JobRecord) {
         let bytes = serde_json::to_vec(&job.request).unwrap_or_default();
-        self.shared
-            .0
-            .lock()
-            .expect("pending lock")
-            .writes
-            .push((job.id.clone(), bytes));
+        self.shared.0.locked().writes.push((job.id.clone(), bytes));
         self.jobs.push(job);
         // the oldest finished jobs go when the list is longer than it should be
         while self.jobs.len() > self.keep {
@@ -320,7 +310,7 @@ impl Drop for JobBook {
         self.flush();
         {
             let (lock, cv) = &*self.shared;
-            lock.lock().expect("pending lock").stop = true;
+            lock.locked().stop = true;
             cv.notify_all();
         }
         if let Some(h) = self.handle.take() {

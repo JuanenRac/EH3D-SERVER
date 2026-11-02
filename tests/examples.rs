@@ -224,6 +224,13 @@ async fn the_answers_of_the_jobs_the_fleet_and_the_spindle_match_the_examples_th
     let mut health = health;
     health["version"] = json!("0.0.0");
     example("health", health);
+    let (status, mut detail) = call(&s, Method::GET, "/api/v1/health", Some(&token), None).await;
+    assert_eq!(status, StatusCode::OK);
+    detail["version"] = json!("0.0.0");
+    detail["uptime_s"] = json!(0);
+    // the same whether or not the server was built with the serial port support
+    detail["features"]["serial"] = json!(false);
+    example("health_detail", detail);
 
     let (status, preview) = call(
         &s,

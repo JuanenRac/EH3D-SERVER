@@ -1,4 +1,6 @@
 {
+  "api_revision": 1,
   "name": "eh3d-server",
+  "status": "ok",
   "version": "0.0.0"
 }

@@ -23,6 +23,7 @@ use crate::jobs::{new_id, now, JobRecord, JobState};
 use crate::machines::{MachineError, MachineRecord};
 use crate::plan::{self, JobRequest};
 use crate::state::{AppState, PauseError, StartError};
+use crate::sync::Locked;
 
 pub type Shared = Arc<AppState>;
 
@@ -145,11 +146,7 @@ impl FromRequestParts<Shared> for Authed {
                 "send Authorization: Bearer <token>",
             )
         })?;
-        let who = state
-            .auth
-            .lock()
-            .expect("auth lock")
-            .identify(&token, now());
+        let who = state.auth.locked().identify(&token, now());
         match who {
             Some(who) => Ok(Authed(who, token)),
             None => Err(ApiError::new(
@@ -173,7 +170,7 @@ async fn local_until_setup(
             .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
             .map(|c| c.0.ip());
         if let Some(ip) = peer {
-            if !ip.is_loopback() && s.auth.lock().expect("auth lock").needs_setup() {
+            if !ip.is_loopback() && s.auth.locked().needs_setup() {
                 return ApiError::new(
                     StatusCode::FORBIDDEN,
                     "local_only",
@@ -270,12 +267,55 @@ pub fn router(state: Shared) -> Router {
 
 // ---- who is who -----------------------------------------------------------------------------------------------------------------------
 
-async fn health() -> Json<Value> {
-    Json(json!({ "name": "eh3d-server", "version": env!("CARGO_PKG_VERSION") }))
+/// The revision of the interface of this server (`docs/API.md`): it goes up when a request or an answer changes in a way a client has to know. A client that needs a
+/// newer revision than the one it finds can say so instead of failing on a field.
+pub const API_REVISION: u32 = 1;
+
+/// Whether the data folder takes a file: the thing that fails first on a full or read-only disk, which is when the jobs and the users can no longer be kept.
+fn storage_writable(dir: &std::path::Path) -> bool {
+    let probe = dir.join(".health-probe");
+    let ok = std::fs::write(&probe, b"ok").is_ok();
+    let _ = std::fs::remove_file(&probe);
+    ok
+}
+
+/// Open to anyone, so it says little: the name, the version, the revision of the interface and whether the server is well (`ok`) or not (`degraded`: its data folder does
+/// not take a file, or a thread panicked while it held a lock). Who is logged in also gets the uptime, the state of the storage and the features this build and these
+/// settings have.
+async fn health(State(s): State<Shared>, headers: axum::http::HeaderMap) -> Json<Value> {
+    let logged_in = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .is_some_and(|token| s.auth.locked().identify(token.trim(), now()).is_some());
+    let dir = s.cfg.data_dir.clone();
+    let writable = tokio::task::spawn_blocking(move || storage_writable(&dir))
+        .await
+        .unwrap_or(false);
+    let recovered = crate::sync::recovered();
+    let mut answer = json!({
+        "name": "eh3d-server",
+        "version": env!("CARGO_PKG_VERSION"),
+        "api_revision": API_REVISION,
+        "status": if writable && recovered == 0 { "ok" } else { "degraded" },
+    });
+    if logged_in {
+        answer["uptime_s"] = json!(s.started.elapsed().as_secs());
+        answer["storage"] = json!({ "writable": writable });
+        answer["recovered_locks"] = json!(recovered);
+        answer["features"] = json!({
+            "serial": cfg!(feature = "serial"),
+            "studio": s.cfg.studio_dir.is_some(),
+            "updates": s.updates.is_some(),
+            "url_token": s.cfg.url_token,
+            "local_until_setup": s.cfg.local_until_setup,
+        });
+    }
+    Json(answer)
 }
 
 async fn setup_status(State(s): State<Shared>) -> Json<Value> {
-    Json(json!({ "needed": s.auth.lock().expect("auth lock").needs_setup() }))
+    Json(json!({ "needed": s.auth.locked().needs_setup() }))
 }
 
 #[derive(Deserialize)]
@@ -287,14 +327,9 @@ struct SetupBody {
 
 async fn setup(State(s): State<Shared>, ApiJson(b): ApiJson<SetupBody>) -> ApiResult {
     // hashing a password takes a moment of work: not on the thread that serves the others
-    tokio::task::spawn_blocking(move || {
-        s.auth
-            .lock()
-            .expect("auth lock")
-            .setup(&b.code, &b.name, &b.password)
-    })
-    .await
-    .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))??;
+    tokio::task::spawn_blocking(move || s.auth.locked().setup(&b.code, &b.name, &b.password))
+        .await
+        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))??;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -313,10 +348,7 @@ async fn login(
     let ip = peer.map(|axum::extract::ConnectInfo(a)| a.ip());
     let name = b.name.clone();
     let (token, role, expires) = tokio::task::spawn_blocking(move || {
-        s.auth
-            .lock()
-            .expect("auth lock")
-            .login_from(&b.name, &b.password, now(), ip)
+        s.auth.locked().login_from(&b.name, &b.password, now(), ip)
     })
     .await
     .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))??;
@@ -326,7 +358,7 @@ async fn login(
 }
 
 async fn logout(State(s): State<Shared>, Authed(_, token): Authed) -> ApiResult {
-    s.auth.lock().expect("auth lock").logout(&token);
+    s.auth.locked().logout(&token);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -350,14 +382,9 @@ async fn change_password(
     if who.is_token {
         return Err(forbidden());
     }
-    tokio::task::spawn_blocking(move || {
-        s.auth
-            .lock()
-            .expect("auth lock")
-            .change_password(&who.name, &b.old, &b.new)
-    })
-    .await
-    .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))??;
+    tokio::task::spawn_blocking(move || s.auth.locked().change_password(&who.name, &b.old, &b.new))
+        .await
+        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))??;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -401,13 +428,7 @@ struct ApplyBody {
 
 /// The update and its undoing restart the server, which stops every running job: neither is done while one runs.
 fn no_job_running(s: &Shared) -> Result<(), ApiError> {
-    if s.jobs
-        .lock()
-        .expect("jobs lock")
-        .list()
-        .iter()
-        .any(|j| j.state.active())
-    {
+    if s.jobs.locked().list().iter().any(|j| j.state.active()) {
         return Err(ApiError::new(
             StatusCode::CONFLICT,
             "machines_busy",
@@ -457,8 +478,7 @@ async fn list_users(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResul
     need(&who, Role::Admin)?;
     let users: Vec<Value> = s
         .auth
-        .lock()
-        .expect("auth lock")
+        .locked()
         .users()
         .into_iter()
         .map(|(name, role, disabled)| json!({ "name": name, "role": role, "disabled": disabled }))
@@ -479,14 +499,9 @@ async fn add_user(
     ApiJson(b): ApiJson<NewUser>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
-    tokio::task::spawn_blocking(move || {
-        s.auth
-            .lock()
-            .expect("auth lock")
-            .add_user(&b.name, b.role, &b.password)
-    })
-    .await
-    .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))??;
+    tokio::task::spawn_blocking(move || s.auth.locked().add_user(&b.name, b.role, &b.password))
+        .await
+        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))??;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -505,12 +520,9 @@ async fn update_user(
 ) -> ApiResult {
     need(&who, Role::Admin)?;
     tokio::task::spawn_blocking(move || {
-        s.auth.lock().expect("auth lock").update_user(
-            &name,
-            b.role,
-            b.password.as_deref(),
-            b.disabled,
-        )
+        s.auth
+            .locked()
+            .update_user(&name, b.role, b.password.as_deref(), b.disabled)
     })
     .await
     .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))??;
@@ -523,7 +535,7 @@ async fn delete_user(
     Path(name): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
-    s.auth.lock().expect("auth lock").delete_user(&name)?;
+    s.auth.locked().delete_user(&name)?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -531,8 +543,7 @@ async fn list_tokens(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResu
     need(&who, Role::Admin)?;
     let tokens: Vec<Value> = s
         .auth
-        .lock()
-        .expect("auth lock")
+        .locked()
         .tokens()
         .iter()
         .map(|t| json!({ "id": t.id, "name": t.name, "role": t.role, "created": t.created }))
@@ -552,11 +563,7 @@ async fn add_token(
     ApiJson(b): ApiJson<NewToken>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
-    let (id, secret) = s
-        .auth
-        .lock()
-        .expect("auth lock")
-        .create_token(&b.name, b.role, now())?;
+    let (id, secret) = s.auth.locked().create_token(&b.name, b.role, now())?;
     // the secret is shown this once
     Ok(Json(json!({ "id": id, "token": secret })))
 }
@@ -567,7 +574,7 @@ async fn delete_token(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
-    s.auth.lock().expect("auth lock").delete_token(&id)?;
+    s.auth.locked().delete_token(&id)?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -577,8 +584,7 @@ async fn list_machines(State(s): State<Shared>, Authed(who, _): Authed) -> ApiRe
     need(&who, Role::Viewer)?;
     let list: Vec<Value> = s
         .machines
-        .lock()
-        .expect("machines lock")
+        .locked()
         .list()
         .iter()
         .map(MachineRecord::public)
@@ -589,8 +595,8 @@ async fn list_machines(State(s): State<Shared>, Authed(who, _): Authed) -> ApiRe
 /// Every machine with what it is doing, grouped by station: the one view a central screen needs to follow all of them at once.
 async fn fleet(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
     need(&who, Role::Viewer)?;
-    let machines = s.machines.lock().expect("machines lock");
-    let jobs = s.jobs.lock().expect("jobs lock");
+    let machines = s.machines.locked();
+    let jobs = s.jobs.locked();
     let mut list = Vec::new();
     let mut stations: Vec<(String, Vec<String>)> = Vec::new();
     let (mut idle, mut busy, mut waiting) = (0usize, 0usize, 0usize);
@@ -653,7 +659,7 @@ async fn add_machine(
 ) -> ApiResult {
     need(&who, Role::Admin)?;
     let shown = record.public();
-    s.machines.lock().expect("machines lock").add(record)?;
+    s.machines.locked().add(record)?;
     s.publish(json!({ "type": "machine", "id": shown["id"] }));
     Ok(Json(shown))
 }
@@ -664,7 +670,7 @@ async fn get_machine(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Viewer)?;
-    let machines = s.machines.lock().expect("machines lock");
+    let machines = s.machines.locked();
     machines
         .get(&id)
         .map(|m| Json(m.public()))
@@ -686,12 +692,7 @@ async fn put_machine(
         )
     })?;
     record.id = id;
-    if s.jobs
-        .lock()
-        .expect("jobs lock")
-        .active_on(&record.id)
-        .is_some()
-    {
+    if s.jobs.locked().active_on(&record.id).is_some() {
         return Err(ApiError::new(
             StatusCode::CONFLICT,
             "machine_busy",
@@ -699,7 +700,7 @@ async fn put_machine(
         ));
     }
     // a client that does not know about spindles must not undo what was set: what the request leaves out stays as it was
-    if let Some(old) = s.machines.lock().expect("machines lock").get(&record.id) {
+    if let Some(old) = s.machines.locked().get(&record.id) {
         let sent = |k: &str| body.get(k).is_some();
         if !sent("spindle") {
             record.spindle = old.spindle.clone();
@@ -718,7 +719,7 @@ async fn put_machine(
         }
     }
     let shown = record.public();
-    s.machines.lock().expect("machines lock").replace(record)?;
+    s.machines.locked().replace(record)?;
     s.publish(json!({ "type": "machine", "id": shown["id"] }));
     Ok(Json(shown))
 }
@@ -751,8 +752,7 @@ async fn spindle_put(
     need(&who, Role::Admin)?;
     let record = s
         .machines
-        .lock()
-        .expect("machines lock")
+        .locked()
         .edit(&id, |m| {
             if let Some(v) = b.spindle {
                 m.spindle = v;
@@ -788,14 +788,14 @@ async fn delete_machine(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
-    if s.jobs.lock().expect("jobs lock").active_on(&id).is_some() {
+    if s.jobs.locked().active_on(&id).is_some() {
         return Err(ApiError::new(
             StatusCode::CONFLICT,
             "machine_busy",
             "a job is running on this machine",
         ));
     }
-    s.machines.lock().expect("machines lock").remove(&id)?;
+    s.machines.locked().remove(&id)?;
     s.publish(json!({ "type": "machine", "id": id }));
     Ok(Json(json!({ "ok": true })))
 }
@@ -808,8 +808,7 @@ fn plan_error(e: plan::PlanError) -> ApiError {
 
 fn machine_of(s: &Shared, id: &str) -> Result<MachineRecord, ApiError> {
     s.machines
-        .lock()
-        .expect("machines lock")
+        .locked()
         .get(id)
         .cloned()
         .ok_or_else(|| MachineError::Unknown.into())
@@ -902,7 +901,7 @@ async fn make_job(
     };
     let shown = job.full();
     s.publish_job(&job);
-    s.jobs.lock().expect("jobs lock").add(job);
+    s.jobs.locked().add(job);
     Ok(shown)
 }
 
@@ -910,8 +909,7 @@ async fn make_job(
 fn stopped_job(s: &Shared, id: &str) -> Result<(JobRecord, MachineRecord), ApiError> {
     let job = s
         .jobs
-        .lock()
-        .expect("jobs lock")
+        .locked()
         .get(id)
         .cloned()
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "unknown_job", ""))?;
@@ -998,8 +996,7 @@ async fn job_request(
     need(&who, Role::Operator)?;
     let job = s
         .jobs
-        .lock()
-        .expect("jobs lock")
+        .locked()
         .get(&id)
         .cloned()
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "unknown_job", ""))?;
@@ -1078,7 +1075,7 @@ async fn list_jobs(
     Query(f): Query<JobFilter>,
 ) -> ApiResult {
     need(&who, Role::Viewer)?;
-    let jobs = s.jobs.lock().expect("jobs lock");
+    let jobs = s.jobs.locked();
     let list: Vec<Value> = jobs
         .list()
         .iter()
@@ -1103,7 +1100,7 @@ async fn get_job(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Viewer)?;
-    let jobs = s.jobs.lock().expect("jobs lock");
+    let jobs = s.jobs.locked();
     jobs.get(&id)
         .map(|j| Json(j.full()))
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "unknown_job", ""))
@@ -1121,7 +1118,7 @@ async fn start_job(
         .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))?;
     match result {
         Ok(id) => {
-            let jobs = s.jobs.lock().expect("jobs lock");
+            let jobs = s.jobs.locked();
             Ok(Json(
                 jobs.get(&id).map(JobRecord::summary).unwrap_or(Value::Null),
             ))
@@ -1240,7 +1237,7 @@ async fn delete_job(
 ) -> ApiResult {
     need(&who, Role::Operator)?;
     {
-        let mut jobs = s.jobs.lock().expect("jobs lock");
+        let mut jobs = s.jobs.locked();
         match jobs.get(&id) {
             None => return Err(ApiError::new(StatusCode::NOT_FOUND, "unknown_job", "")),
             Some(j) if j.state.active() => {
@@ -1549,10 +1546,7 @@ async fn inspect_run(
         })?;
     let mut shown = report.to_json();
     shown["at"] = json!(now());
-    s.inspections
-        .lock()
-        .expect("inspections lock")
-        .insert(id.clone(), shown.clone());
+    s.inspections.locked().insert(id.clone(), shown.clone());
     s.publish(json!({ "type": "inspection", "id": id, "verdict": shown["verdict"] }));
     Ok(Json(shown))
 }
@@ -1566,19 +1560,13 @@ async fn inspect_calibrate(
 ) -> ApiResult {
     need(&who, Role::Operator)?;
     machine_of(&s, &id)?;
-    let last = s
-        .inspections
-        .lock()
-        .expect("inspections lock")
-        .get(&id)
-        .cloned()
-        .ok_or_else(|| {
-            ApiError::new(
-                StatusCode::NOT_FOUND,
-                "no_inspection",
-                "check a hole first: the scale comes from its width",
-            )
-        })?;
+    let last = s.inspections.locked().get(&id).cloned().ok_or_else(|| {
+        ApiError::new(
+            StatusCode::NOT_FOUND,
+            "no_inspection",
+            "check a hole first: the scale comes from its width",
+        )
+    })?;
     let mut profile = inspect::load_profile(&s.cfg.data_dir, &id);
     let hole = last["holes"].as_array().and_then(|holes| {
         holes.iter().find(|h| {
@@ -1606,7 +1594,7 @@ async fn inspect_calibrate(
         )
     })?;
     // what was checked with the old scale is no longer the last check
-    s.inspections.lock().expect("inspections lock").remove(&id);
+    s.inspections.locked().remove(&id);
     Ok(Json(profile.to_json()))
 }
 
@@ -1618,7 +1606,7 @@ async fn inspect_last(
 ) -> ApiResult {
     need(&who, Role::Viewer)?;
     machine_of(&s, &id)?;
-    match s.inspections.lock().expect("inspections lock").get(&id) {
+    match s.inspections.locked().get(&id) {
         Some(v) => Ok(Json(v.clone())),
         None => Err(ApiError::new(
             StatusCode::NOT_FOUND,
@@ -1665,18 +1653,13 @@ struct TokenQuery {
 
 /// A ticket for the camera or the websocket: good for one use within half a minute, so that the address does not carry the token of the session.
 async fn make_ticket(State(s): State<Shared>, Authed(_who, token): Authed) -> ApiResult {
-    let ticket = s
-        .tickets
-        .lock()
-        .expect("tickets lock")
-        .issue(&token, now())
-        .ok_or_else(|| {
-            ApiError::new(
-                StatusCode::TOO_MANY_REQUESTS,
-                "throttled",
-                "too many tickets are waiting",
-            )
-        })?;
+    let ticket = s.tickets.locked().issue(&token, now()).ok_or_else(|| {
+        ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "throttled",
+            "too many tickets are waiting",
+        )
+    })?;
     Ok(Json(
         json!({ "ticket": ticket, "expires_s": crate::tickets::TICKET_SECONDS }),
     ))
@@ -1694,8 +1677,7 @@ fn identify_open(
         t
     } else if let Some(ticket) = &q.ticket {
         s.tickets
-            .lock()
-            .expect("tickets lock")
+            .locked()
             .redeem(ticket, now())
             .ok_or_else(|| unauthorized("the ticket is unknown, used or expired"))?
     } else if let (true, Some(t)) = (s.cfg.url_token, q.token.clone()) {
@@ -1707,8 +1689,7 @@ fn identify_open(
     };
     let who = s
         .auth
-        .lock()
-        .expect("auth lock")
+        .locked()
         .identify(&token, now())
         .ok_or_else(|| unauthorized(""))?;
     need(&who, Role::Viewer)?;
@@ -1736,7 +1717,7 @@ async fn relay(mut socket: WebSocket, s: Shared, token: String) {
     let mut recheck = tokio::time::interval(std::time::Duration::from_secs(RECHECK_SECS));
     recheck.tick().await;
     let hello = {
-        let jobs = s.jobs.lock().expect("jobs lock");
+        let jobs = s.jobs.locked();
         json!({ "type": "hello", "jobs": jobs.list().iter().map(JobRecord::summary).collect::<Vec<_>>() }).to_string()
     };
     if socket.send(Message::Text(hello)).await.is_err() {
@@ -1745,7 +1726,7 @@ async fn relay(mut socket: WebSocket, s: Shared, token: String) {
     loop {
         tokio::select! {
             _ = recheck.tick() => {
-                let alive = s.auth.lock().expect("auth lock").identify(&token, now());
+                let alive = s.auth.locked().identify(&token, now());
                 if !alive.is_some_and(|who| who.role >= Role::Viewer) {
                     return;
                 }

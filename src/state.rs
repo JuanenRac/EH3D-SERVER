@@ -17,9 +17,12 @@ use crate::gcode_run::{GState, GcodeRun, Hold};
 use crate::jobs::{now, JobBook, JobRecord, JobState, PauseView};
 use crate::machines::Machines;
 use crate::plan::{self, JobRequest};
+use crate::sync::Locked;
 
 pub struct AppState {
     pub cfg: ServerConfig,
+    /// When the server started (for the uptime the health check tells to those who are logged in).
+    pub started: std::time::Instant,
     pub auth: Mutex<Auth>,
     pub machines: Mutex<Machines>,
     pub jobs: Mutex<JobBook>,
@@ -71,6 +74,7 @@ impl AppState {
         });
         Ok(Arc::new(AppState {
             cfg,
+            started: std::time::Instant::now(),
             auth: Mutex::new(auth),
             machines: Mutex::new(machines),
             jobs: Mutex::new(jobs),
@@ -95,7 +99,7 @@ impl AppState {
     /// Starts a ready job on its machine: plans it again with the machine's constants of this moment, opens the link and runs.
     pub fn start_job(self: &Arc<Self>, id: &str) -> Result<(), StartError> {
         let (machine_id, request) = {
-            let jobs = self.jobs.lock().expect("jobs lock");
+            let jobs = self.jobs.locked();
             let job = jobs.get(id).ok_or(StartError::UnknownJob)?;
             if job.state != JobState::Ready {
                 return Err(StartError::NotReady);
@@ -107,8 +111,7 @@ impl AppState {
         };
         let machine = self
             .machines
-            .lock()
-            .expect("machines lock")
+            .locked()
             .get(&machine_id)
             .cloned()
             .ok_or(StartError::UnknownMachine)?;
@@ -127,7 +130,7 @@ impl AppState {
 
         // the job is marked running before the thread starts, under the same lock that checked the machine was free
         {
-            let mut jobs = self.jobs.lock().expect("jobs lock");
+            let mut jobs = self.jobs.locked();
             if jobs.active_on(&machine_id).is_some() {
                 return Err(StartError::MachineBusy);
             }
@@ -148,10 +151,7 @@ impl AppState {
             jobs.changed();
         }
         let run = Arc::new(RealRun::start(config, planned.items));
-        self.runs
-            .lock()
-            .expect("runs lock")
-            .insert(id.to_string(), run.clone());
+        self.runs.locked().insert(id.to_string(), run.clone());
         let state = Arc::clone(self);
         let job_id = id.to_string();
         std::thread::spawn(move || state.follow(&job_id, run, &hole_ends));
@@ -167,7 +167,7 @@ impl AppState {
         program: crate::gcode::Program,
     ) -> Result<(), StartError> {
         {
-            let mut jobs = self.jobs.lock().expect("jobs lock");
+            let mut jobs = self.jobs.locked();
             if jobs.active_on(&machine.id).is_some() {
                 return Err(StartError::MachineBusy);
             }
@@ -197,10 +197,7 @@ impl AppState {
             Duration::from_secs(self.cfg.gcode_finish_wait_s),
             self.cfg.grbl_timeouts(),
         );
-        self.gcode_runs
-            .lock()
-            .expect("gcode runs lock")
-            .insert(id.to_string(), run.clone());
+        self.gcode_runs.locked().insert(id.to_string(), run.clone());
         let state = Arc::clone(self);
         let job_id = id.to_string();
         std::thread::spawn(move || state.follow_gcode(&job_id, run));
@@ -235,7 +232,7 @@ impl AppState {
             let line = run.line();
             let now_view = (state, items_done, line, pause.clone(), message.clone());
             if last.as_ref() != Some(&now_view) {
-                let mut jobs = self.jobs.lock().expect("jobs lock");
+                let mut jobs = self.jobs.locked();
                 if let Some(job) = jobs.get_mut(id) {
                     job.state = state;
                     job.items_done = items_done;
@@ -259,8 +256,8 @@ impl AppState {
             }
             std::thread::sleep(Duration::from_millis(150));
         }
-        self.gcode_runs.lock().expect("gcode runs lock").remove(id);
-        self.jobs.lock().expect("jobs lock").changed();
+        self.gcode_runs.locked().remove(id);
+        self.jobs.locked().changed();
     }
 
     /// Holds a running G-code job where it is.
@@ -275,7 +272,7 @@ impl AppState {
 
     fn hold_or_resume(&self, id: &str, hold: bool) -> Result<(), PauseError> {
         let state = {
-            let jobs = self.jobs.lock().expect("jobs lock");
+            let jobs = self.jobs.locked();
             let job = jobs.get(id).ok_or(PauseError::UnknownJob)?;
             if job.kind != "gcode" {
                 return Err(PauseError::NotGcode);
@@ -290,7 +287,7 @@ impl AppState {
         if state != wanted {
             return Err(PauseError::NotInState);
         }
-        let runs = self.gcode_runs.lock().expect("gcode runs lock");
+        let runs = self.gcode_runs.locked();
         let run = runs.get(id).ok_or(PauseError::NotInState)?;
         if hold {
             run.pause();
@@ -340,7 +337,7 @@ impl AppState {
                 message.clone(),
             );
             if last.as_ref() != Some(&now_view) {
-                let mut jobs = self.jobs.lock().expect("jobs lock");
+                let mut jobs = self.jobs.locked();
                 if let Some(job) = jobs.get_mut(id) {
                     job.state = state;
                     job.items_done = items_done;
@@ -369,22 +366,17 @@ impl AppState {
             }
             std::thread::sleep(Duration::from_millis(150));
         }
-        self.runs.lock().expect("runs lock").remove(id);
-        self.jobs.lock().expect("jobs lock").changed();
+        self.runs.locked().remove(id);
+        self.jobs.locked().changed();
     }
 
     /// The operator answers the dialog the job is waiting at.
     pub fn confirm_job(&self, id: &str) -> bool {
         // the dialog of a G-code job is the hold: confirming it lets the job go on
-        if self
-            .gcode_runs
-            .lock()
-            .expect("gcode runs lock")
-            .contains_key(id)
-        {
+        if self.gcode_runs.locked().contains_key(id) {
             return self.resume_job(id).is_ok();
         }
-        match self.runs.lock().expect("runs lock").get(id) {
+        match self.runs.locked().get(id) {
             Some(run) => {
                 run.confirm();
                 true
@@ -395,15 +387,15 @@ impl AppState {
 
     /// Stops a running job (the machine stops with the drivers off); a job that is only ready is cancelled where it stands.
     pub fn cancel_job(&self, id: &str) -> bool {
-        if let Some(run) = self.gcode_runs.lock().expect("gcode runs lock").get(id) {
+        if let Some(run) = self.gcode_runs.locked().get(id) {
             run.cancel();
             return true;
         }
-        if let Some(run) = self.runs.lock().expect("runs lock").get(id) {
+        if let Some(run) = self.runs.locked().get(id) {
             run.cancel();
             return true;
         }
-        let mut jobs = self.jobs.lock().expect("jobs lock");
+        let mut jobs = self.jobs.locked();
         match jobs.get_mut(id) {
             Some(job) if job.state == JobState::Ready => {
                 job.state = JobState::Cancelled;
@@ -421,8 +413,7 @@ impl AppState {
     pub fn stop_machine(&self, machine: &str) -> Option<String> {
         let id = self
             .jobs
-            .lock()
-            .expect("jobs lock")
+            .locked()
             .active_on(machine)
             .map(|j| j.id.clone())?;
         self.cancel_job(&id);
@@ -431,20 +422,8 @@ impl AppState {
 
     /// Stops every running job: for the end of the server, which never leaves a machine moving on its own.
     pub fn stop_all(&self) {
-        let runs: Vec<Arc<RealRun>> = self
-            .runs
-            .lock()
-            .expect("runs lock")
-            .values()
-            .cloned()
-            .collect();
-        let gcode: Vec<Arc<GcodeRun>> = self
-            .gcode_runs
-            .lock()
-            .expect("gcode runs lock")
-            .values()
-            .cloned()
-            .collect();
+        let runs: Vec<Arc<RealRun>> = self.runs.locked().values().cloned().collect();
+        let gcode: Vec<Arc<GcodeRun>> = self.gcode_runs.locked().values().cloned().collect();
         for run in &runs {
             run.cancel();
         }

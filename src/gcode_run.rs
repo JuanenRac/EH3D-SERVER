@@ -13,6 +13,8 @@ use eh3d_controller::grbl::Timeouts;
 use eh3d_controller::sim::SimController;
 use eh3d_controller::{Command, Controller, State};
 
+use crate::sync::Locked;
+
 use crate::gcode::Entry;
 use crate::machines::Connection;
 
@@ -74,9 +76,7 @@ impl Shared {
     }
 
     fn set(&self, s: GState) {
-        if let Ok(mut g) = self.state.lock() {
-            *g = s;
-        }
+        *self.state.locked() = s;
     }
 }
 
@@ -119,9 +119,7 @@ fn open_grbl(
     let transport = SerialTransport::open(port, baud).map_err(|e| format!("{port}: {e}"))?;
     // the port is shared so that a stop can be written while the thread of the job waits for an answer
     let (link, handle) = crate::emergency::share(transport);
-    if let Ok(mut slot) = shared.emergency.lock() {
-        *slot = Some(Box::new(move || handle.stop()));
-    }
+    *shared.emergency.locked() = Some(Box::new(move || handle.stop()));
     Ok(Box::new(GrblController::new(link).with_timeouts(timeouts)))
 }
 
@@ -178,11 +176,7 @@ impl GcodeRun {
     }
 
     pub fn state(&self) -> GState {
-        self.shared
-            .state
-            .lock()
-            .map(|g| g.clone())
-            .unwrap_or(GState::Failed("internal error".into()))
+        self.shared.state.locked().clone()
     }
 
     /// How many lines of the program itself the controller has taken, and how many the program has.
@@ -224,9 +218,9 @@ impl GcodeRun {
         let sent = self
             .shared
             .emergency
-            .lock()
-            .ok()
-            .and_then(|slot| slot.as_ref().map(|stop| stop().is_ok()));
+            .locked()
+            .as_ref()
+            .map(|stop| stop().is_ok());
         if sent == Some(true) {
             self.shared.hard.store(true, Ordering::SeqCst);
         }
@@ -238,7 +232,7 @@ impl GcodeRun {
 
     /// Waits for the thread of the job to end (it has to have been cancelled or finished).
     pub fn join(&self) {
-        let handle = self.handle.lock().ok().and_then(|mut h| h.take());
+        let handle = self.handle.locked().take();
         if let Some(h) = handle {
             let _ = h.join();
         }

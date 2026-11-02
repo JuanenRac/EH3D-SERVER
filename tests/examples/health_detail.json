@@ -1,0 +1,18 @@
+{
+  "api_revision": 1,
+  "features": {
+    "local_until_setup": false,
+    "serial": false,
+    "studio": false,
+    "updates": false,
+    "url_token": false
+  },
+  "name": "eh3d-server",
+  "recovered_locks": 0,
+  "status": "ok",
+  "storage": {
+    "writable": true
+  },
+  "uptime_s": 0,
+  "version": "0.0.0"
+}

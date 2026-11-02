@@ -3014,3 +3014,38 @@ async fn the_stop_of_a_machine_ends_the_job_that_runs_on_it_whoever_asks_and_a_v
     assert_eq!(body["job"].as_str(), Some(id.as_str()));
     wait_for(&s, &operator, &id, &["cancelled"], false).await;
 }
+
+#[tokio::test]
+async fn the_health_check_says_little_to_everybody_and_more_to_who_is_logged_in() {
+    let s = server("health");
+    let (status, open) = call(&s, Method::GET, "/api/v1/health", None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(open["status"], "ok");
+    assert_eq!(open["api_revision"], eh3d_server::api::API_REVISION);
+    for key in ["uptime_s", "storage", "features", "recovered_locks"] {
+        assert!(open.get(key).is_none(), "{key} is for who is logged in");
+    }
+    // a token that is not valid is the same as none
+    let (_, wrong) = call(&s, Method::GET, "/api/v1/health", Some("nope"), None).await;
+    assert!(wrong.get("features").is_none());
+
+    let token = admin(&s).await;
+    let (_, full) = call(&s, Method::GET, "/api/v1/health", Some(&token), None).await;
+    assert_eq!(full["status"], "ok");
+    assert_eq!(full["storage"]["writable"], true);
+    assert_eq!(full["features"]["studio"], false);
+    assert_eq!(full["features"]["updates"], false);
+    assert_eq!(full["features"]["url_token"], false);
+    assert_eq!(full["features"]["serial"], cfg!(feature = "serial"));
+    assert!(full["uptime_s"].is_u64());
+}
+
+#[tokio::test]
+async fn a_data_folder_that_takes_no_file_makes_the_health_check_degraded() {
+    let s = server("health-degraded");
+    // the disk went away under the server
+    std::fs::remove_dir_all(&s.dir).unwrap();
+    let (status, body) = call(&s, Method::GET, "/api/v1/health", None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["status"], "degraded");
+}

@@ -6,7 +6,7 @@ Everything is under `/api/v1/` and answers JSON. A mistake is `{"error": "<code>
 
 | Request | Role | What it does |
 |---|---|---|
-| `GET /health` | none | `{"name":"eh3d-server","version":"..."}` |
+| `GET /health` | none | `{"name":"eh3d-server","version":"...","api_revision":1,"status":"ok"}`; `status` is `degraded` when the data folder takes no file or a lock was taken over after a panic. With a valid token also `uptime_s`, `storage` (`writable`), `recovered_locks` and `features` (`serial`, `studio`, `updates`, `url_token`, `local_until_setup`) |
 | `GET /setup` | none | `{"needed": true}` while there is no user |
 | `POST /setup` | none | `{"code","name","password"}`: makes the first administrator with the set-up code the server prints on its console |
 | `POST /login` | none | `{"name","password"}` gives `{"token","name","role","expires_s"}`; five wrong passwords block the name for a while (`429 throttled`) |

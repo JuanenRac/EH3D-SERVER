@@ -12,6 +12,8 @@ use std::time::{Duration, Instant};
 
 use eh3d_controller::grbl::LineTransport;
 
+use crate::sync::Locked;
+
 /// One turn of waiting for a line: how long the port is held before it is let go.
 const TURN: Duration = Duration::from_millis(25);
 
@@ -47,10 +49,8 @@ impl<T: LineTransport> StopHandle<T> {
     /// Writes the feed hold and the soft reset, and makes the thread that waits for an answer stop waiting.
     pub fn stop(&self) -> io::Result<()> {
         self.stopped.store(true, Ordering::SeqCst);
-        let mut port = self
-            .inner
-            .lock()
-            .map_err(|_| io::Error::other("the link is poisoned"))?;
+        // a stop must reach the machine even if a thread panicked while it held the link
+        let mut port = self.inner.locked();
         port.write_all(&REAL_TIME_STOP)
     }
 }
@@ -60,10 +60,7 @@ impl<T: LineTransport> LineTransport for SharedLink<T> {
         if self.stopped.load(Ordering::SeqCst) {
             return Err(io::Error::new(io::ErrorKind::Interrupted, "stopped"));
         }
-        self.inner
-            .lock()
-            .map_err(|_| io::Error::other("the link is poisoned"))?
-            .write_all(bytes)
+        self.inner.locked().write_all(bytes)
     }
 
     fn read_line(&mut self, timeout: Duration) -> io::Result<Option<String>> {
@@ -76,11 +73,7 @@ impl<T: LineTransport> LineTransport for SharedLink<T> {
             if left.is_zero() {
                 return Ok(None);
             }
-            let line = self
-                .inner
-                .lock()
-                .map_err(|_| io::Error::other("the link is poisoned"))?
-                .read_line(left.min(TURN))?;
+            let line = self.inner.locked().read_line(left.min(TURN))?;
             if line.is_some() {
                 return Ok(line);
             }

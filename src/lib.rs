@@ -17,5 +17,6 @@ pub mod plan;
 pub mod spindle;
 pub mod state;
 pub mod store;
+pub mod sync;
 pub mod tickets;
 pub mod updates;
