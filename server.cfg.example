@@ -1,6 +1,7 @@
 # EH3D-SERVER settings. Copy to server.cfg (or give another file with --config). Every key is optional; an unknown key is an error.
 #
 # Where the server listens. 18200 is its own port (ARMOR and HYDRA-UMC use others on the same machine).
+# Behind the HTTPS proxy of docs/DEPLOY.md listen only on this computer (127.0.0.1:18200) and set login_ip_limit = 0.
 listen = 0.0.0.0:18200
 # Where users, tokens, machines and jobs are kept. Back this folder up.
 data_dir = data

@@ -30,7 +30,7 @@
 |---|---|
 | 版本 | `0.0.9` |
 | 成熟度 | 脚手架 |
-| 测试 | 127 |
+| 测试 | 133 |
 | 技术栈 | Rust (axum, tokio) |
 | 真实硬件 | 否：已针对模拟器测试；尚未通过服务器在真实机床上运行过任何东西 |
 
@@ -45,7 +45,7 @@
 | 领域 | 状态 | 在这里的含义 |
 |---|---|---|
 | 软件 | 🟡 | Rust 服务器（axum）保存用户、机床和作业，使用 EH3D-DRILLPRO 和 EH3D-ROUTEPRO 的库规划钻孔和铣削作业，显示预览，并带有操作员对话框和停止功能地运行作业。 |
-| 测试 | 🟡 | 127 个测试通过（`cargo test`）：模块内 78 个，接口端到端 39 个，作业在模拟器上运行（`tests/api.rs` 32 个，使用真实程序的 `tests/programs.rs` 7 个）。 |
+| 测试 | 🟡 | 133 个测试通过（`cargo test`）：模块内 87 个，接口端到端 46 个，作业在模拟器上运行（`tests/api.rs` 35 个，使用真实程序的 `tests/programs.rs` 7 个）。 |
 | 面向客户端的接口（API） | 🟡 | REST 请求和 websocket 事件已写在 `docs/API.md` 中并被测试覆盖；目前只有程序自带的服务器连接在使用。 |
 | 客户端 | 🔴 | EH3D-STUDIO 在使用它（从未对真实机床试过）；Android 应用和机床旁的触摸面板尚不存在。 |
 | 安全 | 🟡 | 每个请求都需要带三种角色之一的令牌，密码是 Argon2 哈希，错误密码会被减速；服务器不终止 TLS（请在前面加 HTTPS），也未经独立审查。 |
@@ -90,6 +90,7 @@ EH3D-SERVER 是 EH3D 家族的中心：程序把作业发给它，它通过节�
 * **服务器停止时正在运行的作业会标记为失败：** 没人知道机床当时在哪里，所以不会自动恢复。
 * **可靠写入的文件：** 用户、令牌、机床和作业是 JSON 文件，通过临时文件写入，该文件在取代旧文件之前先刷入磁盘，之后再刷新所在文件夹；被替换的文件会作为 `<名称>.bak` 保留一份。损坏的文件仍然是错误，绝不会悄悄地从零重启，但如果副本完好，错误会指出它并说明如何恢复（把它复制到文件上）；副本绝不会自己被加载。
 * **来自 GitHub 的更新：** 设置 `updates_dir` 后，服务器向管理员提供检查自身和 EH3D-STUDIO 最新版本并更新的功能（`/api/v1/updates`）；由 systemd 启动的小型辅助程序（`deploy/eh3d-update.py`）负责下载、校验每个文件的 SHA-256、拒绝名称超出其文件夹的压缩包、替换已安装的文件夹（旧的保留为 `.previous`）并重启服务。已用替身替代 GitHub 和 systemd 测试过，从未在真实安装上运行。管理员还可以恢复上一次更新留下的版本，并清空更新历史。
+* **运行：** SIGTERM（`systemctl stop`）会先停止正在运行的机器，再按顺序停止服务器；systemd 单元已加固（`UMask=0077`、`dialout` 组、无主目录、无新权限）；`GET /api/v1/health` 给出版本、接口修订号以及 `ok` 或 `degraded`（磁盘已满或只读，或某次 panic 毒化了锁，服务器现在可以继续运行），已登录的用户会得到更多信息；夜间定时器备份数据文件夹（`deploy/eh3d-backup.py`）；`deploy/Caddyfile.example` 和 `docs/DEPLOY.md` 给出用 Caddy 实现 HTTPS 的方法。这些文件只作为文件测试过，从未在 CM5 上测试。
 * **经服务器访问钻头节点：** 当机床配置写明节点（`head_address`、`head_token`）时，服务器转发它的状态（`GET /api/v1/machines/:id/head/status`）、它的 MJPEG 摄像头（`.../head/stream`，浏览器可把令牌放在地址里）和一次工作台测量（`POST .../head/measure`，操作员），这样另一个网络里的程序用同一个登录就能访问。已用替身节点测试，从未对真实节点测试。
 * **通过钻头摄像头进行质量检查：** 服务器打开 LED 环形灯，从节点取一张图像，用工坊的分析器判断（每台机床的配置由服务器保存），让环形灯显示结果（绿色或红色闪烁），并保存最近一次检查，供机床旁的屏幕和手机显示：`GET/POST .../head/light`、`GET .../head/snapshot`、`POST/GET .../head/inspect`、`GET/PUT .../head/inspect/profile` 和 `POST .../head/inspect/calibrate`。
 * **机床的主轴：** `GET` 和 `PUT /api/v1/machines/:id/spindle` 说明机床装的是哪个主轴（`original` 或 `vfd`）及其限值（转速、切削进给、下刀进给、最粗的钻头）；要求超出的作业会被 `spindle_limit` 拒绝（安全开关 `guard` 默认为 `reject`；设为 `warn` 时作业通过，转速被削减到主轴最大值，每项超出列在 `spindle_warnings` 中）。
@@ -153,7 +154,7 @@ python -I tools/ci_validate.py
 
 ## 🧪 测试
 
-测试共 127 个（`cargo test`，CI 中在 Windows 和 Linux 上运行，COMMON, DRILLPRO 和 ROUTEPRO 检出在服务器旁）：模块内 85 个（设置及其范围、用户、角色、令牌、对错误密码的减速、文件和作业簿、规划），通过真实路由器的接口端到端 33 个（`tests/api.rs`），维护客户端所读响应示例的 2 个（`tests/examples.rs`），以及真实程序通过真实端口把作业发给真实服务器、机床使用模拟器的 7 个（`tests/programs.rs`）。CI 还运行 `cargo fmt --all --check`、将警告视为错误的 `cargo clippy` 和 `python -I tools/ci_validate.py`。这里没有任何东西针对真实节点或机床测试过。 负责更新的辅助程序另有 21 项自己的测试（`python -I tests/test_update_helper.py`，用替身替代 GitHub 和 systemd）。
+测试共 133 个（`cargo test`，CI 中在 Windows 和 Linux 上运行，COMMON, DRILLPRO 和 ROUTEPRO 检出在服务器旁）：模块内 87 个（设置及其范围、用户、角色、令牌、对错误密码的减速、文件和作业簿、规划），通过真实路由器的接口端到端 35 个（`tests/api.rs`），维护客户端所读响应示例的 2 个（`tests/examples.rs`），以及真实程序通过真实端口把作业发给真实服务器、机床使用模拟器的 7 个（`tests/programs.rs`）。CI 还运行 `cargo fmt --all --check`、将警告视为错误的 `cargo clippy` 和 `python -I tools/ci_validate.py`。这里没有任何东西针对真实节点或机床测试过。 负责更新的辅助程序另有 21 项自己的测试（`python -I tests/test_update_helper.py`，用替身替代 GitHub 和 systemd）。另有两个测试文件检查：使锁中毒的 panic 不会使服务器停止（`tests/poison.rs`），以及真实的二进制文件在收到 SIGTERM 时停止（`tests/sigterm.rs`，在 Linux 上）；备份和部署文件各有 7 个和 8 个自己的测试（`tests/test_backup.py`、`tests/test_deploy_files.py`）。
 
 ## 🏗️ 构建与发布
 
@@ -183,7 +184,7 @@ EH3D-SERVER/
 │   └── spindle.rs                               机床的主轴、其限值和安全开关
 ├── tests/                                       模拟器上的接口端到端测试，以及真实程序对真实服务器
 ├── docs/                                        API、运行服务器的指南和两张图的数据
-├── deploy/                                      服务的 systemd 单元
+├── deploy/                                      systemd 单元和服务的辅助程序
 ├── server.cfg.example                           为每个键附有说明的设置文件
 ├── tools/                                       CI 和 README 检查、脚本面板和绘图工具
 ├── images/                                      横幅图以及架构和仓库结构图片

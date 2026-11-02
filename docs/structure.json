@@ -301,14 +301,14 @@
       "rows": [
         {
           "desc": {
-            "en": "the systemd unit of the service",
-            "es": "la unidad de systemd del servicio",
-            "de": "die systemd-Unit des Dienstes",
-            "fr": "l'unité systemd du service",
-            "it": "l'unità systemd del servizio",
-            "ja": "サービスの systemd ユニット",
-            "zh": "服务的 systemd 单元",
-            "pt": "a unidade systemd do serviço"
+            "en": "the systemd units and the helpers of the service",
+            "es": "las unidades de systemd y los ayudantes del servicio",
+            "de": "die systemd-Units und Helfer des Dienstes",
+            "fr": "les unités systemd et les assistants du service",
+            "it": "le unità systemd e gli assistenti del servizio",
+            "ja": "systemd ユニットとサービスのヘルパー",
+            "zh": "systemd 单元和服务的辅助程序",
+            "pt": "as unidades systemd e os ajudantes do serviço"
           },
           "name": "deploy/"
         },

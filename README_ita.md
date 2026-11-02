@@ -30,7 +30,7 @@
 |---|---|
 | Versione | `0.0.9` |
 | Maturità | Impalcatura |
-| Test | 127 |
+| Test | 133 |
 | Stack tecnologico | Rust (axum, tokio) |
 | Su hardware reale | No: provato contro il simulatore; finora nulla è stato eseguito su una macchina reale tramite il server |
 
@@ -45,7 +45,7 @@ Ogni riga è una parte di questo repository e il semaforo dice a che punto è og
 | Area | Stato | Cosa significa qui |
 |---|---|---|
 | Software | 🟡 | Un server Rust (axum) tiene utenti, macchine e lavori, pianifica lavori di foratura e fresatura con le librerie di EH3D-DRILLPRO ed EH3D-ROUTEPRO, mostra un'anteprima ed esegue il lavoro con dialoghi dell'operatore e uno stop. |
-| Test | 🟡 | Passano 127 test (`cargo test`): 78 nei moduli e 39 sull'interfaccia end to end, con lavori sul simulatore (32 in `tests/api.rs`, 7 con i programmi reali in `tests/programs.rs`). |
+| Test | 🟡 | Passano 133 test (`cargo test`): 87 nei moduli e 46 sull'interfaccia end to end, con lavori sul simulatore (35 in `tests/api.rs`, 7 con i programmi reali in `tests/programs.rs`). |
 | Interfaccia per i client (API) | 🟡 | Le richieste REST e gli eventi websocket sono descritti in `docs/API.md` e coperti dai test; finora li usa solo la connessione al server dei programmi stessi. |
 | Client | 🔴 | EH3D-STUDIO lo usa (mai provato con una macchina reale); l'app Android e il pannello touch accanto alla macchina non esistono ancora. |
 | Sicurezza | 🟡 | Ogni richiesta richiede un token con uno di tre ruoli, le password sono hash Argon2 e le password sbagliate vengono rallentate; il server non termina il TLS (metti HTTPS davanti) e non ha avuto una revisione indipendente. |
@@ -90,6 +90,7 @@ Come si incastrano le parti di questo repository: chi lo usa, che cosa contiene 
 * **Un lavoro in corso quando il server si è fermato è segnato come fallito:** nessuno sa dov'era la macchina, quindi nulla riprende da solo.
 * **File durevoli:** utenti, token, macchine e lavori sono file JSON scritti tramite un file temporaneo che viene scaricato sul disco prima di sostituire il vecchio, e poi si scarica la cartella; il file sostituito viene conservato una volta come `<nome>.bak`. Un file danneggiato resta un errore, mai un riavvio silenzioso da zero, ma se la copia è buona l'errore la nomina e dice come recuperare (copiarla sopra il file); non viene mai caricata da sola.
 * **Aggiornamenti da GitHub:** con `updates_dir` il server offre a un amministratore il controllo delle ultime release di sé stesso e di EH3D-STUDIO e il loro aggiornamento (`/api/v1/updates`); un piccolo helper avviato da systemd (`deploy/eh3d-update.py`) scarica, verifica lo SHA-256 di ogni file, rifiuta un archivio con nomi fuori dalla sua cartella, sostituisce la cartella installata (la precedente resta come `.previous`) e riavvia il servizio. È stato provato con GitHub e systemd sostituiti da simulazioni, mai su un'installazione reale. Un amministratore può anche ripristinare la versione lasciata dall'ultimo aggiornamento e svuotare la cronologia degli aggiornamenti.
+* **Esercizio:** SIGTERM (`systemctl stop`) ferma le macchine in funzione e poi il server, in ordine; l'unità systemd è rinforzata (`UMask=0077`, gruppo `dialout`, nessuna cartella personale, nessun nuovo privilegio); `GET /api/v1/health` dà la versione, la revisione dell'interfaccia e `ok` o `degraded` (un disco pieno o in sola lettura, o un panic che ha avvelenato un lock, che ora il server supera), e di più a chi ha eseguito l'accesso; un timer notturno copia la cartella dei dati (`deploy/eh3d-backup.py`); `deploy/Caddyfile.example` e `docs/DEPLOY.md` danno HTTPS con Caddy. Questi file sono provati come file, mai sulla CM5.
 * **Il nodo della testa di foratura tramite il server:** quando la configurazione di una macchina nomina il nodo (`head_address`, `head_token`), il server inoltra il suo stato (`GET /api/v1/machines/:id/head/status`), la sua telecamera come MJPEG (`.../head/stream`, con il token nell'indirizzo per un browser) e una misura del tavolo (`POST .../head/measure`, operatore), così un programma su un'altra rete lo raggiunge con lo stesso accesso. Provato con un nodo simulato, mai con uno reale.
 * **Il controllo qualità con la telecamera della testa:** il server accende l'anello di LED, scatta una foto dal nodo, la giudica con l'analizzatore dell'officina (il profilo di ogni macchina è conservato dal server), fa dire all'anello com'è andata (verde, o rosso lampeggiante) e conserva l'ultimo controllo perché lo schermo accanto alla macchina e i telefoni lo mostrino: `GET/POST .../head/light`, `GET .../head/snapshot`, `POST/GET .../head/inspect`, `GET/PUT .../head/inspect/profile` e `POST .../head/inspect/calibrate`.
 * **Il mandrino della macchina:** `GET` e `PUT /api/v1/machines/:id/spindle` dicono quale mandrino porta la macchina (`original` o `vfd`) e i suoi limiti (giri, avanzamento di taglio, avanzamento di affondo, punta più grossa); un lavoro che chiede di più viene rifiutato con `spindle_limit` (l'interruttore di sicurezza `guard` è `reject` per impostazione predefinita; con `warn` il lavoro passa con i giri ridotti al massimo del mandrino e ogni eccesso elencato in `spindle_warnings`).
@@ -153,7 +154,7 @@ Avvialo con `run.bat` (Windows) o `./run.sh` (Linux); compila prima se serve. Fi
 
 ## 🧪 Test
 
-La suite ha 127 test (`cargo test`, eseguiti su Windows e Linux nella CI con COMMON, DRILLPRO e ROUTEPRO scaricati accanto al server): 85 nei moduli (impostazioni e loro intervalli, utenti, ruoli, token, il rallentamento sulle password sbagliate, i file e il registro dei lavori, la pianificazione), 33 sull'interfaccia end to end attraverso il vero router (`tests/api.rs`), 2 che mantengono gli esempi di risposte letti dai client (`tests/examples.rs`) e 7 con i programmi reali che inviano i loro lavori a un vero server su una vera porta, con la macchina sul simulatore (`tests/programs.rs`). La CI esegue anche `cargo fmt --all --check`, `cargo clippy` con gli avvisi come errori e `python -I tools/ci_validate.py`. Nulla di questo è stato provato contro un nodo o una macchina reali. L'helper che fa gli aggiornamenti ha altri 21 test propri (`python -I tests/test_update_helper.py`, con GitHub e systemd sostituiti da simulazioni).
+La suite ha 133 test (`cargo test`, eseguiti su Windows e Linux nella CI con COMMON, DRILLPRO e ROUTEPRO scaricati accanto al server): 87 nei moduli (impostazioni e loro intervalli, utenti, ruoli, token, il rallentamento sulle password sbagliate, i file e il registro dei lavori, la pianificazione), 35 sull'interfaccia end to end attraverso il vero router (`tests/api.rs`), 2 che mantengono gli esempi di risposte letti dai client (`tests/examples.rs`) e 7 con i programmi reali che inviano i loro lavori a un vero server su una vera porta, con la macchina sul simulatore (`tests/programs.rs`). La CI esegue anche `cargo fmt --all --check`, `cargo clippy` con gli avvisi come errori e `python -I tools/ci_validate.py`. Nulla di questo è stato provato contro un nodo o una macchina reali. L'helper che fa gli aggiornamenti ha altri 21 test propri (`python -I tests/test_update_helper.py`, con GitHub e systemd sostituiti da simulazioni). Altri due file di test verificano che un panic che avvelena un lock non fermi il server (`tests/poison.rs`) e che il binario reale si fermi con SIGTERM (`tests/sigterm.rs`, su Linux); la copia di sicurezza e i file della distribuzione hanno 7 e 8 test propri (`tests/test_backup.py`, `tests/test_deploy_files.py`).
 
 ## 🏗️ Compilazione e rilascio
 
@@ -183,7 +184,7 @@ EH3D-SERVER/
 │   └── spindle.rs                               il mandrino di una macchina, i suoi limiti e l'interruttore di sicurezza
 ├── tests/                                       l'interfaccia end to end sul simulatore e i programmi reali contro un vero server
 ├── docs/                                        l'API, la guida per eseguire il server e i dati delle due immagini
-├── deploy/                                      l'unità systemd del servizio
+├── deploy/                                      le unità systemd e gli assistenti del servizio
 ├── server.cfg.example                           il file delle impostazioni con ogni chiave spiegata
 ├── tools/                                       controllo della CI e del README, il pannello degli script e strumenti per le immagini
 ├── images/                                      banner e le immagini di Architettura e Struttura del repository

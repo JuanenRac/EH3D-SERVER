@@ -42,7 +42,34 @@ sudo install deploy/eh3d-server.service /etc/systemd/system/
 sudo systemctl enable --now eh3d-server
 ```
 
-The unit stops the running jobs when the service stops (the server stops the machines first), restarts the server if it dies, and keeps it from writing anywhere but its data folder.
+The unit stops the running jobs when the service stops (`systemctl stop` sends SIGTERM and the server stops the machines first, as it does on Ctrl-C; it has 15 seconds), restarts the server if it dies, and keeps it from writing anywhere but its data folder and the folder of the updates. It is also hardened: the files it writes can be read by its user only (`UMask=0077`), it belongs to the group `dialout` so it can open the serial ports of GRBL controllers, it cannot see the home folders, change the kernel, take new privileges or open sockets other than IP and unix ones. `PrivateDevices` is left off on purpose, because a controller on `/dev/ttyUSB0` is a device. If your system has no group `dialout`, change `SupplementaryGroups` to the group that owns the serial ports. A panic of one thread does not leave the server half dead: a lock that the panic left poisoned is taken over again and `GET /api/v1/health` says `degraded` from then on, which is the signal to look at the journal and restart.
+
+## HTTPS
+
+The server does not terminate TLS: put Caddy in front of it. With its own certificate authority (`tls internal`) it needs no domain and no internet, which fits a machine in a workshop. The file to copy is `deploy/Caddyfile.example`.
+
+1. In `server.cfg` make the server listen only on this computer, so that the only door from the network is the proxy: `listen = 127.0.0.1:18200`.
+2. Install Caddy (`sudo apt install caddy`), copy `deploy/Caddyfile.example` to `/etc/caddy/Caddyfile`, put the name or the address of the computer where it says `cm5.local`, and `sudo systemctl reload caddy`. Caddy makes its certificate authority the first time.
+3. Make the devices trust it: copy `/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt` to each device that opens the server and install it as a trusted authority (the browser, the phone). Open `https://cm5.local/`; the Studio, the API and the websocket of the events are all there.
+4. Close the old port to the network (the line of step 1 does it) and change the address in the programs and the apps from `http://cm5:18200` to `https://cm5.local`.
+
+Behind the proxy every connection reaches the server from `127.0.0.1`, so `login_ip_limit` (wrong passwords counted by address) would count all the people together: set `login_ip_limit = 0`; the slowdown of wrong passwords by name stays. The configuration is written down and checked by `tests/test_deploy_files.py`, but it has not been run on the CM5: nothing of this has been tested on a real installation.
+
+## Backups
+
+The data folder is the whole memory of the server. A systemd timer copies it every night to `/var/backups/eh3d-server` as one `.tar.gz` (readable by its owner only, checked by reading it back, the files that are being written left out) and keeps the newest 14:
+
+```bash
+sudo install -d -o eh3d -m 700 /var/backups/eh3d-server
+sudo install -d /usr/local/lib/eh3d
+sudo install deploy/eh3d-backup.py /usr/local/lib/eh3d/
+sudo install -m 644 deploy/backup.cfg.example /etc/eh3d-server/backup.cfg      # source, dest, keep
+sudo install deploy/eh3d-backup.service deploy/eh3d-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now eh3d-backup.timer
+sudo systemctl start eh3d-backup.service && ls -l /var/backups/eh3d-server       # one now, to see it works
+```
+
+To restore: stop the server, move the data folder aside, unpack a copy (`tar -xzf eh3d-data-....tar.gz -C /var/lib/eh3d-server --strip-components=1`), give it back to the user `eh3d` and start the server. The copies hold the password hashes and the tokens of the nodes: keep them as private as the data. A copy on the same disk does not protect against the disk: copy them elsewhere too. `python3 -I tests/test_backup.py` tests the script without systemd.
 
 ## The pages of Studio
 
@@ -50,9 +77,13 @@ The unit stops the running jobs when the service stops (the server stops the mac
 
 ## Safety of the deployment
 
-- The server is for the house or a VPN into it. It does not terminate TLS yet: put a reverse proxy with HTTPS in front before anything outside the network reaches it.
-- The data folder holds the users (Argon2 hashes), the tokens (SHA-256 hashes), the machines with the tokens of their nodes, and the jobs. Back it up and keep it private.
+- The server is for the house or a VPN into it. It does not terminate TLS: put the proxy of the HTTPS section in front before anything outside the network reaches it.
+- The data folder holds the users (Argon2 hashes), the tokens (SHA-256 hashes), the machines with the tokens of their nodes, and the jobs. Back it up (see Backups) and keep it private.
 - A job never starts by itself, and the node stops on its own when its link goes quiet (unless its setting for finishing a held job is on), so a crashed server does not leave a machine moving.
+
+## Health check
+
+`GET /api/v1/health` needs no login and says the name, the version, `api_revision` (the revision of the interface of `docs/API.md`) and `status`: `ok`, or `degraded` when the data folder does not take a file (a full or read-only disk) or a thread panicked while it held a lock. Whoever is logged in also gets `uptime_s`, `storage`, `recovered_locks` and `features` (serial port support, the Studio, the updates, `url_token`, `local_until_setup`). A monitor can poll it and alert on anything but `ok`.
 
 ## Updates from GitHub
 

@@ -30,7 +30,7 @@
 |---|---|
 | Versão | `0.0.9` |
 | Maturidade | Estrutura inicial |
-| Testes | 127 |
+| Testes | 133 |
 | Tecnologias | Rust (axum, tokio) |
 | Em hardware real | Não: testado contra o simulador; ainda nada correu numa máquina real através do servidor |
 
@@ -45,7 +45,7 @@ Cada linha é uma parte deste repositório e a luz diz até onde chega hoje. É 
 | Área | Estado | O que significa aqui |
 |---|---|---|
 | Software | 🟡 | Um servidor em Rust (axum) guarda utilizadores, máquinas e trabalhos, planeia trabalhos de furação e fresagem com as bibliotecas do EH3D-DRILLPRO e do EH3D-ROUTEPRO, mostra uma pré-visualização e executa o trabalho com diálogos de operador e uma paragem. |
-| Testes | 🟡 | Passam 127 testes (`cargo test`): 78 nos módulos e 39 sobre a interface de ponta a ponta, com trabalhos no simulador (32 em `tests/api.rs`, 7 com os programas reais em `tests/programs.rs`). |
+| Testes | 🟡 | Passam 133 testes (`cargo test`): 87 nos módulos e 46 sobre a interface de ponta a ponta, com trabalhos no simulador (35 em `tests/api.rs`, 7 com os programas reais em `tests/programs.rs`). |
 | Interface para clientes (API) | 🟡 | Os pedidos REST e os eventos websocket estão descritos em `docs/API.md` e cobertos pelos testes; até agora só a ligação ao servidor dos próprios programas os usa. |
 | Clientes | 🔴 | O EH3D-STUDIO usa-o (nunca experimentado com uma máquina real); a app Android e o painel tátil junto à máquina ainda não existem. |
 | Segurança | 🟡 | Cada pedido precisa de um token com um de três papéis, as palavras-passe são hashes Argon2 e as palavras-passe erradas são abrandadas; o servidor não termina TLS (ponha HTTPS à frente) e não teve revisão independente. |
@@ -90,6 +90,7 @@ Como as partes deste repositório se encaixam: quem o usa, o que contém e de qu
 * **Um trabalho que corria quando o servidor parou é marcado como falhado:** ninguém sabe onde estava a máquina, por isso nada retoma sozinho.
 * **Ficheiros duradouros:** os utilizadores, os tokens, as máquinas e os trabalhos são ficheiros JSON escritos através de um ficheiro temporário que é descarregado para o disco antes de substituir o antigo, e depois descarrega-se a pasta; o ficheiro substituído é guardado uma vez como `<nome>.bak`. Um ficheiro danificado continua a ser um erro, nunca um reinício silencioso do zero, mas se a cópia estiver boa o erro nomeia-a e diz como recuperar (copiá-la por cima do ficheiro); nunca é carregada sozinha.
 * **Atualizações a partir do GitHub:** com `updates_dir` o servidor oferece a um administrador a verificação das últimas versões de si próprio e do EH3D-STUDIO e a sua atualização (`/api/v1/updates`); um pequeno ajudante lançado pelo systemd (`deploy/eh3d-update.py`) descarrega, verifica o SHA-256 de cada ficheiro, recusa um arquivo com nomes fora da sua pasta, substitui a pasta instalada (a anterior fica como `.previous`) e reinicia o serviço. Foi testado com o GitHub e o systemd substituídos por simulações, nunca numa instalação real. Um administrador também pode repor a versão que a última atualização deixou para trás e limpar o histórico das atualizações.
+* **Operação:** o SIGTERM (`systemctl stop`) pára as máquinas em funcionamento e depois o servidor, por ordem; a unidade systemd está reforçada (`UMask=0077`, grupo `dialout`, sem pastas pessoais, sem novos privilégios); `GET /api/v1/health` dá a versão, a revisão da interface e `ok` ou `degraded` (um disco cheio ou só de leitura, ou um pânico que envenenou um bloqueio, o que o servidor agora supera), e mais a quem iniciou sessão; um temporizador noturno copia a pasta de dados (`deploy/eh3d-backup.py`); `deploy/Caddyfile.example` e `docs/DEPLOY.md` dão HTTPS com o Caddy. Estes ficheiros são testados como ficheiros, nunca na CM5.
 * **O nó da cabeça de furação através do servidor:** quando a configuração de uma máquina indica o nó (`head_address`, `head_token`), o servidor reencaminha o seu estado (`GET /api/v1/machines/:id/head/status`), a sua câmara como MJPEG (`.../head/stream`, com o token no endereço para um navegador) e uma medição da mesa (`POST .../head/measure`, operador), para que um programa noutra rede lhe chegue com o mesmo acesso. Testado com um nó simulado, nunca com um real.
 * **A verificação de qualidade com a câmara da cabeça:** o servidor liga o anel de LEDs, tira uma foto ao nó, julga-a com o analisador da oficina (o perfil de cada máquina é guardado pelo servidor), faz o anel dizer como correu (verde, ou vermelho a piscar) e guarda a última verificação para que o ecrã junto à máquina e os telemóveis a mostrem: `GET/POST .../head/light`, `GET .../head/snapshot`, `POST/GET .../head/inspect`, `GET/PUT .../head/inspect/profile` e `POST .../head/inspect/calibrate`.
 * **O fuso da máquina:** `GET` e `PUT /api/v1/machines/:id/spindle` dizem que fuso a máquina leva (`original` ou `vfd`) e os seus limites (rotações, avanço de corte, avanço de penetração, broca mais grossa); um trabalho que pede mais é recusado com `spindle_limit` (o interruptor de segurança `guard` é `reject` por omissão; com `warn` o trabalho passa com as rotações cortadas ao máximo do fuso e cada excesso listado em `spindle_warnings`).
@@ -153,7 +154,7 @@ Execute-o com `run.bat` (Windows) ou `./run.sh` (Linux); compila primeiro se for
 
 ## 🧪 Testes
 
-A suite tem 127 testes (`cargo test`, executados em Windows e Linux na CI com o COMMON, DRILLPRO e o ROUTEPRO descarregados junto ao servidor): 85 nos módulos (definições e as suas gamas, utilizadores, papéis, tokens, o abrandamento perante palavras-passe erradas, os ficheiros e o livro de trabalhos, o planeamento), 33 sobre a interface de ponta a ponta através do router real (`tests/api.rs`), 2 que mantêm os exemplos de respostas lidos pelos clientes (`tests/examples.rs`) e 7 com os programas reais a enviar os seus trabalhos a um servidor real numa porta real, com a máquina no simulador (`tests/programs.rs`). A CI executa também `cargo fmt --all --check`, `cargo clippy` com avisos como erros e `python -I tools/ci_validate.py`. Nada disto foi testado contra um nó ou uma máquina reais. O ajudante que faz as atualizações tem mais 21 testes próprios (`python -I tests/test_update_helper.py`, com o GitHub e o systemd substituídos por simulações).
+A suite tem 133 testes (`cargo test`, executados em Windows e Linux na CI com o COMMON, DRILLPRO e o ROUTEPRO descarregados junto ao servidor): 87 nos módulos (definições e as suas gamas, utilizadores, papéis, tokens, o abrandamento perante palavras-passe erradas, os ficheiros e o livro de trabalhos, o planeamento), 35 sobre a interface de ponta a ponta através do router real (`tests/api.rs`), 2 que mantêm os exemplos de respostas lidos pelos clientes (`tests/examples.rs`) e 7 com os programas reais a enviar os seus trabalhos a um servidor real numa porta real, com a máquina no simulador (`tests/programs.rs`). A CI executa também `cargo fmt --all --check`, `cargo clippy` com avisos como erros e `python -I tools/ci_validate.py`. Nada disto foi testado contra um nó ou uma máquina reais. O ajudante que faz as atualizações tem mais 21 testes próprios (`python -I tests/test_update_helper.py`, com o GitHub e o systemd substituídos por simulações). Mais dois ficheiros de testes verificam que um pânico que envenena um bloqueio não pára o servidor (`tests/poison.rs`) e que o binário real pára com SIGTERM (`tests/sigterm.rs`, em Linux); a cópia de segurança e os ficheiros da instalação têm 7 e 8 testes próprios (`tests/test_backup.py`, `tests/test_deploy_files.py`).
 
 ## 🏗️ Compilação e publicação
 
@@ -183,7 +184,7 @@ EH3D-SERVER/
 │   └── spindle.rs                               o fuso de uma máquina, os seus limites e o interruptor de segurança
 ├── tests/                                       a interface de ponta a ponta no simulador e os programas reais contra um servidor real
 ├── docs/                                        a API, o guia para executar o servidor e os dados das duas imagens
-├── deploy/                                      a unidade systemd do serviço
+├── deploy/                                      as unidades systemd e os ajudantes do serviço
 ├── server.cfg.example                           o ficheiro de definições com cada chave explicada
 ├── tools/                                       verificação da CI e do README, o painel dos scripts e ferramentas de imagens
 ├── images/                                      banner e as imagens de Arquitetura e Estrutura do repositório

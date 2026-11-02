@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **An orderly stop on SIGTERM too:** `systemctl stop` and containers send SIGTERM, and the server now stops the machines that are running and exits with a success status on it, as it does on Ctrl-C; the unit no longer needs `KillSignal=SIGINT`. `--version` prints the version. A test starts the real binary and sends it SIGTERM (systems with signals).
+- **A hardened unit:** `UMask=0077`, the group `dialout` for the serial ports, no home folders, no kernel or control-group changes, no new privileges, only IP and unix sockets; `tests/test_deploy_files.py` keeps the unit as the guide describes it.
+- **A health check that tells something:** `GET /api/v1/health` adds `api_revision` and `status` (`ok`, or `degraded` when the data folder takes no file or a lock was taken over after a panic); who is logged in also gets `uptime_s`, `storage`, `recovered_locks` and `features`. The anonymous answer stays small. Examples `health.json` and `health_detail.json`. 2 tests.
+- **A panic does not leave the server half dead:** the locks of the state are taken over when a thread panicked while holding one (they were poisoned and made every later request panic), the count is told by the health check, and the stop of a serial link works the same way. 2 tests.
+- **A smoke test of the binary in the release workflow:** `tools/smoke_binary.py` starts the built server on a free port, checks its health check against `--version` and stops it.
+- **A nightly backup of the data folder:** `deploy/eh3d-backup.py` with a systemd timer writes a `.tar.gz` (owner-only, read back to check it, files being written left out) and keeps the newest ones (`backup.cfg`: `source`, `dest`, `keep`); `docs/DEPLOY.md` explains the restore. 7 tests.
+- **A guide to HTTPS that can be copied:** `deploy/Caddyfile.example` (Caddy with its own certificate authority, the server listening only on 127.0.0.1) and the steps to trust the certificate; it says to turn `login_ip_limit` off behind the proxy.
+- **The tests of the helpers of the deployment run in the CI.**
+
 - **Examples of the answers, made by the tests:** `tests/examples/*.json` (session, health, preview, error, job, jobs, fleet, spindle and updates) are made from the real router, and the tests fail when a file is not what the server answers; `tools/sync_api_examples.py` copies them to the clients, which read them in their own tests.
 - **The last update can be undone:** `POST /api/v1/updates/undo` asks the helper to put back the version that the last update of a service left behind (the version installed takes its place, so doing it twice goes forward again); each component of `GET /api/v1/updates` says `can_undo` and, when the helper knows it, the `previous` version. The helper writes `previous.json`, marks what it installs with its version and restarts the server when it is the server that goes back; it refuses while a job is active. 6 tests.
 - **The history of the updates can be emptied:** `POST /api/v1/updates/clear-history` asks the helper to empty `history.json`; that request is not kept in the history it empties.
