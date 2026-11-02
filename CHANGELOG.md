@@ -3,6 +3,8 @@
 All notable changes to this project are documented here.
 
 ## [Unreleased]
+
+## [0.1.1] - Records, audit, error catalog and honest logins
 - **A log of the jobs on the disk:** `eh3d-jobs.log` in the data folder gets a line when a job starts (job, machine and how it is reached, who asked for it and who started it, a short hash and the size of the request, the holes or paths, the items, the estimate) and a line when it ends (result, message, how far it got, who stopped it, the real duration against the estimate), set aside at `log_max_kb`; `job_log` turns it off. 2 tests.
 - **One catalog of the error codes:** `src/errors.rs` lists every code the API answers with, its usual status and what it means; a test reads the source and fails when a code is used that the catalog lacks (or the catalog keeps one that is gone), writes `docs/error-codes.json` for the clients and checks that `docs/API.md` has a row for each. The Studio checks its texts against that file (`tools/sync_api_examples.py` copies it). 3 tests.
 - **An audit of who did what:** every login (also the failed ones, with the code and the address), set-up, logout, password change, job (create, start, confirm, pause, resume, cancel, delete, end), stop of a machine, change of machines, spindles, users and tokens, and update is a line `event=... who=... role=...` on the console and, with `audit_file`, in `audit.jsonl`; a job carries `started_by` and `stopped_by`. 1 test.
