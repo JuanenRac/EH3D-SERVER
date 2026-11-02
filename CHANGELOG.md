@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.1.0] - Operation, resuming and a dry run before moving a machine
+
 - **An orderly stop on SIGTERM too:** `systemctl stop` and containers send SIGTERM, and the server now stops the machines that are running and exits with a success status on it, as it does on Ctrl-C; the unit no longer needs `KillSignal=SIGINT`. `--version` prints the version. A test starts the real binary and sends it SIGTERM (systems with signals).
 - **A hardened unit:** `UMask=0077`, the group `dialout` for the serial ports, no home folders, no kernel or control-group changes, no new privileges, only IP and unix sockets; `tests/test_deploy_files.py` keeps the unit as the guide describes it.
 - **A health check that tells something:** `GET /api/v1/health` adds `api_revision` and `status` (`ok`, or `degraded` when the data folder takes no file or a lock was taken over after a panic); who is logged in also gets `uptime_s`, `storage`, `recovered_locks` and `features`. The anonymous answer stays small. Examples `health.json` and `health_detail.json`. 2 tests.
