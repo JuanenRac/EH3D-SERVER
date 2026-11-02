@@ -1,0 +1,14 @@
+# HTTPS for the EH3D server with Caddy and its own certificate authority (no domain and no internet needed). Install: see "HTTPS" in docs/DEPLOY.md.
+# Copy to /etc/caddy/Caddyfile, put the name or the address of the computer where `cm5.local` is, and `sudo systemctl reload caddy`.
+#
+# The server itself then listens only on this computer (listen = 127.0.0.1:18200 in server.cfg), so the only way in from the network is this door.
+cm5.local {
+	# a certificate made by the CA that Caddy creates on this computer; install its root certificate on the devices that open the server (see docs/DEPLOY.md)
+	tls internal
+
+	# the API, the websocket of the events and the pages of the Studio, all on the same address
+	reverse_proxy 127.0.0.1:18200 {
+		# the video of the cameras is a stream: send it as it comes instead of waiting for a full buffer
+		flush_interval -1
+	}
+}

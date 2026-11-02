@@ -20,6 +20,11 @@ jobs:
           python-version: "3.12"
       - name: Manifest, documentation and language parity
         run: python -I tools/ci_validate.py
+      - name: Tests of the helpers of the deployment (updates, backup, units)
+        run: |
+          python -I tests/test_update_helper.py
+          python -I tests/test_backup.py
+          python -I tests/test_deploy_files.py
       - name: Pictures of the README
         run: |
           python -I tools/make_architecture.py --check
