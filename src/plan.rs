@@ -13,7 +13,7 @@ use eh3d_drillpro::protocol::tuning::Tuning;
 use eh3d_drillpro::summary;
 use eh3d_drillpro::tools as drill_tools;
 use eh3d_routepro::hpgl::{self, Polyline, UNIT_MM};
-use eh3d_routepro::job::plan_route_job;
+use eh3d_routepro::job::plan_route_job_marked;
 use eh3d_routepro::tools as route_tools;
 use eh3d_summary::dryrun::Course;
 use eh3d_summary::summary::{course_warnings, Warning};
@@ -868,7 +868,8 @@ fn plan_route(machine: &MachineRecord, req: &RouteRequest) -> Result<Planned, Pl
     let spindle_warnings = spindle_verdict(&guard, excess)?;
     let board = settings.as_ref().map_or(1.6, |m| m.board_mm);
     let jm = job_machine(settings.as_ref(), geometry, &connection, board);
-    let items = plan_route_job(&paths, &tool_rows, &jm);
+    // the item that ends each path, so that a run tells how many paths are done from the item it has reached
+    let (items, path_ends) = plan_route_job_marked(&paths, &tool_rows, &jm, None);
 
     let mut length = 0.0;
     let view_paths: Vec<PathView> = paths
@@ -922,7 +923,7 @@ fn plan_route(machine: &MachineRecord, req: &RouteRequest) -> Result<Planned, Pl
         paths: view_paths,
         bounds_mm: bounds,
         items: items.len(),
-        hole_ends: Vec::new(),
+        hole_ends: path_ends,
         estimate_s: estimate_seconds(&items),
         travel_mm: length,
         skipped_tools: req.skip_tools.clone(),
@@ -1235,6 +1236,17 @@ mod tests {
         assert_eq!(v.bounds_mm, Some([10.0, 10.0, 40.0, 30.0]));
         assert_eq!(v.tools[0].depth_mm, Some(1.7));
         assert!(v.estimate_s > 1.0);
+    }
+
+    #[test]
+    fn a_routing_job_tells_the_item_that_ends_each_path() {
+        let json = r#"{"kind":"route","name":"two","tools":[{"number":1,"depth_mm":1.7,"iterations":2,"feed_xy_mm_min":800,"feed_z_mm_min":300,"spindle_rpm":24000}],
+            "paths":[{"pen":1,"points_mm":[[10,10],[40,10],[40,30]]},{"pen":1,"points_mm":[[50,10],[60,10]]}]}"#;
+        let planned = plan(&machine(), &serde_json::from_str(json).unwrap()).unwrap();
+        let ends = &planned.view.hole_ends;
+        assert_eq!(ends.len(), 2, "one end for each path");
+        assert!(ends[0] < ends[1] && ends[1] < planned.view.items);
+        assert!(ends[0] > 0, "the first path ends after it begins");
     }
 
     #[test]
