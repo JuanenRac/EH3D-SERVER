@@ -196,7 +196,7 @@ The server keeps files for the design programs and for the tasks. There are two 
 
 `validation` keeps the states apart and is never one flag: `intact` (the bytes are the ones whose hash the record carries; true), `readable`, `coherent`, `erc_drc_run`, `oracle_checked` and `physically_validated`, each `null` until something has established it. `audit.created_at` is metadata and is never part of the content.
 
-**Privacy.** An artifact is seen by its owner and the administrators; for anybody else it does not exist (`404 unknown_artifact`). Whether a blob exists is not a question anybody may ask about other people's files: `HEAD /blobs` answers about the bytes the caller can see, and the deduplication is invisible from outside (a caller that cannot see the blob sends the bytes, gets an artifact of its own, and the server keeps one copy). The audit and the logs say ids and hashes, never names, parameters or contents.
+**Privacy.** An artifact is seen by its owner and the administrators; for anybody else it does not exist (`404 unknown_artifact`). Whether a blob exists is not a question anybody may ask about other people's files: `HEAD /blobs/:sha256` answers about the bytes the caller can see, and the deduplication is invisible from outside (a caller that cannot see the blob sends the bytes, gets an artifact of its own, and the server keeps one copy). The audit and the logs say ids and hashes, never names, parameters or contents.
 
 **Uploads in parts.**
 
