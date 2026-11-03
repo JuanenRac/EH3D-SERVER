@@ -14,8 +14,10 @@ jobs:
     name: Validate the repository
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
       - name: Manifest, documentation and language parity
@@ -39,19 +41,23 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     steps:
       # the server uses the libraries of the programs, which have to be next to it
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          persist-credentials: false
           path: EH3D-SERVER
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          persist-credentials: false
           repository: JuanenRac/EH3D-COMMON
           path: EH3D-COMMON
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          persist-credentials: false
           repository: JuanenRac/EH3D-DRILLPRO
           path: EH3D-DRILLPRO
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          persist-credentials: false
           repository: JuanenRac/EH3D-ROUTEPRO
           path: EH3D-ROUTEPRO
       - name: Rust toolchain

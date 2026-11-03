@@ -13,6 +13,7 @@ permissions:
 jobs:
   package:
     name: ${{ matrix.label }}
+    if: github.actor == github.repository_owner && github.ref == 'refs/heads/main'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -23,7 +24,9 @@ jobs:
           - { os: windows-latest, label: windows-x86_64, ext: ".exe", archive: zip }
           - { os: macos-latest, label: macos-arm64, ext: "", archive: tar.gz }
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       - name: Check out the siblings (path dependencies)
         shell: bash
         run: |
@@ -36,24 +39,27 @@ jobs:
         run: cargo test --all-targets
       - name: Build
         run: cargo build --release --features serial
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
       - name: Smoke test of the binary (it starts, answers its health check and stops on SIGTERM)
-        run: python -I tools/smoke_binary.py target/release/eh3d-server${{ matrix.ext }}
+        run: python -I tools/smoke_binary.py target/release/eh3d-server${MATRIX_EXT}
+        shell: bash
+        env:
+          MATRIX_EXT: ${{ matrix.ext }}
       - name: Package
         shell: bash
         run: |
           set -euo pipefail
           version=$(python3 -c "import json;print(json.load(open('eh3d.project.json'))['version'])")
-          arch=$(echo "${{ matrix.label }}" | sed 's/^[a-z]*-//')
-          os=$(echo "${{ matrix.label }}" | sed 's/-.*//')
+          arch=$(echo "${MATRIX_LABEL}" | sed 's/^[a-z]*-//')
+          os=$(echo "${MATRIX_LABEL}" | sed 's/-.*//')
           name="eh3d-server-${version}-${os}-${arch}"
           mkdir -p dist "$name"
-          cp "target/release/eh3d-server${{ matrix.ext }}" "$name/"
+          cp "target/release/eh3d-server${MATRIX_EXT}" "$name/"
           cp LICENSE README.md CHANGELOG.md server.cfg.example "$name/"
           cp -r deploy "$name/deploy"
-          if [ "${{ matrix.archive }}" = "zip" ]; then
+          if [ "${MATRIX_ARCHIVE}" = "zip" ]; then
             7z a -tzip "dist/${name}.zip" "$name" >/dev/null
             asset="dist/${name}.zip"
           else
@@ -61,7 +67,11 @@ jobs:
             asset="dist/${name}.tar.gz"
           fi
           if command -v sha256sum >/dev/null; then sha256sum "$asset" | sed 's#dist/##' > "${asset}.sha256"; else shasum -a 256 "$asset" | sed 's#dist/##' > "${asset}.sha256"; fi
-      - uses: actions/upload-artifact@v5
+        env:
+          MATRIX_LABEL: ${{ matrix.label }}
+          MATRIX_EXT: ${{ matrix.ext }}
+          MATRIX_ARCHIVE: ${{ matrix.archive }}
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: eh3d-server-${{ matrix.label }}
           path: dist/*
