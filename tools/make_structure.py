@@ -4,6 +4,7 @@
 # Copyright (C) 2026 JuanenRac (Electro Hobby 3D)
 # GPL-3.0-or-later - see LICENSE
 # =============================================================================
+# canonical: EH3D-DOCS tools 1
 """Draws the Repository Structure of a repository from `docs/structure.json`.
 
     python tools/make_structure.py                  # writes images/repository-structure.svg (and the other languages when "svg": "all")
@@ -419,8 +420,8 @@ def run(root: Path, check: bool, readmes: bool, tree: str | None, langs: list[st
         for svg in svgs.values():
             K.validate_xml(svg)
         trees = {lang: render_tree(spec, lang) for lang in K.LANGUAGES}   # raises when a language lacks a description
-    except (SpecError, ValueError) as error:
-        print(f"STRUCTURE=FAIL {error}")
+    except (SpecError, ValueError, KeyError, IndexError, TypeError, AttributeError) as error:
+        print(f"STRUCTURE=FAIL the spec is malformed ({error.__class__.__name__}: {error})")
         return 1
     if check:
         problems = check_disk(spec, root)

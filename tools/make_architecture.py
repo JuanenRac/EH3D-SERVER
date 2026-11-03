@@ -4,6 +4,7 @@
 # Copyright (C) 2026 JuanenRac (Electro Hobby 3D)
 # GPL-3.0-or-later - see LICENSE
 # =============================================================================
+# canonical: EH3D-DOCS tools 1
 """Draws the Architecture picture of a repository from `docs/architecture.json`.
 
     python tools/make_architecture.py             # writes images/architecture.svg
@@ -107,6 +108,8 @@ def validate_spec(spec: dict) -> None:
         if node.get("level", "tested") not in LEVELS:
             raise SpecError(f"node '{node['id']}': level must be one of {', '.join(LEVELS)}")
         for line in node.get("lines", []):
+            if isinstance(line, list) and len(line) < 2:
+                raise SpecError(f"node '{node['id']}': a line given as a list needs [text, tone]")
             tone = line[1] if isinstance(line, list) else "primary"
             if tone not in TONES:
                 raise SpecError(f"node '{node['id']}': tone '{tone}' is not one of {', '.join(TONES)}")
@@ -390,6 +393,9 @@ def check_code_refs(spec: dict, root: Path) -> list[str]:
     for node in spec["nodes"]:
         for ref in node.get("code", []):
             path_part, _, needle = ref.partition("::")
+            if Path(path_part).is_absolute() or path_part.startswith(("/", chr(92))) or ".." in path_part.replace(chr(92), "/").split("/"):
+                problems.append(f"node '{node['id']}': {path_part} must be a path inside the repository")
+                continue
             target = root / path_part
             if not target.exists():
                 problems.append(f"node '{node['id']}' points to {path_part}, which does not exist")
@@ -409,8 +415,8 @@ def run(root: Path, check: bool, png: Path | None) -> int:
         spec = load_spec(spec_file)
         svg = build_svg(spec)
         K.validate_xml(svg)
-    except (SpecError, ValueError) as error:
-        print(f"ARCHITECTURE=FAIL {error}")
+    except (SpecError, ValueError, KeyError, IndexError, TypeError, AttributeError) as error:
+        print(f"ARCHITECTURE=FAIL the spec is malformed ({error.__class__.__name__}: {error})")
         return 1
     if check:
         problems = check_code_refs(spec, root)

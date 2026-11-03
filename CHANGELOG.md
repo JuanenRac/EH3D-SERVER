@@ -3,6 +3,7 @@
 All notable changes to this project are documented here.
 
 ## [Unreleased]
+- **Shared checks updated:** the validator also compares the badge and the Version row of the README with the manifest, fails when one of its checks cannot run, and the CHANGELOG step of the workflow reads the base branch from the environment.
 
 - **Artifacts, blobs and uploads:** the files of the design programs and of the tasks are kept as artifacts (`artifact_id`) apart from the bytes (`blob_sha256`, stored once). Upload in one request or in parts, download streamed, retention (`keep_while_referenced`, `pinned`, `keep_until`), a check of every blob against its hash, and limits in `server.cfg` (`artifact_store_gb`, `max_upload_mb`, `upload_ttl_s`, `uploads_per_user`, `artifact_unreferenced_days`).
 - **Projects with an owner and explicit sharing:** projects with revisions, shared one person or token at a time with `read` or `write`; what is not visible does not exist for the caller. `shares_enabled = false` switches sharing off; nothing is shared by default.

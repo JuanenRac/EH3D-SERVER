@@ -4,6 +4,7 @@
 # Copyright (C) 2026 JuanenRac (Electro Hobby 3D)
 # GPL-3.0-or-later - see LICENSE
 # =============================================================================
+# canonical: EH3D-DOCS tools 1
 """The drawing kit shared by make_architecture.py and make_structure.py.
 
 It holds what both generators need and nothing else: the palettes of the four
@@ -12,8 +13,8 @@ where every text was put and refuses a picture in which a text leaves its card
 or lies on top of another text, an XML check, and a screenshot of the picture
 made with Edge (a private profile, so a window of the person is never touched).
 
-This file is the canonical copy in ARMOR-COMMON; the other repositories carry a
-byte-for-byte copy that `sync_ci_tools.py --check` keeps from drifting.
+This file is the canonical copy in EH3D-DOCS; the other repositories carry a
+copy (with their own header) that `sync_shared_tools.py --check` keeps from drifting.
 """
 from __future__ import annotations
 

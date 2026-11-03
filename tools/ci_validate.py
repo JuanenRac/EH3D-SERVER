@@ -4,6 +4,7 @@
 # Copyright (C) 2026 JuanenRac (Electro Hobby 3D) <electrohobby3d@gmail.com>
 # GPL-3.0-or-later - see LICENSE
 # =============================================================================
+# canonical: EH3D-DOCS tools 4
 """The repository checks that CI runs besides cargo: manifest, versions, licence, changelog, the eight README files
 and the words that must never appear in public files. Prints CI_VALIDATION=PASS or FAIL with the reasons."""
 from __future__ import annotations
@@ -14,13 +15,26 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+TOOLS_VERSION = "4"  # raise it with every change of this file; the header of every copy says which one it holds
+DEFAULT_SKIP_DIRS = {"target", ".git"}  # folders the scan for forbidden words never enters; a repository adds its own in tools/ci_config.json
+MANIFEST_NAMES = ("eh3d.project.json", "electro-hobby-3d.project.json")  # the second one belongs to the updater of the whole family
 REQUIRED = ["schema_version", "ecosystem", "name", "version", "role", "stack", "technologies", "deployment_target",
             "maturity", "family", "parent", "build", "notes", "native_version"]
 LANGUAGES = {"README.md": "en", "README_spa.md": "es", "README_deu.md": "de", "README_fra.md": "fr",
              "README_ita.md": "it", "README_jpn.md": "ja", "README_zho.md": "zh", "README_por.md": "pt"}
 FORBIDDEN = re.compile(r"\b(claude|anthropic|sonnet)\b", re.IGNORECASE)
-TEXT_SUFFIXES = {".md", ".rs", ".toml", ".json", ".yml", ".yaml", ".py", ".txt", ".svg"}
-SKIPPED = {"target", ".git", "local-data", "re"}
+TEXT_SUFFIXES = {".md", ".rs", ".toml", ".json", ".yml", ".yaml", ".py", ".txt", ".svg", ".kt", ".kts", ".swift", ".qml", ".sh", ".bat", ".cmd",
+                 ".ps1", ".js", ".ts", ".html", ".css", ".c", ".h", ".cpp", ".hpp", ".ino", ".gradle", ".xml", ".cfg", ".ini", ".csv", ".tsv",
+                 ".plist", ".properties", ".cmake", ".in", ".lock"}  # compared in lower case
+
+
+BADGE_VERSION = re.compile(r"img\.shields\.io/badge/Version-(\d[\d.]*)-")
+ROW_VERSION = re.compile(r"(?m)^\|[^|\n`]*\|\s*`(\d+\.\d+\.\d+(?:\.\d+)?)`\s*\|\s*$")
+
+
+def readme_version_places(text: str) -> list[str]:
+    """The versions that the badge and the table row of a README state (a row whose only value is a version in code format)."""
+    return BADGE_VERSION.findall(text)[:1] + ROW_VERSION.findall(text)[:1]  # the first of each, as the bump tool reads them
 
 
 def headings(text: str) -> list[int]:
@@ -38,7 +52,11 @@ def headings(text: str) -> list[int]:
 BUILD_FOLDERS = {".compile", "build", "dist", "target", "node_modules", ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
                  "managed_components", ".gradle", ".cxx", ".idea", ".vscode"}
 PRIVATE_FOLDERS = {"local-data", "re", "secrets"}
-PRIVATE_FILES = re.compile(r"(^|/)(\.env(\.(?!example$).*)?|id_[a-z0-9]+|\.coverage|sdkconfig(\.old)?|Thumbs\.db|\.DS_Store)$|\.(pem|key|p12|pfx|jks|keystore|log|tmp|pyc)$", re.IGNORECASE)
+PRIVATE_FILES = re.compile(
+    r"(^|/)(\.env(\.(?!example$).*)?|id_[a-z0-9]+|\.coverage|sdkconfig(\.old)?|Thumbs\.db|\.DS_Store"
+    r"|keystore\.properties|local\.properties|\.netrc|_netrc|\.npmrc|\.pypirc|\.git-credentials|google-services\.json|GoogleService-Info\.plist"
+    r"|secrets?(\.[^/]*)?\.json|secrets?\.ya?ml)$"
+    r"|\.(pem|key|p8|p12|pfx|jks|keystore|der|ppk|log|tmp|pyc)$", re.IGNORECASE)
 MAX_TRACKED_BYTES = 1_500_000
 
 
@@ -48,8 +66,8 @@ def hygiene_problems() -> list[str]:
 
     try:
         out = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True).stdout
-    except (OSError, subprocess.CalledProcessError):
-        return []
+    except (OSError, subprocess.CalledProcessError) as error:
+        return [f"git ls-files failed ({error.__class__.__name__}): the check for private files cannot run, so it fails"]
     found: list[str] = []
     folders: dict[str, int] = {}
     for raw in out.split(b"\0"):
@@ -157,15 +175,53 @@ def tree_problems(tracked: list[str] | None = None) -> list[str]:
     return problems
 
 
-def _universal_readme_ci(root: Path) -> list[str]:
-    """The layout of the README (22 sections in a fixed order, in the eight languages): a warning until the family has migrated; see tools/universal_readme_check.py."""
-    try:
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        import universal_readme_check
-    except ImportError:
-        return []
-    return universal_readme_check.run_in_ci(root)
+def _run_check(root: Path, module: str, label: str) -> list[str]:
+    """Run `run_in_ci(root)` of a sibling tool. A tool that is missing or that does not import is a problem, never a silent pass
+    (a repository that really lacks one lists its name in "skip_checks" of tools/ci_config.json)."""
+    import importlib
 
+    config, _ = load_config(root)
+    if module in config.get("skip_checks", []):
+        return []
+    folder = Path(__file__).resolve().parent
+    if not (folder / f"{module}.py").is_file():
+        return [f"tools/{module}.py is missing, so the {label} check cannot run: run tools/sync_shared_tools.py --write"]
+    if str(folder) not in sys.path:
+        sys.path.insert(0, str(folder))
+    try:
+        tool = importlib.import_module(module)
+    except Exception as error:  # a broken tool must fail the validation, not skip it
+        return [f"tools/{module}.py does not import ({error.__class__.__name__}: {error}), so the {label} check cannot run"]
+    return tool.run_in_ci(root)
+
+
+def _universal_readme_ci(root: Path) -> list[str]:
+    """The layout of the README (22 sections in a fixed order, in the eight languages); see tools/universal_readme_check.py."""
+    return _run_check(root, "universal_readme_check", "README layout")
+
+
+def _status_lights_ci(root: Path) -> list[str]:
+    """The lights of the Project status table stay inside what the manifest (maturity, evidence) allows; see tools/status_lights.py."""
+    return _run_check(root, "status_lights", "status lights")
+
+
+def _banner_ci(root: Path) -> list[str]:
+    """The text of the banner agrees with the manifest (role, name, technologies); see tools/banner_check.py."""
+    return _run_check(root, "banner_check", "banner")
+
+
+def scan_files() -> list[Path]:
+    """The files the scan for forbidden words reads: the ones git tracks (what CI sees), so .venv, node_modules or dist never give a false alarm.
+
+    Outside a git checkout (a downloaded archive) it falls back to every file under the folder."""
+    import subprocess
+
+    try:
+        out = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return sorted(p for p in ROOT.rglob("*") if p.is_file())
+    names = [raw.decode("utf-8", "replace") for raw in out.split(b"\0") if raw]
+    return sorted(p for p in (ROOT / name for name in names) if p.is_file())
 
 
 def _depends_on_problems(root: Path, manifest: dict) -> list[str]:
@@ -185,28 +241,111 @@ def _depends_on_problems(root: Path, manifest: dict) -> list[str]:
     return out
 
 
-
-def _status_lights_ci(root: Path) -> list[str]:
-    """The lights of the Project status table stay inside what the manifest (maturity, evidence) allows; see tools/status_lights.py."""
+def load_config(root: Path) -> tuple[dict, list[str]]:
+    """The data of this repository (tools/ci_config.json, optional): {"skip_dirs": [...]} adds folders the scan for forbidden words skips."""
+    path = root / "tools" / "ci_config.json"
+    if not path.is_file():
+        return {}, []
     try:
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        import status_lights as lights_tool
-    except ImportError:
+        config = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as error:
+        return {}, [f"tools/ci_config.json is not valid JSON: {error}"]
+    if not isinstance(config, dict):
+        return {}, ["tools/ci_config.json must hold an object"]
+    for key in ("skip_dirs", "skip_checks"):
+        value = config.get(key, [])
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            return {}, [f"tools/ci_config.json: {key} must be a list of names"]
+    return config, []
+
+
+def skip_dirs(config: dict) -> set[str]:
+    return DEFAULT_SKIP_DIRS | set(config.get("skip_dirs", []))
+
+
+def header_version(text: str) -> str | None:
+    """The version in the `# canonical: EH3D-DOCS tools N` line of the header of a copy, or None when it has none."""
+    for line in text.replace("\r\n", "\n").split("\n"):
+        if not line.startswith("#"):
+            break
+        found = re.match(r"# canonical: EH3D-DOCS tools (\S+)\s*$", line)
+        if found:
+            return found.group(1)
+    return None
+
+
+def header_problems(path: Path | None = None) -> list[str]:
+    """The header of this file has to carry the same tools version as the code."""
+    path = path or Path(__file__).resolve()
+    stated = header_version(path.read_text(encoding="utf-8"))
+    if stated != TOOLS_VERSION:
+        return [f"{path.name} header says canonical tools {stated}, the code is {TOOLS_VERSION}: run tools/sync_shared_tools.py --write in EH3D-DOCS"]
+    return []
+
+
+def native_version(root: Path, native: dict) -> tuple[str, str]:
+    """The version the code of the repository declares, read where the manifest says (native_version.file and .pattern), and the name of that file.
+
+    The pattern can be one regex (its groups are joined with dots, empty ones left out) or an object with major/minor/patch(/build) regexes."""
+    name = native.get("file", "pyproject.toml")
+    try:
+        source = (root / name).read_text(encoding="utf-8", errors="replace")
+        pattern = native.get("pattern", r'(?m)^version\s*=\s*"([^"]+)"')
+        if isinstance(pattern, dict):
+            parts = []
+            for key in ("major", "minor", "patch", "build"):
+                if key in pattern and (found := re.search(pattern[key], source, re.MULTILINE)):
+                    parts.append(found.group(1))
+            return ".".join(parts) if len(parts) >= 3 else "?", name
+        match = re.search(pattern, source, re.MULTILINE)
+        return (".".join(group for group in match.groups() if group) if match else "?"), name
+    except (OSError, re.error):
+        return "?", name
+
+
+def project_yml_problems(root: Path, version: str) -> list[str]:
+    """An iOS project (project.yml): the marketing version is the one of the manifest and the bundle shows it, not a literal."""
+    path = root / "project.yml"
+    if not path.is_file():
         return []
-    return lights_tool.run_in_ci(root)
+    text = path.read_text(encoding="utf-8")
+    out = []
+    marketing = re.search(r'MARKETING_VERSION:\s*"([^"]+)"', text)
+    if not marketing or marketing.group(1) != version:
+        out.append(f"project.yml MARKETING_VERSION ({marketing.group(1) if marketing else 'none'}) is not the version {version}")
+    if 'CFBundleShortVersionString: "$(MARKETING_VERSION)"' not in text:
+        out.append("project.yml must give CFBundleShortVersionString as $(MARKETING_VERSION), not a literal")
+    return out
 
 
 def main() -> int:
-    problems: list[str] = []
-    manifest = json.loads((ROOT / "eh3d.project.json").read_text(encoding="utf-8"))
+    """Runs the checks; a file that is missing, not UTF-8 or not the JSON object it should be is a FAIL line, never a bare traceback."""
+    try:
+        return _main()
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        print(f"  FAIL a file the checks need cannot be read or has the wrong shape ({error.__class__.__name__}: {error})")
+        print(f"CI_VALIDATION=FAIL project=? version=? tools={TOOLS_VERSION}")
+        return 1
+
+
+def _main() -> int:
+    problems: list[str] = header_problems()
+    config, config_problems = load_config(ROOT)
+    problems.extend(config_problems)
+    skipped = skip_dirs(config)
+    manifest_name = next((name for name in MANIFEST_NAMES if (ROOT / name).is_file()), MANIFEST_NAMES[0])
+    manifest = json.loads((ROOT / manifest_name).read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError(f"{manifest_name} must hold a JSON object")
     for key in REQUIRED:
         if key not in manifest:
-            problems.append(f"eh3d.project.json lacks '{key}'")
+            problems.append(f"{manifest_name} lacks '{key}'")
     version = manifest.get("version", "?")
-    cargo = (ROOT / "Cargo.toml").read_text(encoding="utf-8")
-    match = re.search(r'(?m)^version\s*=\s*"([^"]+)"', cargo)
-    if not match or match.group(1) != version:
-        problems.append(f"Cargo.toml version {match.group(1) if match else '?'} differs from the manifest {version}")
+    native = manifest.get("native_version", {})
+    found, native_file = native_version(ROOT, native if isinstance(native, dict) else {})
+    if found != version:
+        problems.append(f"{native_file} version {found} differs from the manifest {version}")
+    problems.extend(project_yml_problems(ROOT, version))
     if manifest.get("name") != ROOT.name and ROOT.name.startswith("EH3D"):
         problems.append(f"the manifest name {manifest.get('name')} differs from the folder {ROOT.name}")
     if "GNU GENERAL PUBLIC LICENSE" not in (ROOT / "LICENSE").read_text(encoding="utf-8", errors="replace")[:200]:
@@ -232,11 +371,14 @@ def main() -> int:
             problems.append(f"{name} does not show the same lights as README.md in its 'Project status' table")
         if f"`{version}`" not in text:
             problems.append(f"{name} does not show the version {version}")
+        for stale in readme_version_places(text):
+            if stale != version:
+                problems.append(f"{name} shows the version {stale} in its badge or its Version row, the manifest says {version}")
         for other in LANGUAGES:
             if other != name and other not in text:
                 problems.append(f"{name} does not link to {other} in its language bar")
-    for path in ROOT.rglob("*"):
-        if not path.is_file() or SKIPPED & set(path.relative_to(ROOT).parts) or path.suffix not in TEXT_SUFFIXES:
+    for path in scan_files():
+        if skipped & set(path.relative_to(ROOT).parts) or path.suffix.lower() not in TEXT_SUFFIXES:
             continue
         if path.name == "ci_validate.py":
             continue
@@ -246,13 +388,14 @@ def main() -> int:
     problems.extend(tree_problems())
     problems.extend(_universal_readme_ci(ROOT))
     problems.extend(_status_lights_ci(ROOT))
+    problems.extend(_banner_ci(ROOT))
     problems.extend(_depends_on_problems(ROOT, manifest))
     if problems:
         for problem in problems:
             print("  FAIL", problem)
-        print(f"CI_VALIDATION=FAIL project={manifest.get('name')} version={version}")
+        print(f"CI_VALIDATION=FAIL project={manifest.get('name')} version={version} tools={TOOLS_VERSION}")
         return 1
-    print(f"CI_VALIDATION=PASS project={manifest.get('name')} version={version}")
+    print(f"CI_VALIDATION=PASS project={manifest.get('name')} version={version} tools={TOOLS_VERSION}")
     return 0
 
 
