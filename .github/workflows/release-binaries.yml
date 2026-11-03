@@ -6,14 +6,76 @@ name: Release binaries
 
 on:
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: build and check only, no draft release"
+        type: boolean
+        required: true
+        default: true
+      ref:
+        description: "Branch, tag or commit of this repository (it must be part of main)"
+        type: string
+        required: true
+        default: main
 
 permissions:
   contents: read
 
+# One build per ref at a time, and a running build is never cancelled by a newer one (a half-done dry_run=false would leave a draft release behind).
+concurrency:
+  group: release-binaries-${{ inputs.ref }}
+  cancel-in-progress: false
+
 jobs:
+  plan:
+    name: Plan the build
+    if: ${{ github.actor == github.repository_owner && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      sha: ${{ steps.plan.outputs.sha }}
+    steps:
+      - name: Check the inputs
+        shell: bash
+        env:
+          REF: ${{ inputs.ref }}
+          ACTOR: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          [ "$ACTOR" = "$OWNER" ] || { echo "::error::only the owner of the repository ($OWNER) may start this build, not $ACTOR"; exit 1; }
+          [[ "$REF" =~ ^[A-Za-z0-9._/-]{1,100}$ ]] || { echo "::error::the ref has characters that a branch, tag or commit does not have"; exit 1; }
+
+      - name: Check out this repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Make sure the commit belongs to the main branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          # only code that is already in main is built: a branch or a fork commit that is not in main is refused
+          git merge-base --is-ancestor HEAD refs/remotes/origin/main || { echo "::error::the commit $(git rev-parse --short HEAD) is not part of the main branch; merge it first"; exit 1; }
+
+      - name: Work out the version and pin the commit
+        id: plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(python3 -c "import json; print(json.load(open('eh3d.project.json', encoding='utf-8'))['version'])")"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || { echo "::error::the version $version is not a version x.y.z or x.y.z.w"; exit 1; }
+          grep -q "^## \[$version\]" CHANGELOG.md || { echo "::error::CHANGELOG.md has no section for $version (raise the version BEFORE the build)"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   package:
     name: ${{ matrix.label }}
-    if: github.actor == github.repository_owner && github.ref == 'refs/heads/main'
+    needs: plan
+    timeout-minutes: 90
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -27,6 +89,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+          ref: ${{ needs.plan.outputs.sha }}
       - name: Check out the siblings (path dependencies)
         shell: bash
         run: |
@@ -73,5 +136,253 @@ jobs:
           MATRIX_ARCHIVE: ${{ matrix.archive }}
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
-          name: eh3d-server-${{ matrix.label }}
+          name: parts-${{ matrix.label }}
           path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  collect:
+    name: Collect and attest
+    needs: [plan, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      SHA: ${{ needs.plan.outputs.sha }}
+    steps:
+      - name: Download the packages of every platform
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: parts-*
+          merge-multiple: true
+          path: files
+
+      - name: Write SHA256SUMS and the build manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd files
+          find . -maxdepth 1 -type f ! -name '*.sha256' -printf '%P\n' | LC_ALL=C sort | xargs sha256sum > SHA256SUMS
+          test -s SHA256SUMS
+          python3 - <<'PY'
+          import json, os
+          files = []
+          for line in open("SHA256SUMS", encoding="utf-8"):
+              digest, name = line.strip().split("  ", 1)
+              files.append({"name": name, "sha256": digest, "bytes": os.path.getsize(name)})
+          json.dump({
+              "schema": "eh3d-build/1", "repository": os.environ["GITHUB_REPOSITORY"], "project": "EH3D-SERVER", "version": os.environ["VERSION"],
+              "commit": os.environ["SHA"], "built_on": "github-actions", "run_id": os.environ["GITHUB_RUN_ID"],
+              "run_url": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              "signed": False, "files": files,
+          }, open("build-manifest.json", "w", encoding="utf-8"), indent=2)
+          PY
+          cat SHA256SUMS
+
+      - name: Attest the provenance of the files
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: files/*
+
+      - name: Upload the build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-server-${{ needs.plan.outputs.version }}
+          path: files/*
+          if-no-files-found: error
+          retention-days: 30
+
+  verify:
+    name: Verify the artifact as a stranger would
+    needs: [plan, collect]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      attestations: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download the build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-server-${{ needs.plan.outputs.version }}
+          path: build
+
+      - name: Check hashes, manifest and attestation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd build
+          sha256sum -c SHA256SUMS
+          python3 - <<'PY'
+          import json, os
+          manifest = json.load(open("build-manifest.json", encoding="utf-8"))
+          assert manifest["signed"] is False and manifest["files"], "unexpected manifest"
+          assert manifest["repository"] == os.environ["GITHUB_REPOSITORY"] and str(manifest["run_id"]) == os.environ["GITHUB_RUN_ID"], "the manifest is not of this run"
+          print("manifest ok:", manifest["project"], manifest["version"], len(manifest["files"]), "files")
+          PY
+          for file in *; do
+            gh attestation verify "$file" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-binaries.yml" --source-digest "$GITHUB_SHA" >/dev/null
+            echo "attestation ok: $file"
+          done
+
+  draft:
+    name: Prepare the draft release (needs the approval of the owner)
+    if: ${{ !inputs.dry_run && github.actor == github.repository_owner }}
+    needs: [plan, collect, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      SHA: ${{ needs.plan.outputs.sha }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      ACTOR: ${{ github.actor }}
+      OWNER: ${{ github.repository_owner }}
+    steps:
+      - name: Download the build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-server-${{ needs.plan.outputs.version }}
+          path: files
+
+      - name: Prepare the draft release with the unsigned files
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ "$ACTOR" = "$OWNER" ] || { echo "::error::only the owner may prepare a release"; exit 1; }
+          tag="v$VERSION"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::the release $tag already exists: raise the version before a new build"
+            exit 1
+          fi
+          gh release create "$tag" files/* --draft --target "$SHA" --title "${GITHUB_REPOSITORY#*/} $VERSION (unsigned build)" \
+            --notes "Unsigned build made by GitHub Actions. It is checked and published by the owner; do not install these files before that."
+          echo "- draft release \`$tag\` prepared with the unsigned files" >> "$GITHUB_STEP_SUMMARY"
+
+  notify:
+    name: Tell the owner (issue build-failed)
+    if: ${{ always() && github.actor == github.repository_owner }}
+    needs: [plan, package, collect, verify, draft]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+      actions: read
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      NEEDS: ${{ toJSON(needs) }}
+      REF: ${{ inputs.ref }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Open, update or close the issue build-failed
+        id: report
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, subprocess, sys
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          run_id = os.environ["GITHUB_RUN_ID"]
+          run_url = os.environ["RUN_URL"]
+          summary = os.environ["GITHUB_STEP_SUMMARY"]
+          order = ["plan", "package", "collect", "verify", "draft"]
+
+
+          def gh(*args, check=True):
+              result = subprocess.run(["gh", *args], capture_output=True, text=True)
+              if check and result.returncode != 0:
+                  raise RuntimeError("gh " + " ".join(args[:3]) + " failed: " + result.stderr.strip()[:300])
+              return result.stdout
+
+
+          def write_summary(text):
+              with open(summary, "a", encoding="utf-8") as handle:
+                  handle.write(text + "\n")
+
+
+          try:
+              needs = json.loads(os.environ["NEEDS"])
+              results = {name: needs.get(name, {}).get("result", "missing") for name in order}
+              if os.environ.get("DRY_RUN") == "true" and results.get("draft") == "skipped":
+                  results["draft"] = "success"  # a dry run makes no draft on purpose
+              bad = {name: result for name, result in results.items() if result != "success"}
+              number = gh("issue", "list", "--repo", repo, "--label", "build-failed", "--state", "open", "--json", "number", "--jq", ".[0].number // empty").strip()
+              if bad:
+                  # what the API knows about each job: conclusion (failure, cancelled, timed_out, skipped), failed step, reason
+                  jobs = json.loads(gh("api", f"repos/{repo}/actions/runs/{run_id}/jobs?per_page=100"))["jobs"]
+                  lines = []
+                  causes = 0
+                  for job in jobs:
+                      if job["name"].startswith("Tell the owner"):
+                          continue
+                      conclusion = job.get("conclusion") or job.get("status")
+                      if conclusion in ("success", "skipped") and not any(s.get("conclusion") in ("failure", "cancelled", "timed_out") for s in job.get("steps", [])):
+                          continue
+                      step = next((s["name"] for s in job.get("steps", []) if s.get("conclusion") in ("failure", "cancelled", "timed_out")), None)
+                      reason = ""
+                      if conclusion != "skipped":
+                          causes += 1
+                          annotations = gh("api", f"repos/{repo}/check-runs/{job['id']}/annotations", check=False)
+                          try:
+                              messages = [a["message"] for a in json.loads(annotations or "[]") if a.get("annotation_level") in ("failure", "error")]
+                          except ValueError:
+                              messages = []
+                          if messages:
+                              reason = messages[0].strip().splitlines()[0][:300]
+                      what = {"failure": "failed", "cancelled": "was cancelled", "timed_out": "ran out of time", "skipped": "was skipped because an earlier job did not pass"}.get(conclusion, "ended as " + str(conclusion))
+                      line = f"- **{job['name']}** {what}"
+                      if step:
+                          line += f" (step: {step})"
+                      if reason:
+                          line += f": {reason}"
+                      line += f" - {job['html_url']}"
+                      lines.append(line)
+                  if causes == 0:
+                      lines.append("- no job reports a failure, but these ended without success: " + ", ".join(f"{n}={r}" for n, r in bad.items()) + " (a job was skipped without an earlier failure)")
+                  body = "\n".join([
+                      "The release build did not finish correctly.",
+                      "",
+                      f"Run: {run_url}",
+                      f"Ref: `{os.environ.get('REF', '')}`, dry run: {os.environ.get('DRY_RUN', '')}",
+                      "Results: " + ", ".join(f"{n}={r}" for n, r in results.items()),
+                      "",
+                      *lines,
+                      "",
+                      "Open the run, read the log of the job above, fix the cause and start the workflow again; a later good build closes this issue.",
+                  ])
+                  write_summary("### The build did not finish correctly\n" + "\n".join(lines))
+                  if number:
+                      gh("issue", "comment", number, "--repo", repo, "--body", body)
+                  else:
+                      gh("label", "create", "build-failed", "--repo", repo, "--color", "B60205", "--description", "A build in GitHub Actions failed", check=False)
+                      gh("issue", "create", "--repo", repo, "--label", "build-failed", "--title", "Release build failed", "--body", body)
+                  print("::error::the release build did not finish correctly: " + ", ".join(f"{n}={r}" for n, r in bad.items()) + " - " + run_url)
+              else:
+                  write_summary("### The build passed")
+                  if number:
+                      gh("issue", "close", number, "--repo", repo, "--comment", f"A later build passed: {run_url}")
+          except Exception as error:  # the report itself failed: say so loudly, with the cause
+              text = f"{type(error).__name__}: {error}"
+              print(f"::error::the notify job could not report the state of the build ({text}). Check the run by hand: {run_url}")
+              write_summary(f"### The notify job failed\n\nIt could not open, update or close the issue build-failed.\n\nCause: `{text}`\n\nRun: {run_url}")
+              sys.exit(1)
+          PY
+
+      - name: Say it if this notify job itself failed
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          echo "::error::the notify job failed before it could report the build; open the run and read its summary: $RUN_URL"
+          echo "### The notify job failed, so the issue build-failed may be missing. Read the log above. Run: $RUN_URL" >> "$GITHUB_STEP_SUMMARY"

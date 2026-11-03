@@ -3,6 +3,7 @@
 All notable changes to this project are documented here.
 
 ## [Unreleased]
+- **Release builds are checked and attested:** `release-binaries.yml` takes the owner's go-ahead only (a manual start from main, the commit must be part of main), builds the same packages as before, writes `SHA256SUMS` and a build manifest, attests their provenance, verifies the artifact as a stranger would, prepares a draft release of unsigned files only after the owner approves it (a dry run is the default) and opens an issue `build-failed` when anything does not finish.
 - **Shared checks updated:** the validator also compares the badge and the Version row of the README with the manifest, fails when one of its checks cannot run, and the CHANGELOG step of the workflow reads the base branch from the environment.
 
 - **Artifacts, blobs and uploads:** the files of the design programs and of the tasks are kept as artifacts (`artifact_id`) apart from the bytes (`blob_sha256`, stored once). Upload in one request or in parts, download streamed, retention (`keep_while_referenced`, `pinned`, `keep_until`), a check of every blob against its hash, and limits in `server.cfg` (`artifact_store_gb`, `max_upload_mb`, `upload_ttl_s`, `uploads_per_user`, `artifact_unreferenced_days`).
