@@ -1,0 +1,54 @@
+# =============================================================================
+# EH3D Fabrication Suite - Hardware validation form
+# Copyright (C) 2026 JuanenRac (Electro Hobby 3D) <electrohobby3d@gmail.com>
+# GPL-3.0-or-later - see LICENSE.md
+# =============================================================================
+name: Hardware validation result
+description: Record a controlled test of the server with a node, a controller or a machine.
+title: "[Hardware]: "
+labels: ["status: needs hardware to verify"]
+body:
+  - type: input
+    id: repository
+    attributes:
+      label: Affected repository
+      placeholder: EH3D-SERVER
+    validations:
+      required: true
+  - type: dropdown
+    id: target
+    attributes:
+      label: Validation target
+      options: [CM5/Raspberry Pi OS, EH3D node, GRBL controller, CNC/laser/PnP/3D machine, Other]
+    validations:
+      required: true
+  - type: dropdown
+    id: machine
+    attributes:
+      label: Machine
+      description: The machine the test ran on. Choose Simulator when no real machine was involved.
+      options: [Bungard CCD, GRBL machine, Other machine, Simulator]
+    validations:
+      required: true
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Safe test configuration
+      description: Hardware revision, software version, wiring state and safety boundary. Do not publish Wi-Fi credentials, tokens, serial numbers or private network addresses.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Observed result and evidence
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Physical safety declaration
+      options:
+        - label: Emergency-stop and local safety procedures were available for this test.
+          required: true
+        - label: This report does not claim a simulated result as physical validation.
+          required: true
