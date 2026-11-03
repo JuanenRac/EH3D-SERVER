@@ -60,6 +60,11 @@
     "status": 422
   },
   {
+    "code": "bad_params",
+    "description": "The parameters of a task do not fit its engine, are not an object, or the idempotency key is not valid.",
+    "status": 422
+  },
+  {
     "code": "bad_path",
     "description": "A point of a path has a coordinate that is not a number.",
     "status": 422
@@ -115,6 +120,11 @@
     "status": 422
   },
   {
+    "code": "engine_missing",
+    "description": "The kind of task is known but this build has no engine for it.",
+    "status": 422
+  },
+  {
     "code": "forbidden",
     "description": "The role of the caller is not enough for this request.",
     "status": 403
@@ -128,6 +138,11 @@
     "code": "head_unreachable",
     "description": "The node of the drill head does not answer.",
     "status": 502
+  },
+  {
+    "code": "idempotency_conflict",
+    "description": "The idempotency key was already used by this caller for a request with another body.",
+    "status": 409
   },
   {
     "code": "internal",
@@ -180,6 +195,11 @@
     "status": 404
   },
   {
+    "code": "no_project",
+    "description": "The artifact a task works on does not exist or cannot be seen.",
+    "status": 422
+  },
+  {
     "code": "no_work",
     "description": "The job has no holes, no paths and no lines to run.",
     "status": 422
@@ -225,6 +245,16 @@
     "status": 422
   },
   {
+    "code": "queue_full",
+    "description": "As many tasks are waiting or running as the server accepts (max_tasks).",
+    "status": 429
+  },
+  {
+    "code": "quota",
+    "description": "The caller already has as many tasks waiting or running as one user may (tasks_per_user).",
+    "status": 429
+  },
+  {
     "code": "spindle_limit",
     "description": "The job asks for more than the spindle of the machine gives (the machine's switch is on reject).",
     "status": 422
@@ -238,6 +268,16 @@
     "code": "store",
     "description": "The inspection profile could not be saved.",
     "status": 500
+  },
+  {
+    "code": "task_active",
+    "description": "The task has not finished: cancel it first.",
+    "status": 409
+  },
+  {
+    "code": "tasks_off",
+    "description": "The computing tasks are switched off on this server (tasks_enabled).",
+    "status": 501
   },
   {
     "code": "throttled",
@@ -265,8 +305,18 @@
     "status": 404
   },
   {
+    "code": "unknown_kind",
+    "description": "There is no such kind of task.",
+    "status": 422
+  },
+  {
     "code": "unknown_machine",
     "description": "There is no machine with this id.",
+    "status": 404
+  },
+  {
+    "code": "unknown_task",
+    "description": "There is no task with this id, or it belongs to somebody else.",
     "status": 404
   },
   {

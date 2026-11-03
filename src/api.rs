@@ -34,7 +34,7 @@ pub struct ApiError {
 }
 
 impl ApiError {
-    fn new(status: StatusCode, code: &'static str, detail: impl Into<String>) -> Self {
+    pub(crate) fn new(status: StatusCode, code: &'static str, detail: impl Into<String>) -> Self {
         ApiError {
             status,
             code,
@@ -109,7 +109,7 @@ impl From<MachineError> for ApiError {
     }
 }
 
-type ApiResult = Result<Json<Value>, ApiError>;
+pub(crate) type ApiResult = Result<Json<Value>, ApiError>;
 
 fn forbidden() -> ApiError {
     ApiError::new(
@@ -160,13 +160,13 @@ pub fn forwarded_ip(
 }
 
 /// Tells the audit that `who` did something (and, in `more`, to what).
-fn note(s: &Shared, event: &str, who: &Identity, more: &[(&str, &str)]) {
+pub(crate) fn note(s: &Shared, event: &str, who: &Identity, more: &[(&str, &str)]) {
     let mut fields: Vec<(&str, &str)> = vec![("who", who.name.as_str()), ("role", who.role.name())];
     fields.extend_from_slice(more);
     s.audit.event(event, &fields);
 }
 
-fn need(who: &Identity, role: Role) -> Result<(), ApiError> {
+pub(crate) fn need(who: &Identity, role: Role) -> Result<(), ApiError> {
     if who.role >= role {
         Ok(())
     } else {
@@ -295,6 +295,7 @@ pub fn router(state: Shared) -> Router {
         .route("/api/v1/updates/undo", post(updates_undo))
         .route("/api/v1/updates/clear-history", post(updates_clear_history))
         .route("/api/v1/events", get(events))
+        .merge(crate::api_tasks::routes())
         .layer(DefaultBodyLimit::max(limit))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -1914,8 +1915,8 @@ async fn events(
     Query(q): Query<TokenQuery>,
     ws: WebSocketUpgrade,
 ) -> Result<Response, ApiError> {
-    let (_who, token) = identify_open(&s, &parts, &q)?;
-    Ok(ws.on_upgrade(move |socket| relay(socket, s, token)))
+    let (who, token) = identify_open(&s, &parts, &q)?;
+    Ok(ws.on_upgrade(move |socket| relay(socket, s, token, who)))
 }
 
 /// How often the websocket asks again whether its session is still good.
@@ -1926,8 +1927,9 @@ pub fn resync_message(missed: u64) -> String {
     json!({ "type": "resync", "missed": missed }).to_string()
 }
 
-async fn relay(mut socket: WebSocket, s: Shared, token: String) {
+async fn relay(mut socket: WebSocket, s: Shared, token: String, mut who: Identity) {
     let mut rx = s.events.subscribe();
+    let mut scoped = s.scoped.subscribe();
     // a session that ends (logout, expiry, a user taken off) ends the flow too
     let mut recheck = tokio::time::interval(std::time::Duration::from_secs(RECHECK_SECS));
     recheck.tick().await;
@@ -1946,9 +1948,9 @@ async fn relay(mut socket: WebSocket, s: Shared, token: String) {
     loop {
         tokio::select! {
             _ = recheck.tick() => {
-                let alive = s.auth.locked().identify(&token, now());
-                if !alive.is_some_and(|who| who.role >= Role::Viewer) {
-                    return;
+                match s.auth.locked().identify(&token, now()) {
+                    Some(now_who) if now_who.role >= Role::Viewer => who = now_who,
+                    _ => return,
                 }
             },
             _ = ping.tick() => {
@@ -1961,6 +1963,16 @@ async fn relay(mut socket: WebSocket, s: Shared, token: String) {
             },
             event = rx.recv() => match event {
                 Ok(text) => { if socket.send(Message::Text(text)).await.is_err() { return; } }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
+                    if socket.send(Message::Text(resync_message(missed))).await.is_err() { return; }
+                }
+                Err(_) => return,
+            },
+            event = scoped.recv() => match event {
+                // only the events of the things this client may see are sent; the rest are not even counted as missed
+                Ok(event) => {
+                    if event.audience.includes(&who) && socket.send(Message::Text(event.text)).await.is_err() { return; }
+                }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(missed)) => {
                     if socket.send(Message::Text(resync_message(missed))).await.is_err() { return; }
                 }

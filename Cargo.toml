@@ -34,6 +34,7 @@ eh3d-drillpro = { version = ">=0.1.0", path = "../EH3D-DRILLPRO" }
 eh3d-routepro = { version = ">=0.1.0", path = "../EH3D-ROUTEPRO" }
 eh3d-summary = { version = ">=0.0.1", path = "../EH3D-COMMON/crates/summary" }
 eh3d-inspect = { version = ">=0.0.1", path = "../EH3D-COMMON/crates/inspect" }
+eh3d-diagnostic = { version = ">=0.0.1", path = "../EH3D-COMMON/crates/diagnostic" }
 eh3d-controller = { version = ">=0.0.1", path = "../EH3D-COMMON/crates/controller" }
 
 [dev-dependencies]

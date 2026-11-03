@@ -156,6 +156,29 @@ A machine carries one of two spindles, `original` (the one it leaves the factory
 
 With a spindle chosen, the planning (the preview, the creation of a job and its start) judges each tool the job uses: the turns above the top of the spindle (`rpm_above_max`) or, when not zero, below the slowest (`rpm_below_min`), the feed along the cut of a routing job (`feed_xy_above_max`) and the plunge of a routing job or the feed of a drilling job (`feed_z_above_max`). With the switch on `reject` (the default) a job with any excess is refused with `422 spindle_limit`, the detail saying which tool and by how much; with `warn` it goes through, the turns are cut to the top of the spindle (that is what the node is sent) and the view lists the excesses in `spindle_warnings` (`code`, `tool`, `value`, `limit`).
 
+## Tasks
+
+A **task** is work for the computer: checking a design, making the files for a factory, running a simulation. It has **no effect on any machine**, ever, and it may start by itself according to the queue and the limits; a **job** (above) moves a machine and never starts by itself. The two families do not meet: a finished task changes no job, and the code of the tasks does not name machines, connections or jobs (a test reads the source and fails if it does). Running the engines in a process of their own, without even the memory of the connections, is the next layer and is not done yet. All of this is under `/api/v1/tasks` and can be switched off with `tasks_enabled = false` (every request answers `501 tasks_off`).
+
+| Request | Role | What it does |
+|---|---|---|
+| `GET /tasks/kinds` | viewer | `{"kinds":[{"kind","available","version"}]}`: the kinds of the design suite (`phoenix.import`, `phoenix.check`, `phoenix.export.fab`, `phoenix.route.auto`, `phoenix.library.sanitize`, `phoenix.verify`, `phoenix.passport.build`, `phoenix.sim.spice`, `phoenix.sim.thermal`, `phoenix.sim.rf`, `phoenix.ai.assist`) with whether this build has an engine for each. No engine of the suite is in the server yet, so none is available; with `tasks_selftest = true` the engine `server.selftest` is (it counts steps, can be asked to fail and gives the SHA-256 of a text: it exists to exercise the task system) |
+| `POST /tasks` | operator | `{"kind","name"?,"params"?,"project"?,"idempotency_key"?}` gives `201` and the task. `name` is the kind when it is left out (1 to 80 characters, no control characters, else `422 bad_name`). `params` is an object (`422 bad_params` otherwise or when the engine does not accept it; `422 too_big` over `task_params_kb`). `project` is the id of the artifact the task works on; this build keeps no artifacts yet, so naming one answers `422 no_project` |
+| `GET /tasks?state=&kind=` | viewer | the tasks the caller may see, newest first |
+| `GET /tasks/:id` | viewer | one task, with its result |
+| `POST /tasks/:id/cancel` | operator (owner or admin) | `{"accepted","task"}`. A queued task is cancelled at once; a running one is told to stop and ends `cancelled` with no result (what it was writing is discarded); a task that had already finished answers `accepted: false` and is not changed |
+| `DELETE /tasks/:id` | operator (owner or admin) | removes a finished task; `409 task_active` while it waits or runs |
+
+A task: `{"id":"t-<uuid v7>","kind","name","owner","state","created","started","finished","progress":{"done","total","unit"},"message","result","engine":{"version"}}`. The states are `queued`, `running`, `done`, `failed` and `cancelled`. The `result` of a finished task is `{"artifacts":[],"diagnostics":[...],"data":{}}`; a diagnostic is the common form of the suite (`code`, `severity`, `message`, and the optional `line`, `location`, `category`, `recoverability`, `args`). The codes of the task system itself are `EH3D-TASK-001` (a task asked to fail, the self-test), `EH3D-TASK-002` (longer than `task_timeout_s`), `EH3D-TASK-004` (the server restarted while it ran) and `EH3D-TASK-005` (the engine failed unexpectedly).
+
+**Who sees what.** Every task has an owner: the user who made it, or the program token (`token:<id>`: two tokens with the same name are two owners). The owner and the administrators see it; for anybody else it does not exist: reading, cancelling or deleting it answers `404 unknown_task`, the same as for an id that was never made, and it is not in their list.
+
+**The queue.** At most `max_concurrent_tasks` run at the same time, the rest wait in the order they came. The limits refuse before the task exists: `429 queue_full` (`max_tasks` waiting or running, all users), `429 quota` (`tasks_per_user` of one user), `422 too_big` (`task_params_kb`), `422 unknown_kind`, `422 engine_missing`. A task that runs longer than `task_timeout_s` is stopped and fails with `EH3D-TASK-002`. After a restart the queued tasks stay queued and go on, and the task that was running is `failed` with the message `interrupted by restart`; it may be sent again. The newest `keep_tasks` finished tasks are kept.
+
+**Sending the same request twice.** With an `idempotency_key` (1 to 128 printable characters), a second request of the same caller with the same key and the same body (the parameters in any order) answers `201` with the first task, whether it is still there waiting or already done; the same key with another body answers `409 idempotency_conflict`. The key is remembered for `idempotency_ttl_s` (a day) and is the key of whoever sent it: another caller may use the same text for something else.
+
+**Events.** The websocket sends `{"type":"task","task":{...}}` when a task is made, starts, moves on or ends, and `{"type":"task_removed","id":"..."}` when one is removed, **only to the clients that may see the task** (its owner and the administrators), the removal too.
+
 ## What happens, as it happens
 
 `GET /events?ticket=<ticket>` upgrades to a websocket (a browser cannot set headers on one, so the address carries a ticket from `POST /tickets`; `Authorization: Bearer` works too, and `?token=` only with `url_token = true`). The server asks every 30 seconds whether the session is still good and closes the websocket when it is not. It also sends a ping every `events_ping_s` seconds (30) and closes a connection that has sent nothing at all, a pong included, for `events_idle_s` seconds (90), so a phone that left the Wi-Fi does not hold a place for ever. A client that read more slowly than the events came (the channel holds 256) is told `{"type":"resync","missed":N}`: it asks for the fleet and the jobs again, because it lost some. The first text is `{"type":"hello","jobs":[...]}` with the summaries of the jobs; after it every change arrives as `{"type":"job","job":{...}}`, `{"type":"job_removed","id":"..."}` or `{"type":"machine","id":"..."}`.
@@ -178,6 +201,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `bad_light` | 422 | The query of the ring of LEDs of the drill head is not valid. |
 | `bad_name` | 422 | A name is empty, too long or has characters that are not allowed. |
 | `bad_ncd` | 422 | The drilling file does not read. |
+| `bad_params` | 422 | The parameters of a task do not fit its engine, are not an object, or the idempotency key is not valid. |
 | `bad_path` | 422 | A point of a path has a coordinate that is not a number. |
 | `bad_picture` | 502 | The picture the camera of the drill head sent cannot be read. |
 | `bad_profile` | 422 | The inspection profile is not valid. |
@@ -189,9 +213,11 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `bad_station` | 422 | The station of a machine is not made of lowercase letters, digits and hyphens (up to 32). |
 | `bad_tool` | 422 | A tool has values out of range. |
 | `both_sources` | 422 | The job brings the work as data and as files; it must be one of them. |
+| `engine_missing` | 422 | The kind of task is known but this build has no engine for it. |
 | `forbidden` | 403 | The role of the caller is not enough for this request. |
 | `head_refused` | 502 | The node of the drill head answered with a refusal. |
 | `head_unreachable` | 502 | The node of the drill head does not answer. |
+| `idempotency_conflict` | 409 | The idempotency key was already used by this caller for a request with another body. |
 | `internal` | 500 | A task of the server failed; the server is still up. |
 | `job_active` | 409 | The job is running: stop it first. |
 | `last_admin` | 409 | The last administrator cannot be deleted, disabled or demoted. |
@@ -202,6 +228,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `no_head` | 404 | The machine has no node of the drill head. |
 | `no_hole` | 409 | The picture of the drill head shows no hole to calibrate with. |
 | `no_inspection` | 404 | No quality check has been made on this machine since the server started. |
+| `no_project` | 422 | The artifact a task works on does not exist or cannot be seen. |
 | `no_work` | 422 | The job has no holes, no paths and no lines to run. |
 | `not_cancellable` | 409 | The job is neither ready nor running. |
 | `not_in_state` | 409 | A job is held while it runs and resumed while it is held. |
@@ -211,15 +238,21 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `not_stopped` | 409 | Only a cancelled or failed job can be gone on from. |
 | `out_of_table` | 422 | A hole or a path is outside the table of the machine. |
 | `outside_course` | 422 | The work goes past the course of an axis (the machine's switch is on reject). |
+| `queue_full` | 429 | As many tasks are waiting or running as the server accepts (max_tasks). |
+| `quota` | 429 | The caller already has as many tasks waiting or running as one user may (tasks_per_user). |
 | `spindle_limit` | 422 | The job asks for more than the spindle of the machine gives (the machine's switch is on reject). |
 | `storage` | 500 | The data folder could not be written. |
 | `store` | 500 | The inspection profile could not be saved. |
+| `task_active` | 409 | The task has not finished: cancel it first. |
+| `tasks_off` | 501 | The computing tasks are switched off on this server (tasks_enabled). |
 | `throttled` | 429 | Too many wrong passwords, or too many tickets waiting: try again later. |
 | `too_big` | 422 | The request or the work is bigger than the server accepts (413 for a body over max_body_mb). |
 | `too_many_holes` | 422 | More holes than one inspection takes. |
 | `unauthorized` | 401 | The token is missing, not valid or has expired. |
 | `unknown_job` | 404 | There is no job with this id. |
+| `unknown_kind` | 422 | There is no such kind of task. |
 | `unknown_machine` | 404 | There is no machine with this id. |
+| `unknown_task` | 404 | There is no task with this id, or it belongs to somebody else. |
 | `unknown_token` | 404 | There is no token with this id. |
 | `unknown_tool` | 422 | The job uses a tool that it does not describe. |
 | `unknown_user` | 404 | There is no user with this name. |

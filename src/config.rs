@@ -58,6 +58,24 @@ pub struct ServerConfig {
     pub job_log: bool,
     /// The size, in kilobytes, at which `audit.jsonl` and `eh3d-jobs.log` are set aside (one older copy is kept).
     pub log_max_kb: u64,
+    /// Whether the server takes computing tasks at all (`/api/v1/tasks`). The tasks have no effect on any machine.
+    pub tasks_enabled: bool,
+    /// Whether the engine that exercises the task system (`server.selftest`) is there. Off: only the engines of the design suite are.
+    pub tasks_selftest: bool,
+    /// How many tasks may be waiting or running, all users together.
+    pub max_tasks: usize,
+    /// How many finished tasks the list keeps.
+    pub keep_tasks: usize,
+    /// How many tasks run at the same time.
+    pub max_concurrent_tasks: usize,
+    /// The longest a task may run, in seconds.
+    pub task_timeout_s: u64,
+    /// How many tasks one user may have waiting or running.
+    pub tasks_per_user: usize,
+    /// The largest parameters of a task, in kilobytes.
+    pub task_params_kb: usize,
+    /// How long, in seconds, a request that carries an idempotency key is remembered.
+    pub idempotency_ttl_s: u64,
 }
 
 impl ServerConfig {
@@ -99,6 +117,15 @@ impl Default for ServerConfig {
             audit_file: true,
             job_log: true,
             log_max_kb: 1024,
+            tasks_enabled: true,
+            tasks_selftest: false,
+            max_tasks: 100,
+            keep_tasks: 200,
+            max_concurrent_tasks: 2,
+            task_timeout_s: 600,
+            tasks_per_user: 10,
+            task_params_kb: 64,
+            idempotency_ttl_s: 86_400,
         }
     }
 }
@@ -215,6 +242,23 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
             "events_ping_s" => c.events_ping_s = number(&key, value, 1, 3_600).map_err(at)?,
             "events_idle_s" => c.events_idle_s = number(&key, value, 2, 86_400).map_err(at)?,
             "log_max_kb" => c.log_max_kb = number(&key, value, 16, 1_048_576).map_err(at)?,
+            "tasks_enabled" => c.tasks_enabled = flag(&key, value).map_err(at)?,
+            "tasks_selftest" => c.tasks_selftest = flag(&key, value).map_err(at)?,
+            "max_tasks" => c.max_tasks = number(&key, value, 1, 100_000).map_err(at)? as usize,
+            "keep_tasks" => c.keep_tasks = number(&key, value, 0, 100_000).map_err(at)? as usize,
+            "max_concurrent_tasks" => {
+                c.max_concurrent_tasks = number(&key, value, 1, 64).map_err(at)? as usize
+            }
+            "task_timeout_s" => c.task_timeout_s = number(&key, value, 1, 604_800).map_err(at)?,
+            "tasks_per_user" => {
+                c.tasks_per_user = number(&key, value, 1, 10_000).map_err(at)? as usize
+            }
+            "task_params_kb" => {
+                c.task_params_kb = number(&key, value, 1, 65_536).map_err(at)? as usize
+            }
+            "idempotency_ttl_s" => {
+                c.idempotency_ttl_s = number(&key, value, 60, 2_592_000).map_err(at)?
+            }
             other => return Err(at(format!("unknown key '{other}'"))),
         }
     }
@@ -396,6 +440,31 @@ events_idle_s = 30
 "
         )
         .is_err());
+    }
+
+    #[test]
+    fn the_task_settings_are_conservative_and_checked() {
+        let c = parse("").unwrap();
+        assert!(c.tasks_enabled && !c.tasks_selftest);
+        assert_eq!(
+            (c.max_tasks, c.keep_tasks, c.max_concurrent_tasks),
+            (100, 200, 2)
+        );
+        assert_eq!(
+            (c.task_timeout_s, c.tasks_per_user, c.task_params_kb),
+            (600, 10, 64)
+        );
+        assert_eq!(c.idempotency_ttl_s, 86_400);
+        let c = parse(
+            "tasks_enabled = off\ntasks_selftest = on\nmax_concurrent_tasks = 4\ntask_timeout_s = 30\n",
+        )
+        .unwrap();
+        assert!(!c.tasks_enabled && c.tasks_selftest);
+        assert_eq!((c.max_concurrent_tasks, c.task_timeout_s), (4, 30));
+        assert!(parse("max_concurrent_tasks = 0\n").is_err());
+        assert!(parse("task_timeout_s = 0\n").is_err());
+        assert!(parse("idempotency_ttl_s = 5\n").is_err());
+        assert!(parse("tasks_selftest = perhaps\n").is_err());
     }
 
     #[test]

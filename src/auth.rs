@@ -83,6 +83,19 @@ pub struct Identity {
     pub role: Role,
     /// True for a program's token, false for a person logged in.
     pub is_token: bool,
+    /// The id of the program's token; `None` for a person.
+    pub token_id: Option<String>,
+}
+
+impl Identity {
+    /// The key that owns what this caller makes: the name of the user, or `token:<id>` for a program's token (a user name can never have a colon, so the two never
+    /// meet, and two tokens with the same name stay apart).
+    pub fn owner(&self) -> String {
+        match &self.token_id {
+            Some(id) => format!("token:{id}"),
+            None => self.name.clone(),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -265,6 +278,7 @@ impl Auth {
                             name: user.name.clone(),
                             role: user.role,
                             is_token: false,
+                            token_id: None,
                         },
                         expires: s.expires,
                     },
@@ -435,6 +449,7 @@ impl Auth {
                     name: name.into(),
                     role,
                     is_token: false,
+                    token_id: None,
                 },
                 expires: now + self.session_secs,
             },
@@ -463,6 +478,7 @@ impl Auth {
                 name: token.name.clone(),
                 role: token.role,
                 is_token: true,
+                token_id: Some(token.id.clone()),
             };
             self.tokens_dirty = true;
             if now.saturating_sub(self.tokens_saved_at) >= LAST_USED_SAVE_SECS {
@@ -485,6 +501,7 @@ impl Auth {
             name: user.name.clone(),
             role: user.role,
             is_token: false,
+            token_id: None,
         })
     }
 

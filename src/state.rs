@@ -19,6 +19,39 @@ use crate::machines::Machines;
 use crate::plan::{self, JobRequest};
 use crate::sync::Locked;
 
+/// Who an event is for besides the administrators: the owners it names.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Audience {
+    owners: Vec<String>,
+}
+
+impl Audience {
+    /// The administrators and the owner with this key.
+    pub fn of(owner: &str) -> Audience {
+        Audience {
+            owners: vec![owner.to_string()],
+        }
+    }
+
+    /// The administrators and each of these owners.
+    pub fn of_all<I: IntoIterator<Item = String>>(owners: I) -> Audience {
+        Audience {
+            owners: owners.into_iter().collect(),
+        }
+    }
+
+    pub fn includes(&self, who: &crate::auth::Identity) -> bool {
+        who.role == crate::auth::Role::Admin || self.owners.iter().any(|o| *o == who.owner())
+    }
+}
+
+/// An event that only some clients may receive.
+#[derive(Clone, Debug)]
+pub struct ScopedEvent {
+    pub audience: Audience,
+    pub text: String,
+}
+
 pub struct AppState {
     pub cfg: ServerConfig,
     /// When the server started (for the uptime the health check tells to those who are logged in).
@@ -32,6 +65,10 @@ pub struct AppState {
     pub gcode_runs: Mutex<HashMap<String, Arc<GcodeRun>>>,
     /// Every change, as a JSON text, for the clients that listen (the websocket).
     pub events: broadcast::Sender<String>,
+    /// The events about things that have an owner (tasks, artifacts): each client gets only those of the things it may see.
+    pub scoped: broadcast::Sender<ScopedEvent>,
+    /// The computing tasks (they have no effect on any machine).
+    pub tasks: crate::tasks::Tasks,
     /// The updates of the installed services, when the settings give the folder for them.
     pub updates: Option<crate::updates::Updates>,
     /// The last check of the work through the camera of the drill head, by the id of the machine.
@@ -74,6 +111,8 @@ impl AppState {
         let machines = Machines::open(&cfg.data_dir)?;
         let jobs = JobBook::open(&cfg.data_dir, cfg.keep_jobs)?;
         let (events, _) = broadcast::channel(256);
+        let (scoped, _) = broadcast::channel(256);
+        let tasks = crate::tasks::Tasks::open(&cfg)?;
         let audit = crate::audit::Audit::new(&cfg.data_dir, cfg.audit_file, cfg.log_max_kb);
         let job_log = crate::audit::LogFile::new(
             cfg.data_dir.join("eh3d-jobs.log"),
@@ -83,7 +122,7 @@ impl AppState {
         let updates = cfg.updates_dir.clone().map(|d| {
             crate::updates::Updates::new(d, env!("CARGO_PKG_VERSION"), cfg.studio_dir.clone())
         });
-        Ok(Arc::new(AppState {
+        let state = Arc::new(AppState {
             cfg,
             started: std::time::Instant::now(),
             auth: Mutex::new(auth),
@@ -92,17 +131,30 @@ impl AppState {
             runs: Mutex::new(HashMap::new()),
             gcode_runs: Mutex::new(HashMap::new()),
             events,
+            scoped,
+            tasks,
             updates,
             inspections: Mutex::new(HashMap::new()),
             tickets: Mutex::new(crate::tickets::Tickets::default()),
             audit,
             job_log,
-        }))
+        });
+        // the tasks that were queued when the server stopped go on
+        state.tasks_pump();
+        Ok(state)
     }
 
     /// Tells the clients that listen. Nobody listening is not a problem.
     pub fn publish(&self, value: serde_json::Value) {
         let _ = self.events.send(value.to_string());
+    }
+
+    /// Tells the clients that may see the thing it is about.
+    pub fn publish_scoped(&self, audience: Audience, value: serde_json::Value) {
+        let _ = self.scoped.send(ScopedEvent {
+            audience,
+            text: value.to_string(),
+        });
     }
 
     pub fn publish_job(&self, job: &JobRecord) {
