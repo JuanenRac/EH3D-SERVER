@@ -330,7 +330,7 @@ async fn the_artifacts_of_another_owner_do_not_exist_and_the_blob_question_is_no
         head(&bob, sha(b"nobody has this")).await,
         StatusCode::NOT_FOUND
     );
-    assert_eq!(head(&bob, "not a hash".into()).await, StatusCode::NOT_FOUND);
+    assert_eq!(head(&bob, "not-a-hash".into()).await, StatusCode::NOT_FOUND);
     assert_eq!(
         head(&a, sha(secret)).await,
         StatusCode::OK,

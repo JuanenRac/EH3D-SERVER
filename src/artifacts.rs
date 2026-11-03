@@ -1270,12 +1270,14 @@ mod tests {
 
     #[test]
     fn what_is_purged_is_what_nothing_points_to_after_the_wait() {
+        // a moment far enough from zero for the oldest age to be earlier than it
+        const NOW: u64 = 100_000_000;
         let d = dir("purge");
         let mut st = ArtifactStore::open(&d).unwrap();
         let day = 86_400;
         let mut make = |id: &str, age_days: u64, retention: Retention| {
             let mut r = record(id, &sha256_hex(id.as_bytes()), 1, "u");
-            r.created_at = 1_000_000 - age_days * day;
+            r.created_at = NOW - age_days * day;
             r.retention = retention;
             st.records.push(r);
         };
@@ -1286,22 +1288,22 @@ mod tests {
         make("a-input", 40, Retention::KeepWhileReferenced);
         make("a-until-past", 1, Retention::KeepUntil);
         make("a-until-future", 400, Retention::KeepUntil);
-        st.records[5].keep_until = Some(999_999);
-        st.records[6].keep_until = Some(2_000_000);
+        st.records[5].keep_until = Some(NOW - 1);
+        st.records[6].keep_until = Some(NOW + 1_000_000);
         // an artifact made from another one points to it
         let mut out = record("a-output", &sha256_hex(b"out"), 1, "u");
-        out.created_at = 1_000_000;
+        out.created_at = NOW;
         out.inputs = vec![InputRef {
             artifact_id: "a-input".into(),
             blob_sha256: "0".repeat(64),
         }];
         st.records.push(out);
         let pointed: HashSet<String> = ["a-pointed".to_string()].into();
-        let mut gone = st.purgeable(1_000_000, 30, &pointed);
+        let mut gone = st.purgeable(NOW, 30, &pointed);
         gone.sort();
         assert_eq!(gone, ["a-old", "a-until-past"]);
         // 0 days: nothing is ever purged
-        assert!(st.purgeable(1_000_000, 0, &pointed).is_empty());
+        assert!(st.purgeable(NOW, 0, &pointed).is_empty());
         let _ = std::fs::remove_dir_all(&d);
     }
 
