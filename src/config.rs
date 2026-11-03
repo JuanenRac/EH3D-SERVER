@@ -76,6 +76,18 @@ pub struct ServerConfig {
     pub task_params_kb: usize,
     /// How long, in seconds, a request that carries an idempotency key is remembered.
     pub idempotency_ttl_s: u64,
+    /// The most the artifact store holds, in gigabytes (each blob counted once).
+    pub artifact_store_gb: u64,
+    /// The largest artifact or upload, in megabytes.
+    pub max_upload_mb: u64,
+    /// How long, in seconds, an upload nobody touches is kept.
+    pub upload_ttl_s: u64,
+    /// How many uploads one user may have open.
+    pub uploads_per_user: usize,
+    /// How many days an artifact nothing points to is kept (0: for ever).
+    pub artifact_unreferenced_days: u64,
+    /// Whether a project or an artifact can be shared with other people at all. Off: only the owner and the administrators see anything.
+    pub shares_enabled: bool,
 }
 
 impl ServerConfig {
@@ -126,6 +138,12 @@ impl Default for ServerConfig {
             tasks_per_user: 10,
             task_params_kb: 64,
             idempotency_ttl_s: 86_400,
+            artifact_store_gb: 4,
+            max_upload_mb: 512,
+            upload_ttl_s: 86_400,
+            uploads_per_user: 4,
+            artifact_unreferenced_days: 30,
+            shares_enabled: true,
         }
     }
 }
@@ -258,6 +276,18 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
             }
             "idempotency_ttl_s" => {
                 c.idempotency_ttl_s = number(&key, value, 60, 2_592_000).map_err(at)?
+            }
+            "artifact_store_gb" => {
+                c.artifact_store_gb = number(&key, value, 1, 100_000).map_err(at)?
+            }
+            "max_upload_mb" => c.max_upload_mb = number(&key, value, 1, 65_536).map_err(at)?,
+            "upload_ttl_s" => c.upload_ttl_s = number(&key, value, 60, 2_592_000).map_err(at)?,
+            "uploads_per_user" => {
+                c.uploads_per_user = number(&key, value, 1, 1_000).map_err(at)? as usize
+            }
+            "shares_enabled" => c.shares_enabled = flag(&key, value).map_err(at)?,
+            "artifact_unreferenced_days" => {
+                c.artifact_unreferenced_days = number(&key, value, 0, 36_500).map_err(at)?
             }
             other => return Err(at(format!("unknown key '{other}'"))),
         }
@@ -465,6 +495,27 @@ events_idle_s = 30
         assert!(parse("task_timeout_s = 0\n").is_err());
         assert!(parse("idempotency_ttl_s = 5\n").is_err());
         assert!(parse("tasks_selftest = perhaps\n").is_err());
+    }
+
+    #[test]
+    fn the_artifact_settings_are_conservative_and_checked() {
+        let c = parse("").unwrap();
+        assert_eq!((c.artifact_store_gb, c.max_upload_mb), (4, 512));
+        assert_eq!((c.upload_ttl_s, c.uploads_per_user), (86_400, 4));
+        assert_eq!(c.artifact_unreferenced_days, 30);
+        let c = parse(
+            "artifact_store_gb = 1\nmax_upload_mb = 16\nupload_ttl_s = 600\nuploads_per_user = 2\nartifact_unreferenced_days = 0\n",
+        )
+        .unwrap();
+        assert_eq!((c.artifact_store_gb, c.max_upload_mb), (1, 16));
+        assert_eq!((c.upload_ttl_s, c.uploads_per_user), (600, 2));
+        assert_eq!(c.artifact_unreferenced_days, 0, "0 keeps them for ever");
+        assert!(c.shares_enabled || !parse("shares_enabled = off\n").unwrap().shares_enabled);
+        assert!(parse("shares_enabled = sometimes\n").is_err());
+        assert!(parse("artifact_store_gb = 0\n").is_err());
+        assert!(parse("upload_ttl_s = 10\n").is_err());
+        assert!(parse("uploads_per_user = 0\n").is_err());
+        assert!(parse("max_upload_mb = lots\n").is_err());
     }
 
     #[test]

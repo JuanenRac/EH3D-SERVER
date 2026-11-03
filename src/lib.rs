@@ -4,7 +4,10 @@
 //! The planning and the execution are the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, so there is one implementation of them, not one per client.
 
 pub mod api;
+pub mod api_artifacts;
+pub mod api_projects;
 pub mod api_tasks;
+pub mod artifacts;
 pub mod audit;
 pub mod auth;
 pub mod config;
@@ -19,6 +22,7 @@ pub mod jobs;
 pub mod machines;
 pub mod panic;
 pub mod plan;
+pub mod projects;
 pub mod spindle;
 pub mod state;
 pub mod store;

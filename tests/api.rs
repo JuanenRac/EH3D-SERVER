@@ -1021,6 +1021,10 @@ async fn several_machines_in_several_stations_run_at_once_and_the_fleet_shows_th
     };
     assert_eq!(by_id("bench-1")["state"], "waiting");
     assert_eq!(by_id("bench-1")["job"]["id"], jobs[0].as_str());
+    assert!(
+        by_id("bench-1")["job"]["tool"].is_u64(),
+        "the fleet tells the tool of a drilling job"
+    );
     assert_eq!(by_id("room-1")["job"]["id"], jobs[1].as_str());
     assert_eq!(by_id("bench-2")["state"], "idle");
     assert!(by_id("bench-2")["job"].is_null());

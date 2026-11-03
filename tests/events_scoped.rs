@@ -116,6 +116,8 @@ fn who(secret_owner: &str, role: Role) -> Identity {
         role,
         is_token: true,
         token_id: Some(secret_owner.trim_start_matches("token:").to_string()),
+        scopes: None,
+        template: None,
     }
 }
 

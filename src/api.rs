@@ -83,10 +83,12 @@ where
 impl From<AuthError> for ApiError {
     fn from(e: AuthError) -> Self {
         let status = match e {
-            AuthError::BadSetup => StatusCode::FORBIDDEN,
-            AuthError::BadName | AuthError::WeakPassword | AuthError::BadDays => {
-                StatusCode::UNPROCESSABLE_ENTITY
-            }
+            AuthError::BadSetup | AuthError::ForbiddenScope => StatusCode::FORBIDDEN,
+            AuthError::BadName
+            | AuthError::WeakPassword
+            | AuthError::BadDays
+            | AuthError::BadTemplate
+            | AuthError::BadScope => StatusCode::UNPROCESSABLE_ENTITY,
             AuthError::BadCredentials => StatusCode::UNAUTHORIZED,
             AuthError::Throttled => StatusCode::TOO_MANY_REQUESTS,
             AuthError::UnknownUser | AuthError::UnknownToken => StatusCode::NOT_FOUND,
@@ -164,6 +166,19 @@ pub(crate) fn note(s: &Shared, event: &str, who: &Identity, more: &[(&str, &str)
     let mut fields: Vec<(&str, &str)> = vec![("who", who.name.as_str()), ("role", who.role.name())];
     fields.extend_from_slice(more);
     s.audit.event(event, &fields);
+}
+
+/// Refuses a caller whose token is limited to scopes that do not include `scope`. A person and a token without scopes pass; the role is checked apart.
+pub(crate) fn need_scope(who: &Identity, scope: &str) -> Result<(), ApiError> {
+    if who.allows(scope) {
+        Ok(())
+    } else {
+        Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "forbidden_scope",
+            format!("the token does not carry the scope {scope}"),
+        ))
+    }
 }
 
 pub(crate) fn need(who: &Identity, role: Role) -> Result<(), ApiError> {
@@ -246,6 +261,7 @@ pub fn router(state: Shared) -> Router {
         .route("/api/v1/users/:name", put(update_user).delete(delete_user))
         .route("/api/v1/tokens", get(list_tokens).post(add_token))
         .route("/api/v1/tokens/:id", delete(delete_token))
+        .route("/api/v1/tokens/:id/rotate", post(rotate_token))
         .route("/api/v1/machines", get(list_machines).post(add_machine))
         .route(
             "/api/v1/machines/:id",
@@ -296,6 +312,8 @@ pub fn router(state: Shared) -> Router {
         .route("/api/v1/updates/clear-history", post(updates_clear_history))
         .route("/api/v1/events", get(events))
         .merge(crate::api_tasks::routes())
+        .merge(crate::api_artifacts::routes())
+        .merge(crate::api_projects::routes())
         .layer(DefaultBodyLimit::max(limit))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -694,6 +712,7 @@ async fn list_tokens(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResu
             json!({
                 "id": t.id, "name": t.name, "role": t.role, "created": t.created,
                 "last_used": t.last_used, "expires": t.expires,
+                "template": t.template, "scopes": t.scopes,
             })
         })
         .collect();
@@ -706,6 +725,12 @@ struct NewToken {
     role: Role,
     /// How many days the token lasts (1 to 3650); left out, the server's `token_default_days` (0: it does not expire).
     days: Option<u32>,
+    /// The kind of program: `phoenix`, `cam`, `client` or `custom`. The `phoenix` and `cam` templates can never carry the scopes of the machines.
+    #[serde(default)]
+    template: Option<String>,
+    /// What the token is limited to (see `docs/API.md`); left out, the whole of its role (for `phoenix` and `cam`, the whole of what they may hold).
+    #[serde(default)]
+    scopes: Option<Vec<String>>,
 }
 
 async fn add_token(
@@ -715,7 +740,14 @@ async fn add_token(
 ) -> ApiResult {
     need(&who, Role::Admin)?;
     let days = b.days.or(Some(s.cfg.token_default_days).filter(|d| *d > 0));
-    let (id, secret) = s.auth.locked().create_token(&b.name, b.role, now(), days)?;
+    let (id, secret) = s.auth.locked().create_token_with(
+        &b.name,
+        b.role,
+        now(),
+        days,
+        b.template.as_deref(),
+        b.scopes.as_deref(),
+    )?;
     note(
         &s,
         "token_add",
@@ -725,9 +757,26 @@ async fn add_token(
             ("name", &b.name),
             ("token_role", b.role.name()),
             ("days", &days.map(|d| d.to_string()).unwrap_or_default()),
+            ("template", b.template.as_deref().unwrap_or("")),
+            (
+                "scopes",
+                &b.scopes.as_ref().map(|l| l.join(",")).unwrap_or_default(),
+            ),
         ],
     );
     // the secret is shown this once
+    Ok(Json(json!({ "id": id, "token": secret })))
+}
+
+/// Gives a token a new secret; the old one stops working at once.
+async fn rotate_token(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+) -> ApiResult {
+    need(&who, Role::Admin)?;
+    let secret = s.auth.locked().rotate_token(&id)?;
+    note(&s, "token_rotate", &who, &[("token", &id)]);
     Ok(Json(json!({ "id": id, "token": secret })))
 }
 
@@ -746,6 +795,7 @@ async fn delete_token(
 
 async fn list_machines(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
     need(&who, Role::Viewer)?;
+    need_scope(&who, "machines:view")?;
     let list: Vec<Value> = s
         .machines
         .locked()
@@ -759,6 +809,7 @@ async fn list_machines(State(s): State<Shared>, Authed(who, _): Authed) -> ApiRe
 /// Every machine with what it is doing, grouped by station: the one view a central screen needs to follow all of them at once.
 async fn fleet(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
     need(&who, Role::Viewer)?;
+    need_scope(&who, "machines:view")?;
     let machines = s.machines.locked();
     let jobs = s.jobs.locked();
     let mut list = Vec::new();
@@ -795,6 +846,7 @@ async fn fleet(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
                 "items_done": j.items_done, "items_total": j.items_total,
                 "holes_done": j.holes_done, "holes_total": j.holes_total,
                 "percent": percent, "pause": j.pause, "estimate_s": j.view.estimate_s, "line": j.line,
+                "tool": j.current_tool(),
             })
         });
         match stations.iter_mut().find(|(id, _)| *id == m.station) {
@@ -840,6 +892,7 @@ async fn get_machine(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Viewer)?;
+    need_scope(&who, "machines:view")?;
     let machines = s.machines.locked();
     machines
         .get(&id)
@@ -1010,6 +1063,7 @@ async fn preview(
     ApiJson(body): ApiJson<Value>,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
+    need_scope(&who, "jobs:prepare")?;
     let machine = machine_of(&s, &id)?;
     let request = request_of(&body)?;
     let planned = tokio::task::spawn_blocking(move || plan::plan(&machine, &request))
@@ -1028,6 +1082,7 @@ async fn create_job(
     ApiJson(body): ApiJson<Value>,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
+    need_scope(&who, "jobs:prepare")?;
     let machine = machine_of(&s, &id)?;
     let shown = make_job(&s, &who.name, machine, body, String::new()).await?;
     note(
@@ -1182,6 +1237,7 @@ async fn job_request(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
+    need_scope(&who, "machines:view")?;
     let job = s
         .jobs
         .locked()
@@ -1223,6 +1279,7 @@ async fn resume_from(
     body: Option<Json<ResumeFromBody>>,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
+    need_scope(&who, "jobs:prepare")?;
     let b = body.map(|Json(b)| b).unwrap_or_default();
     let (job, machine) = stopped_job(&s, &id)?;
     let skip = match b.skip {
@@ -1272,6 +1329,7 @@ async fn list_jobs(
     Query(f): Query<JobFilter>,
 ) -> ApiResult {
     need(&who, Role::Viewer)?;
+    need_scope(&who, "machines:view")?;
     let jobs = s.jobs.locked();
     let list: Vec<Value> = jobs
         .list()
@@ -1297,6 +1355,7 @@ async fn get_job(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Viewer)?;
+    need_scope(&who, "machines:view")?;
     let jobs = s.jobs.locked();
     jobs.get(&id)
         .map(|j| Json(j.full()))
@@ -1309,6 +1368,7 @@ async fn start_job(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
+    need_scope(&who, "jobs:start")?;
     let state = s.clone();
     let by = who.name.clone();
     let result = tokio::task::spawn_blocking(move || state.start_job(&id, &by).map(|_| id))
@@ -1348,6 +1408,7 @@ async fn confirm_job(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
+    need_scope(&who, "jobs:confirm")?;
     if s.confirm_job(&id) {
         note(&s, "job_confirm", &who, &[("job", &id)]);
         Ok(Json(json!({ "ok": true })))
@@ -1367,6 +1428,7 @@ async fn stop_machine(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
+    need_scope(&who, "jobs:cancel")?;
     machine_of(&s, &id)?;
     let job = s.stop_machine(&id, &who.name);
     note(
@@ -1387,6 +1449,7 @@ async fn cancel_job(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
+    need_scope(&who, "jobs:cancel")?;
     if s.cancel_job(&id, &who.name) {
         note(&s, "job_cancel", &who, &[("job", &id)]);
         Ok(Json(json!({ "ok": true })))
@@ -1422,6 +1485,7 @@ async fn pause_job(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
+    need_scope(&who, "jobs:start")?;
     s.pause_job(&id).map_err(pause_error)?;
     note(&s, "job_pause", &who, &[("job", &id)]);
     Ok(Json(json!({ "ok": true })))
@@ -1434,6 +1498,7 @@ async fn resume_job(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
+    need_scope(&who, "jobs:start")?;
     s.resume_job(&id).map_err(pause_error)?;
     note(&s, "job_resume", &who, &[("job", &id)]);
     Ok(Json(json!({ "ok": true })))

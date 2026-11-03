@@ -100,6 +100,23 @@ impl JobRecord {
         })
     }
 
+    /// The tool (a drill number, or the pen of a route) the machine works with now: the one of the dialog while the operator is asked to change it,
+    /// else the one of the hole or path being done. `None` for a job that is not active, for a G-code job and when the work has no more items.
+    pub fn current_tool(&self) -> Option<u8> {
+        if !self.state.active() {
+            return None;
+        }
+        if let Some(tool) = self.pause.as_ref().and_then(|p| p.tool) {
+            return Some(tool);
+        }
+        let done = self.holes_done;
+        match self.kind.as_str() {
+            "drill" => self.view.holes.get(done).map(|h| h.tool),
+            "route" => self.view.paths.get(done).map(|p| p.pen),
+            _ => None,
+        }
+    }
+
     /// The whole job, with the view a client draws.
     pub fn full(&self) -> serde_json::Value {
         let mut value = self.summary();

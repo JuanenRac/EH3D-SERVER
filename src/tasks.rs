@@ -2,9 +2,9 @@
 //! They are a family of their own, apart from the jobs of the machines: a task may start by itself according to the queue and the limits, a job never does; a task has an
 //! engine, a job has a connection to a machine.
 //!
-//! **What keeps the two apart.** This file knows nothing of machines, connections, jobs or nodes: it uses none of the modules that plan, hold or run a job, talk to a node
-//! or a controller, or reach the libraries of the machine programs, and the test `engines_cannot_reach_a_machine` reads the source and fails if it ever does. That is the
-//! first layer; running the engines in a process of their own is the second and is not done yet (see `docs/API.md`, "Tasks").
+//! **What keeps the two apart.** This file and the one of the artifacts know nothing of machines, connections, jobs or nodes: they use none of the modules that plan, hold or
+//! run a job, talk to a node or a controller, or reach the libraries of the machine programs, and the test `engines_cannot_reach_a_machine` reads the source and fails if
+//! one of them ever does. That is the first layer; running the engines in a process of their own is the second and is not done yet (see `docs/API.md`, "Tasks").
 //!
 //! A task goes `queued` -> `running` -> `done`, `failed` or `cancelled`. The list is kept in `tasks.json`; after a restart the tasks that were queued stay queued and
 //! the one that was running is marked failed ("interrupted by restart"): it may be sent again. A task that is cancelled while its engine works leaves no result.
@@ -48,7 +48,7 @@ pub const KNOWN_KINDS: [&str; 11] = [
 pub const SELFTEST_KIND: &str = "server.selftest";
 
 /// The diagnostic codes the task system itself gives (the engines give their own).
-pub const CODES: [(&str, &str); 4] = [
+pub const CODES: [(&str, &str); 6] = [
     (
         "EH3D-TASK-001",
         "The task was asked to fail (the self-test engine).",
@@ -61,6 +61,14 @@ pub const CODES: [(&str, &str); 4] = [
     (
         "EH3D-TASK-005",
         "The engine of the task failed unexpectedly.",
+    ),
+    (
+        "EH3D-TASK-006",
+        "The artifact the task works on could not be read.",
+    ),
+    (
+        "EH3D-TASK-007",
+        "The files the task made could not be stored.",
     ),
 ];
 
@@ -302,11 +310,32 @@ impl TaskControl {
     }
 }
 
+/// What an engine gets to work on.
+#[derive(Debug)]
+pub struct TaskInput {
+    pub params: Value,
+    /// The bytes of the artifact the task works on, when it names one.
+    pub project: Option<Vec<u8>>,
+}
+
+/// A file an engine made. The server stores it as an artifact of the owner of the task, with the provenance filled in.
+#[derive(Debug, Clone)]
+pub struct OutFile {
+    pub name: String,
+    pub format: String,
+    /// What it is for the person: `report`, `fab`, `diff`...
+    pub kind: String,
+    /// The class of the result (T1 to T7), when it has one.
+    pub result_type: Option<String>,
+    pub bytes: Vec<u8>,
+}
+
 /// What an engine gives back when it finishes.
 #[derive(Debug, Default)]
 pub struct TaskOutput {
     pub data: Value,
     pub diagnostics: Vec<Diagnostic>,
+    pub files: Vec<OutFile>,
 }
 
 #[derive(Debug)]
@@ -321,7 +350,7 @@ pub trait Engine: Send + Sync {
     fn version(&self) -> &'static str;
     /// Whether the parameters are good; the text says what is wrong. Called before the task exists.
     fn validate(&self, params: &Value) -> Result<(), String>;
-    fn run(&self, params: &Value, control: &TaskControl) -> Result<TaskOutput, EngineFailure>;
+    fn run(&self, input: &TaskInput, control: &TaskControl) -> Result<TaskOutput, EngineFailure>;
 }
 
 /// The engines of this build.
@@ -410,13 +439,22 @@ impl Engine for SelfTest {
                         return Err("fail is true or false".into());
                     }
                 }
+                "emit" => {
+                    let o = value.as_object().ok_or("emit is {name, text}")?;
+                    if !o.get("name").is_some_and(Value::is_string)
+                        || !o.get("text").is_some_and(Value::is_string)
+                    {
+                        return Err("emit is {name, text}".into());
+                    }
+                }
                 other => return Err(format!("unknown parameter '{other}'")),
             }
         }
         Ok(())
     }
 
-    fn run(&self, params: &Value, control: &TaskControl) -> Result<TaskOutput, EngineFailure> {
+    fn run(&self, input: &TaskInput, control: &TaskControl) -> Result<TaskOutput, EngineFailure> {
+        let params = &input.params;
         let steps = params.get("steps").and_then(Value::as_u64).unwrap_or(3);
         let step_ms = params.get("step_ms").and_then(Value::as_u64).unwrap_or(10);
         for step in 0..steps {
@@ -445,9 +483,24 @@ impl Engine for SelfTest {
         if let Some(text) = params.get("text").and_then(Value::as_str) {
             data["sha256"] = json!(hex::encode(Sha256::digest(text.as_bytes())));
         }
+        if let Some(project) = &input.project {
+            data["project_sha256"] = json!(hex::encode(Sha256::digest(project)));
+            data["project_size"] = json!(project.len());
+        }
+        let mut files = Vec::new();
+        if let Some(emit) = params.get("emit") {
+            files.push(OutFile {
+                name: emit["name"].as_str().unwrap_or("out.txt").to_string(),
+                format: "text/plain".into(),
+                kind: "report".into(),
+                result_type: Some("T4".into()),
+                bytes: emit["text"].as_str().unwrap_or("").as_bytes().to_vec(),
+            });
+        }
         Ok(TaskOutput {
             data,
             diagnostics: Vec::new(),
+            files,
         })
     }
 }
@@ -597,6 +650,8 @@ fn body_hash(kind: &str, name: &str, project: &Option<String>, params: &Value) -
 /// How a task ends, as the thread of the engine tells it.
 enum Outcome {
     Done(TaskOutput),
+    /// Done, with the files stored: the output and the entries of the result that list them.
+    Stored(TaskOutput, Vec<(String, Value)>),
     Cancelled,
     Failed(Diagnostic),
 }
@@ -665,9 +720,15 @@ impl AppState {
             .get(&request.kind)
             .ok_or(TaskError::EngineMissing)?;
         engine.validate(&params).map_err(TaskError::BadParams)?;
-        // the artifacts do not exist yet in this build: a task that names one cannot find it
-        if request.project.is_some() {
-            return Err(TaskError::NoProject);
+        // the artifact the task works on has to be one the caller can see
+        if let Some(project) = &request.project {
+            let store = self.artifacts.store.locked();
+            let seen = store
+                .get(project)
+                .is_some_and(|r| self.artifact_visible(r, who));
+            if !seen {
+                return Err(TaskError::NoProject);
+            }
         }
         let record = TaskRecord {
             id: crate::ids::new(crate::ids::Kind::Task),
@@ -753,6 +814,71 @@ impl AppState {
         }
     }
 
+    /// The bytes of an artifact, for a task that works on it.
+    fn read_artifact_bytes(&self, id: &str) -> Result<Vec<u8>, ()> {
+        let store = self.artifacts.store.locked();
+        let record = store.get(id).ok_or(())?;
+        if record.size > self.artifacts.limits.max_bytes {
+            return Err(());
+        }
+        store.read_blob(&record.blob_sha256).map_err(|_| ())
+    }
+
+    /// Stores the files an engine made as artifacts of the owner of the task, with their provenance; gives the entries of the result.
+    fn store_task_files(
+        &self,
+        task: &TaskRecord,
+        files: Vec<OutFile>,
+    ) -> Result<Vec<(String, Value)>, ()> {
+        let mut made: Vec<(String, Value)> = Vec::new();
+        let input = task.project.as_ref().and_then(|id| {
+            self.artifacts
+                .store
+                .locked()
+                .get(id)
+                .map(|r| crate::artifacts::InputRef {
+                    artifact_id: r.artifact_id.clone(),
+                    blob_sha256: r.blob_sha256.clone(),
+                })
+        });
+        let config = hex::encode(Sha256::digest(task.params.to_string().as_bytes()));
+        for f in files {
+            let meta = crate::artifacts::NewArtifact {
+                name: f.name.clone(),
+                format: f.format,
+                schema_version: None,
+                origin: crate::artifacts::Origin {
+                    project: task.project.clone(),
+                    revision: None,
+                },
+                producer: Some(crate::artifacts::Producer {
+                    tool: task.kind.clone(),
+                    version: task.engine_version.clone(),
+                    config_sha256: Some(config.clone()),
+                }),
+                inputs: input.iter().cloned().collect(),
+                params: Some(task.params.clone()),
+                result_type: f.result_type.clone(),
+            };
+            match self.store_artifact(&task.owner, meta, &f.bytes) {
+                Ok(record) => made.push((
+                    record.artifact_id.clone(),
+                    json!({
+                        "artifact_id": record.artifact_id, "name": f.name, "kind": f.kind,
+                        "result_type": f.result_type,
+                    }),
+                )),
+                Err(_) => {
+                    // no partial result: what was stored for this task goes
+                    let ids: Vec<String> = made.iter().map(|(id, _)| id.clone()).collect();
+                    let _ = self.artifacts.store.locked().remove(&ids);
+                    return Err(());
+                }
+            }
+        }
+        Ok(made)
+    }
+
     fn run_task(self: Arc<Self>, task: TaskRecord, flag: Arc<AtomicBool>) {
         let report_state = Arc::clone(&self);
         let id = task.id.clone();
@@ -772,15 +898,28 @@ impl AppState {
             }
         });
         let control = TaskControl::new(flag.clone(), self.tasks.limits.timeout, report);
-        let outcome = match self.tasks.engines.get(&task.kind) {
-            None => Outcome::Failed(diagnostic(
+        let project = match &task.project {
+            None => Ok(None),
+            Some(id) => self.read_artifact_bytes(id).map(Some),
+        };
+        let outcome = match (self.tasks.engines.get(&task.kind), project) {
+            (_, Err(())) => Outcome::Failed(diagnostic(
+                "EH3D-TASK-006",
+                Severity::Error,
+                "the artifact the task works on could not be read",
+            )),
+            (None, _) => Outcome::Failed(diagnostic(
                 "EH3D-TASK-005",
                 Severity::Error,
                 "the engine is no longer there",
             )),
-            Some(engine) => {
+            (Some(engine), Ok(project)) => {
+                let input = TaskInput {
+                    params: task.params.clone(),
+                    project,
+                };
                 let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    engine.run(&task.params, &control)
+                    engine.run(&input, &control)
                 }));
                 match ran {
                     Ok(Ok(output)) => Outcome::Done(output),
@@ -799,11 +938,32 @@ impl AppState {
                 }
             }
         };
+        // the files of a task that was cancelled are not stored at all; a cancel that comes while they are being stored undoes it below
+        let outcome = match outcome {
+            Outcome::Done(mut output) if !flag.load(Ordering::SeqCst) => {
+                let files = std::mem::take(&mut output.files);
+                match self.store_task_files(&task, files) {
+                    Ok(made) => Outcome::Stored(output, made),
+                    Err(()) => Outcome::Failed(diagnostic(
+                        "EH3D-TASK-007",
+                        Severity::Error,
+                        "the files the task made could not be stored",
+                    )),
+                }
+            }
+            other => other,
+        };
         let finished = {
             let mut book = self.tasks.book.locked();
             // the flag is read under the lock of the book, where a cancel sets it: a task whose cancel was accepted ends cancelled, whatever the engine did
             let cancelled = flag.load(Ordering::SeqCst);
             self.tasks.flags.locked().remove(&task.id);
+            if cancelled {
+                if let Outcome::Stored(_, made) = &outcome {
+                    let ids: Vec<String> = made.iter().map(|(id, _)| id.clone()).collect();
+                    let _ = self.artifacts.store.locked().remove(&ids);
+                }
+            }
             let mut dropped = Vec::new();
             let finished = match book.get_mut(&task.id) {
                 None => None,
@@ -815,14 +975,17 @@ impl AppState {
                             t.message = Some("cancelled".into());
                             t.result = None;
                         }
-                        Outcome::Done(out) => {
+                        Outcome::Stored(out, made) => {
                             t.state = TaskState::Done;
                             t.message = None;
                             t.result = Some(TaskResult {
-                                artifacts: Vec::new(),
+                                artifacts: made.into_iter().map(|(_, v)| v).collect(),
                                 diagnostics: out.diagnostics,
                                 data: out.data,
                             });
+                        }
+                        Outcome::Done(_) => {
+                            unreachable!("the files of a finished task are stored first")
                         }
                         Outcome::Cancelled => {
                             t.state = TaskState::Cancelled;
@@ -1023,6 +1186,8 @@ mod tests {
             role,
             is_token: false,
             token_id: None,
+            scopes: None,
+            template: None,
         };
         assert!(t.visible_to(&person("ana", Role::Viewer)));
         assert!(!t.visible_to(&person("bob", Role::Operator)));
@@ -1033,6 +1198,8 @@ mod tests {
             role: Role::Operator,
             is_token: true,
             token_id: Some("ab12".into()),
+            scopes: None,
+            template: None,
         };
         assert!(!t.visible_to(&token));
         assert_eq!(token.owner(), "token:ab12");

@@ -40,7 +40,7 @@ A machine is how to reach it (a node over the network, or the simulator), the te
 | Request | Role | What it does |
 |---|---|---|
 | `GET /machines`, `GET /machines/:id` | viewer | the machines (each with its `station`, the short name of the bench, the room or the workshop it belongs to; empty when it has none) |
-| `GET /fleet` | viewer | every machine at once, grouped by station: `stations` (`id` and the `machines` in it), `machines` (`id`, `name`, `model`, `station`, `connection`, `state`: `idle`, `busy` or `waiting` for the operator, the active `job` with `percent`, `items_done`, `items_total`, `pause`, and the number of jobs `ready`) and a `summary` with the counts |
+| `GET /fleet` | viewer | every machine at once, grouped by station: `stations` (`id` and the `machines` in it), `machines` (`id`, `name`, `model`, `station`, `connection`, `state`: `idle`, `busy` or `waiting` for the operator, the active `job` with `percent`, `items_done`, `items_total`, `pause`, `tool` (the drill or pen at work now, or the one the operator is asked to put in; `null` for a G-code job), and the number of jobs `ready`) and a `summary` with the counts |
 | `POST /machines` | admin | creates one |
 | `PUT /machines/:id`, `DELETE /machines/:id` | admin | changes or removes one (not while a job runs on it: `409 machine_busy`) |
 | `POST /machines/:id/preview` | operator | plans a job and answers its view, creating nothing |
@@ -163,13 +163,13 @@ A **task** is work for the computer: checking a design, making the files for a f
 | Request | Role | What it does |
 |---|---|---|
 | `GET /tasks/kinds` | viewer | `{"kinds":[{"kind","available","version"}]}`: the kinds of the design suite (`phoenix.import`, `phoenix.check`, `phoenix.export.fab`, `phoenix.route.auto`, `phoenix.library.sanitize`, `phoenix.verify`, `phoenix.passport.build`, `phoenix.sim.spice`, `phoenix.sim.thermal`, `phoenix.sim.rf`, `phoenix.ai.assist`) with whether this build has an engine for each. No engine of the suite is in the server yet, so none is available; with `tasks_selftest = true` the engine `server.selftest` is (it counts steps, can be asked to fail and gives the SHA-256 of a text: it exists to exercise the task system) |
-| `POST /tasks` | operator | `{"kind","name"?,"params"?,"project"?,"idempotency_key"?}` gives `201` and the task. `name` is the kind when it is left out (1 to 80 characters, no control characters, else `422 bad_name`). `params` is an object (`422 bad_params` otherwise or when the engine does not accept it; `422 too_big` over `task_params_kb`). `project` is the id of the artifact the task works on; this build keeps no artifacts yet, so naming one answers `422 no_project` |
+| `POST /tasks` | operator | `{"kind","name"?,"params"?,"project"?,"idempotency_key"?}` gives `201` and the task. `name` is the kind when it is left out (1 to 80 characters, no control characters, else `422 bad_name`). `params` is an object (`422 bad_params` otherwise or when the engine does not accept it; `422 too_big` over `task_params_kb`). `project` is the id of the artifact the task works on; it has to be an artifact the caller can see, else `422 no_project` |
 | `GET /tasks?state=&kind=` | viewer | the tasks the caller may see, newest first |
 | `GET /tasks/:id` | viewer | one task, with its result |
 | `POST /tasks/:id/cancel` | operator (owner or admin) | `{"accepted","task"}`. A queued task is cancelled at once; a running one is told to stop and ends `cancelled` with no result (what it was writing is discarded); a task that had already finished answers `accepted: false` and is not changed |
 | `DELETE /tasks/:id` | operator (owner or admin) | removes a finished task; `409 task_active` while it waits or runs |
 
-A task: `{"id":"t-<uuid v7>","kind","name","owner","state","created","started","finished","progress":{"done","total","unit"},"message","result","engine":{"version"}}`. The states are `queued`, `running`, `done`, `failed` and `cancelled`. The `result` of a finished task is `{"artifacts":[],"diagnostics":[...],"data":{}}`; a diagnostic is the common form of the suite (`code`, `severity`, `message`, and the optional `line`, `location`, `category`, `recoverability`, `args`). The codes of the task system itself are `EH3D-TASK-001` (a task asked to fail, the self-test), `EH3D-TASK-002` (longer than `task_timeout_s`), `EH3D-TASK-004` (the server restarted while it ran) and `EH3D-TASK-005` (the engine failed unexpectedly).
+A task: `{"id":"t-<uuid v7>","kind","name","owner","state","created","started","finished","progress":{"done","total","unit"},"message","result","engine":{"version"}}`. The states are `queued`, `running`, `done`, `failed` and `cancelled`. The `result` of a finished task is `{"artifacts":[{"artifact_id","name","kind","result_type"}],"diagnostics":[...],"data":{}}`; a diagnostic is the common form of the suite (`code`, `severity`, `message`, and the optional `line`, `location`, `category`, `recoverability`, `args`). The codes of the task system itself are `EH3D-TASK-001` (a task asked to fail, the self-test), `EH3D-TASK-002` (longer than `task_timeout_s`), `EH3D-TASK-004` (the server restarted while it ran) and `EH3D-TASK-005` (the engine failed unexpectedly), `EH3D-TASK-006` (the artifact the task works on could not be read) and `EH3D-TASK-007` (the files it made could not be stored).
 
 **Who sees what.** Every task has an owner: the user who made it, or the program token (`token:<id>`: two tokens with the same name are two owners). The owner and the administrators see it; for anybody else it does not exist: reading, cancelling or deleting it answers `404 unknown_task`, the same as for an id that was never made, and it is not in their list.
 
@@ -178,6 +178,76 @@ A task: `{"id":"t-<uuid v7>","kind","name","owner","state","created","started","
 **Sending the same request twice.** With an `idempotency_key` (1 to 128 printable characters), a second request of the same caller with the same key and the same body (the parameters in any order) answers `201` with the first task, whether it is still there waiting or already done; the same key with another body answers `409 idempotency_conflict`. The key is remembered for `idempotency_ttl_s` (a day) and is the key of whoever sent it: another caller may use the same text for something else.
 
 **Events.** The websocket sends `{"type":"task","task":{...}}` when a task is made, starts, moves on or ends, and `{"type":"task_removed","id":"..."}` when one is removed, **only to the clients that may see the task** (its owner and the administrators), the removal too.
+
+## Artifacts, blobs and uploads
+
+The server keeps files for the design programs and for the tasks. There are two identities and they are never confused: the **`blob_sha256`** is the identity of the *bytes* (the key under which they are stored once, however many artifacts point to them) and the **`artifact_id`** (`a-<uuid v7>`) is the identity of the *record*: who owns it, what made it, from which inputs and with which parameters. Two artifacts may share a blob and differ in provenance. A task refers to its project by `artifact_id`, never by a hash.
+
+| Request | Role | What it does |
+|---|---|---|
+| `POST /artifacts` | operator | `{"name","format","data_base64", "schema_version"?,"origin"?,"producer"?,"inputs"?,"params"?,"result_type"?}` gives `201 {"artifact_id","blob_sha256","size"}`. `name` is 1 to 120 characters without control characters or slashes; `format` is a media type in lower case (`application/x-phoenixproj`); `result_type` is `T1` to `T7`; `inputs` are `{"artifact_id","blob_sha256"}` of artifacts the caller can see, with the hash they carry; `params` is an object of at most 64 KB. The bytes are limited by `max_body_mb` (the request) and `max_upload_mb`; larger files go by an upload. `422 bad_artifact` for a description that does not fit, `422 too_big`, `507 store_full` |
+| `GET /artifacts?format=&result_type=` | viewer | the records the caller can see, newest first |
+| `GET /artifacts/:id/meta` | viewer | the record: `artifact_id`, `blob_sha256`, `size`, `owner`, `name`, `format`, `schema_version`, `origin` (`project`, `revision`), `producer` (`tool`, `version`, `config_sha256`), `inputs`, `params`, `result_type`, `diagnostics`, `validation`, `audit.created_at`, `retention`, `keep_until` |
+| `GET /artifacts/:id` | viewer | the bytes, streamed (`x-eh3d-blob-sha256` and `x-eh3d-format` say the hash and the format) |
+| `DELETE /artifacts/:id` | admin | removes the record, and the blob when no record points to it any more; `409 artifact_in_use` while a task works on it or made it |
+| `PUT /artifacts/:id/retention` | admin | `{"retention":"keep_while_referenced"}`, `{"retention":"pinned"}` or `{"retention":"keep_until","until":<seconds since 1970>}` |
+| `HEAD /blobs/:sha256` | viewer | `200` only when an artifact the caller can see points to bytes with this hash; otherwise `404`, the same as for a hash nobody holds |
+| `POST /artifacts/verify` | admin | reads every blob again against its hash: `{"ok","problems":[{"blob_sha256","problem":"missing"\|"damaged"}]}` (after restoring a backup) |
+
+`validation` keeps the states apart and is never one flag: `intact` (the bytes are the ones whose hash the record carries; true), `readable`, `coherent`, `erc_drc_run`, `oracle_checked` and `physically_validated`, each `null` until something has established it. `audit.created_at` is metadata and is never part of the content.
+
+**Privacy.** An artifact is seen by its owner and the administrators; for anybody else it does not exist (`404 unknown_artifact`). Whether a blob exists is not a question anybody may ask about other people's files: `HEAD /blobs` answers about the bytes the caller can see, and the deduplication is invisible from outside (a caller that cannot see the blob sends the bytes, gets an artifact of its own, and the server keeps one copy). The audit and the logs say ids and hashes, never names, parameters or contents.
+
+**Uploads in parts.**
+
+| Request | Role | What it does |
+|---|---|---|
+| `POST /uploads` | operator | `{"size","sha256"}` gives `201 {"id":"up-<uuid v7>"}`. `422 too_big` over `max_upload_mb`, `422 bad_upload` for a hash that is not 64 lower-case hexadecimal digits, `429 quota` over `uploads_per_user`, `507 store_full` |
+| `PUT /uploads/:id?offset=N` | operator (the owner) | the raw bytes of a part, at any place and in any order: `{"id","size","received","ranges"}`. A stretch that was received already must carry the same bytes (it is accepted again); other bytes at the same place give `409 upload_conflict` and nothing is written; a part past the declared size or an empty one gives `422 bad_upload` |
+| `POST /uploads/:id/complete` | operator (the owner) | the description of the artifact (as in `POST /artifacts`, without the bytes) gives `201` like `POST /artifacts`. `409 upload_incomplete` while a stretch is missing; a hash that is not the declared one gives `422 hash_mismatch` and the upload is discarded. A description that does not fit leaves the upload as it was |
+| `DELETE /uploads/:id` | operator (the owner) | throws it away |
+
+An upload nobody touched for `upload_ttl_s` is cleaned, and so are the files of an upload that is no longer known. An upload of somebody else does not exist for you (`404 unknown_upload`). A partial artifact is never visible as complete: the artifact exists only after `complete`.
+
+**Retention.** Everything a task works on or made is kept while the task is there. An artifact nothing points to (no task, no other artifact that lists it as an input) is purged `artifact_unreferenced_days` days after it was made (0: never); `pinned` is never purged and `keep_until` goes when its date has passed and nothing points to it. The purge and the cleaning of old uploads run when the server starts and whenever an upload begins. The store counts each blob once and refuses what would pass `artifact_store_gb`.
+
+**What a task makes.** The files an engine makes become artifacts of the owner of the task, with `producer` (the kind and the version of the engine and the SHA-256 of the parameters), `origin.project`, `inputs` (the project, by id and hash) and `params`; the `result.artifacts` of the task lists them as `{"artifact_id","name","kind","result_type"}`. A task cancelled while its files are stored leaves none of them. A task that names a `project` gets the bytes of that artifact, read and checked against their hash; `422 no_project` when it does not exist or cannot be seen by the caller.
+
+## Projects, sharing and the scopes of tokens
+
+**Projects.** A project is a name, an owner and a line of revisions; each revision points to an artifact (the file of the design at that moment, which the server keeps as it is and never needs to understand). A program never needs the server to open, edit and save a local project.
+
+| Request | Role | What it does |
+|---|---|---|
+| `GET /projects` | viewer | the projects the caller sees (its own, those shared with it, and for an administrator all), newest first |
+| `POST /projects` | operator | `{"name"}` gives `201` and the project; the caller is the owner. `422 bad_name` for a name that is empty, over 80 characters or has control characters |
+| `GET /projects/:id` | viewer | `{"id","name","owner","created","head","revisions":[{"number","artifact_id","by","at"}],"deleted"}`; the list of `shares` only for the owner and the administrators |
+| `POST /projects/:id/revisions` | operator (write access) | `{"artifact_id","parent"}` gives `201` and the revision. `parent` is the revision this one follows (0 for the first); it is accepted only when that is still the last one, else `409 stale_parent`: of two saves from the same parent one wins and the other is told. The artifact has to be one the caller sees (`404 unknown_artifact`) |
+| `DELETE /projects/:id` | operator (owner or admin) | hides the project; its revisions stay until an administrator purges it |
+| `POST /projects/:id/purge` | admin | removes a hidden project for good (audited); `404 unknown_project` for one that is not hidden |
+| `POST /projects/:id/shares` | operator (owner or admin) | `{"user":"name"}` or `{"token":"id"}`, and `"access":"read"` or `"write"`: shares the project with that person only, or changes the access given. `404 unknown_user` or `unknown_token`, `422 bad_share` (neither or both given, the owner, or an access that does not exist), `501 shares_off` |
+| `DELETE /projects/:id/shares/:who` | operator (owner or admin) | takes the sharing back (`:who` is the name of the user, or `token:<id>`) |
+| `POST /artifacts/:id/shares`, `GET /artifacts/:id/shares`, `DELETE /artifacts/:id/shares/:who` | operator (owner or admin) | the same for one artifact, for reading only (`"access":"read"`) |
+
+**Who sees what.** Every project, artifact, task and upload has an owner: the user who made it, or `token:<id>` for a program's token. The owner and the administrators see it. Anybody else sees it only through an explicit share, one person at a time: a project shared with `read` lets that person see the project and the artifacts of its revisions (and the artifacts made for it); with `write` it also lets them add revisions. Nothing is shared by default. A person it was shared with cannot share it on, look at who else has it, delete it or purge it (`403 forbidden`: they see it, so they are told the truth). What is not visible is as if it did not exist: `404 unknown_project`, `unknown_artifact`, `unknown_task` or `unknown_upload`, the same as for an id that was never made; and `HEAD /blobs/:sha256` answers yes only about bytes that an artifact the caller sees points to. With `shares_enabled = false` nothing can be shared and only the owner and the administrators see anything. The tasks stay with whoever made them even when the project is shared.
+
+**Events.** The websocket sends `{"type":"project","project":{...}}` (when a project is made or its sharing changes), `{"type":"revision","project","revision"}` and `{"type":"project_removed","id"}` only to the owner, the people it is shared with and the administrators; the person whose share was taken back gets `project_removed`. Events of tasks go only to the owner of the task and the administrators.
+
+**Tokens of programs: template, scopes, rotation.** `POST /tokens` also takes `"template"` (`phoenix`, `cam`, `client` or `custom`; `422 bad_template`) and `"scopes"` (a list; `422 bad_scope` for one the server does not know). A token made without scopes keeps exactly what its role allows today. With scopes, what it may do is the **intersection** of its role and its scopes, on the old requests too:
+
+| Scope | Allows |
+|---|---|
+| `projects:read`, `projects:write` | read the projects; make, change, share and delete them |
+| `artifacts:read`, `artifacts:write` | read artifacts and ask about blobs; make, upload, share and delete them |
+| `tasks:read`, `tasks:run` | list and read tasks; make, cancel and delete them |
+| `machines:view` | read the machines, the fleet and the jobs |
+| `jobs:prepare` | the preview, the creation of a job and the resuming from a stopped one |
+| `jobs:authorize` | authorising a prepared job (reserved: no request uses it yet) |
+| `jobs:start` | start, hold and resume a job |
+| `jobs:confirm` | answer the dialog a running job waits at |
+| `jobs:cancel` | cancel a job and stop a machine |
+
+A scope the token lacks answers `403 forbidden_scope`; a role that is too low still answers `403 forbidden`, whatever the scopes. The `phoenix` and `cam` templates are for the design programs and **can never hold** `jobs:authorize`, `jobs:start`, `jobs:confirm` or `jobs:cancel`: asking for one is refused (`403 forbidden_scope`) and nothing is made, and a token of those templates made without scopes gets all the others. Even a file of tokens edited by hand cannot give them the scopes of the machines: they are taken away when the token is recognised. Only a person logged in (or a `client` or `custom` token) carries them. `GET /tokens` lists `template` and `scopes`. `POST /tokens/:id/rotate` (admin) gives the token a new secret, shown this once, and the old one stops working at once; the id, the scopes and the expiry stay. A revoked (`DELETE /tokens/:id`) or expired token is answered `401 unauthorized`.
 
 ## What happens, as it happens
 
@@ -189,7 +259,9 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 
 | Code | Status | Meaning |
 |---|---|---|
+| `artifact_in_use` | 409 | A task still works on this artifact or made it: remove the task first. |
 | `bad_address` | 422 | The address of a machine or of its drill head node is missing or is not host:port. |
+| `bad_artifact` | 422 | The description of an artifact does not fit (name, format, result_type, inputs or params). |
 | `bad_board` | 422 | board_mm is not from 0 to 50. |
 | `bad_cfg` | 422 | The tuning text of the machine does not read. |
 | `bad_credentials` | 401 | The name or the password is wrong. |
@@ -207,14 +279,21 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `bad_profile` | 422 | The inspection profile is not valid. |
 | `bad_request` | 400 | The body of the request does not read as the request needs. |
 | `bad_samples` | 422 | The number of samples of a measurement is out of range. |
+| `bad_scope` | 422 | A scope of a token is not one the server knows. |
 | `bad_setup` | 403 | The set-up code is wrong, or the server already has a user. |
+| `bad_share` | 422 | The sharing does not fit: give a user or a token, not the owner, with an access that exists for it. |
 | `bad_sorting` | 422 | The sorting of the holes is not one the program knows. |
 | `bad_spindle` | 422 | The spindle, the switch or the limits of a spindle are not valid. |
 | `bad_station` | 422 | The station of a machine is not made of lowercase letters, digits and hyphens (up to 32). |
+| `bad_template` | 422 | The template of a token is not phoenix, cam, client or custom. |
 | `bad_tool` | 422 | A tool has values out of range. |
+| `bad_upload` | 422 | The declaration of an upload or one of its parts does not fit (hash, empty part, a part past the declared size). |
+| `blob_damaged` | 500 | The bytes of an artifact are missing or are not what their hash says. |
 | `both_sources` | 422 | The job brings the work as data and as files; it must be one of them. |
 | `engine_missing` | 422 | The kind of task is known but this build has no engine for it. |
 | `forbidden` | 403 | The role of the caller is not enough for this request. |
+| `forbidden_scope` | 403 | The token is limited to scopes that do not include this one, or a token of a design program was asked for a scope of the machines. |
+| `hash_mismatch` | 422 | The bytes of the upload do not have the SHA-256 that was declared; the upload is discarded. |
 | `head_refused` | 502 | The node of the drill head answered with a refusal. |
 | `head_unreachable` | 502 | The node of the drill head does not answer. |
 | `idempotency_conflict` | 409 | The idempotency key was already used by this caller for a request with another body. |
@@ -240,24 +319,32 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `outside_course` | 422 | The work goes past the course of an axis (the machine's switch is on reject). |
 | `queue_full` | 429 | As many tasks are waiting or running as the server accepts (max_tasks). |
 | `quota` | 429 | The caller already has as many tasks waiting or running as one user may (tasks_per_user). |
+| `shares_off` | 501 | Sharing is switched off on this server (shares_enabled). |
 | `spindle_limit` | 422 | The job asks for more than the spindle of the machine gives (the machine's switch is on reject). |
+| `stale_parent` | 409 | The revision does not follow the last one of the project: look at what changed first. |
 | `storage` | 500 | The data folder could not be written. |
 | `store` | 500 | The inspection profile could not be saved. |
+| `store_full` | 507 | The artifact store would pass artifact_store_gb. |
 | `task_active` | 409 | The task has not finished: cancel it first. |
 | `tasks_off` | 501 | The computing tasks are switched off on this server (tasks_enabled). |
 | `throttled` | 429 | Too many wrong passwords, or too many tickets waiting: try again later. |
 | `too_big` | 422 | The request or the work is bigger than the server accepts (413 for a body over max_body_mb). |
 | `too_many_holes` | 422 | More holes than one inspection takes. |
 | `unauthorized` | 401 | The token is missing, not valid or has expired. |
+| `unknown_artifact` | 404 | There is no artifact with this id, or it belongs to somebody else. |
 | `unknown_job` | 404 | There is no job with this id. |
 | `unknown_kind` | 422 | There is no such kind of task. |
 | `unknown_machine` | 404 | There is no machine with this id. |
+| `unknown_project` | 404 | There is no project with this id, or it belongs to somebody else. |
 | `unknown_task` | 404 | There is no task with this id, or it belongs to somebody else. |
 | `unknown_token` | 404 | There is no token with this id. |
 | `unknown_tool` | 422 | The job uses a tool that it does not describe. |
+| `unknown_upload` | 404 | There is no upload with this id, or it belongs to somebody else. |
 | `unknown_user` | 404 | There is no user with this name. |
 | `update_refused` | 409 | The update helper refused the request. |
 | `updates_off` | 501 | The updates are not set up on this server (updates_dir). |
+| `upload_conflict` | 409 | A part carries other bytes than the ones already received at the same place. |
+| `upload_incomplete` | 409 | Parts are still missing: the upload cannot be completed. |
 | `user_exists` | 409 | A user with this name already exists. |
 | `weak_password` | 422 | The password is not from 8 to 128 characters. |
 | `wrong_machine` | 422 | The job is of a kind the machine does not take. |

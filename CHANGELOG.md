@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **Artifacts, blobs and uploads:** the files of the design programs and of the tasks are kept as artifacts (`artifact_id`) apart from the bytes (`blob_sha256`, stored once). Upload in one request or in parts, download streamed, retention (`keep_while_referenced`, `pinned`, `keep_until`), a check of every blob against its hash, and limits in `server.cfg` (`artifact_store_gb`, `max_upload_mb`, `upload_ttl_s`, `uploads_per_user`, `artifact_unreferenced_days`).
+- **Projects with an owner and explicit sharing:** projects with revisions, shared one person or token at a time with `read` or `write`; what is not visible does not exist for the caller. `shares_enabled = false` switches sharing off; nothing is shared by default.
+- **Events filtered by who may see them:** the websocket sends the events of a project and of a task only to the owner, the people it is shared with and the administrators.
+- **Tokens with a template and scopes:** `phoenix`, `cam`, `client` and `custom` templates, scopes that narrow a role (never widen it), `403 forbidden_scope`, and `POST /tokens/:id/rotate`. The templates of the design programs can never hold the scopes of the machines.
+- **The fleet tells the tool at work:** the `job` of a machine in `GET /fleet` has `tool`, the drill or pen being used now (or the one the operator is asked to put in); `null` for a G-code job.
+- **The update helper's signature check is described in the README** (`/etc/eh3d-update.signers`), and the issue template for hardware validation exists.
+- **The workflows are hardened:** every action is pinned by its commit with its version in a comment, the checkouts keep no credentials, and the release workflow runs only for the owner on main, with no cache and the values of the matrix passed by environment.
+
 ## [0.1.1] - Records, audit, error catalog and honest logins
 - **A log of the jobs on the disk:** `eh3d-jobs.log` in the data folder gets a line when a job starts (job, machine and how it is reached, who asked for it and who started it, a short hash and the size of the request, the holes or paths, the items, the estimate) and a line when it ends (result, message, how far it got, who stopped it, the real duration against the estimate), set aside at `log_max_kb`; `job_log` turns it off. 2 tests.
 - **One catalog of the error codes:** `src/errors.rs` lists every code the API answers with, its usual status and what it means; a test reads the source and fails when a code is used that the catalog lacks (or the catalog keeps one that is gone), writes `docs/error-codes.json` for the clients and checks that `docs/API.md` has a row for each. The Studio checks its texts against that file (`tools/sync_api_examples.py` copies it). 3 tests.

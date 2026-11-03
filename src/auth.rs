@@ -61,6 +61,61 @@ pub struct ApiToken {
     /// When the token stops working (seconds since 1970); `None` for a token that does not expire.
     #[serde(default)]
     pub expires: Option<u64>,
+    /// The kind of program the token was made for (`phoenix`, `cam`, `client` or `custom`); `None` for a token made before templates existed, which behaves as `custom`.
+    #[serde(default)]
+    pub template: Option<String>,
+    /// What the token may do besides what its role allows; `None`: whatever the role allows (and, for the `phoenix` and `cam` templates, the scopes those programs may hold).
+    #[serde(default)]
+    pub scopes: Option<Vec<String>>,
+}
+
+/// Every scope a token can carry. A scope narrows a role, never widens it: what a token may do is the intersection of the two.
+pub const SCOPES: [&str; 12] = [
+    "projects:read",
+    "projects:write",
+    "artifacts:read",
+    "artifacts:write",
+    "tasks:read",
+    "tasks:run",
+    "machines:view",
+    "jobs:prepare",
+    "jobs:authorize",
+    "jobs:start",
+    "jobs:confirm",
+    "jobs:cancel",
+];
+
+/// The scopes that move or release a machine: a person's, never a design program's.
+pub const MACHINE_SCOPES: [&str; 4] = [
+    "jobs:authorize",
+    "jobs:start",
+    "jobs:confirm",
+    "jobs:cancel",
+];
+
+/// The templates a token is made from.
+pub const TEMPLATES: [&str; 4] = ["phoenix", "cam", "client", "custom"];
+
+/// Whether a template is one of the programs that must never carry a scope of [`MACHINE_SCOPES`].
+pub fn is_program_template(template: Option<&str>) -> bool {
+    matches!(template, Some("phoenix" | "cam"))
+}
+
+/// What a token may do, as the scopes it really has: for the programs of the design suite the scopes it was given (or all they may hold) without the scopes of the
+/// machines, whatever the file says; for any other token the scopes it was given, `None` for no restriction.
+pub fn effective_scopes(template: Option<&str>, scopes: Option<&[String]>) -> Option<Vec<String>> {
+    if is_program_template(template) {
+        let base: Vec<String> = match scopes {
+            Some(s) => s.to_vec(),
+            None => SCOPES.iter().map(|s| s.to_string()).collect(),
+        };
+        return Some(
+            base.into_iter()
+                .filter(|s| !MACHINE_SCOPES.contains(&s.as_str()))
+                .collect(),
+        );
+    }
+    scopes.map(<[String]>::to_vec)
 }
 
 /// A login as it is kept on the disk: only the SHA-256 of its token, never the token.
@@ -85,9 +140,20 @@ pub struct Identity {
     pub is_token: bool,
     /// The id of the program's token; `None` for a person.
     pub token_id: Option<String>,
+    /// What the token is limited to; `None` for a person and for a token without limits beyond its role.
+    pub scopes: Option<Vec<String>>,
+    /// The template the token was made from.
+    pub template: Option<String>,
 }
 
 impl Identity {
+    /// Whether the scopes of the caller allow `scope` (a person and a token without scopes: yes; the role is checked apart).
+    pub fn allows(&self, scope: &str) -> bool {
+        self.scopes
+            .as_ref()
+            .is_none_or(|list| list.iter().any(|s| s == scope))
+    }
+
     /// The key that owns what this caller makes: the name of the user, or `token:<id>` for a program's token (a user name can never have a colon, so the two never
     /// meet, and two tokens with the same name stay apart).
     pub fn owner(&self) -> String {
@@ -114,6 +180,12 @@ pub enum AuthError {
     UnknownToken,
     /// The days a token should last are not a number from 1 to 3650.
     BadDays,
+    /// The template is not one of `phoenix`, `cam`, `client` or `custom`.
+    BadTemplate,
+    /// A scope is not one the server knows.
+    BadScope,
+    /// A scope of the machines asked for a token of a design program.
+    ForbiddenScope,
     Storage,
 }
 
@@ -131,6 +203,9 @@ impl AuthError {
             AuthError::LastAdmin => "last_admin",
             AuthError::UnknownToken => "unknown_token",
             AuthError::BadDays => "bad_days",
+            AuthError::BadTemplate => "bad_template",
+            AuthError::BadScope => "bad_scope",
+            AuthError::ForbiddenScope => "forbidden_scope",
             AuthError::Storage => "storage",
         }
     }
@@ -279,6 +354,8 @@ impl Auth {
                             role: user.role,
                             is_token: false,
                             token_id: None,
+                            scopes: None,
+                            template: None,
                         },
                         expires: s.expires,
                     },
@@ -450,6 +527,8 @@ impl Auth {
                     role,
                     is_token: false,
                     token_id: None,
+                    scopes: None,
+                    template: None,
                 },
                 expires: now + self.session_secs,
             },
@@ -479,6 +558,8 @@ impl Auth {
                 role: token.role,
                 is_token: true,
                 token_id: Some(token.id.clone()),
+                scopes: effective_scopes(token.template.as_deref(), token.scopes.as_deref()),
+                template: token.template.clone(),
             };
             self.tokens_dirty = true;
             if now.saturating_sub(self.tokens_saved_at) >= LAST_USED_SAVE_SECS {
@@ -502,6 +583,8 @@ impl Auth {
             role: user.role,
             is_token: false,
             token_id: None,
+            scopes: None,
+            template: None,
         })
     }
 
@@ -623,11 +706,44 @@ impl Auth {
         now: u64,
         days: Option<u32>,
     ) -> Result<(String, String), AuthError> {
+        self.create_token_with(name, role, now, days, None, None)
+    }
+
+    /// The same with a template and scopes. The scopes must be known; a token of the `phoenix` or `cam` template is refused any scope of the machines (it is not
+    /// stripped silently: the request is wrong).
+    pub fn create_token_with(
+        &mut self,
+        name: &str,
+        role: Role,
+        now: u64,
+        days: Option<u32>,
+        template: Option<&str>,
+        scopes: Option<&[String]>,
+    ) -> Result<(String, String), AuthError> {
         if name.is_empty() || name.len() > 64 {
             return Err(AuthError::BadName);
         }
         if days.is_some_and(|d| d == 0 || d > MAX_TOKEN_DAYS) {
             return Err(AuthError::BadDays);
+        }
+        if template.is_some_and(|t| !TEMPLATES.contains(&t)) {
+            return Err(AuthError::BadTemplate);
+        }
+        let mut kept: Option<Vec<String>> = None;
+        if let Some(list) = scopes {
+            let mut out: Vec<String> = Vec::new();
+            for s in list {
+                if !SCOPES.contains(&s.as_str()) {
+                    return Err(AuthError::BadScope);
+                }
+                if is_program_template(template) && MACHINE_SCOPES.contains(&s.as_str()) {
+                    return Err(AuthError::ForbiddenScope);
+                }
+                if !out.contains(s) {
+                    out.push(s.clone());
+                }
+            }
+            kept = Some(out);
         }
         let secret = format!("{TOKEN_PREFIX}{}", random_hex(24));
         let id = random_hex(4);
@@ -639,9 +755,25 @@ impl Auth {
             created: now,
             last_used: None,
             expires: days.map(|d| now + u64::from(d) * 86_400),
+            template: template.map(str::to_string),
+            scopes: kept,
         });
         self.save_tokens()?;
         Ok((id, secret))
+    }
+
+    /// Gives a token a new secret and takes the old one out of use at once; the id, the scopes and the expiry stay. The new secret is returned this once.
+    pub fn rotate_token(&mut self, id: &str) -> Result<String, AuthError> {
+        let secret = format!("{TOKEN_PREFIX}{}", random_hex(24));
+        let token = self
+            .tokens
+            .iter_mut()
+            .find(|t| t.id == id)
+            .ok_or(AuthError::UnknownToken)?;
+        token.hash = sha(&secret);
+        token.last_used = None;
+        self.save_tokens()?;
+        Ok(secret)
     }
 
     pub fn delete_token(&mut self, id: &str) -> Result<(), AuthError> {
@@ -1029,5 +1161,114 @@ mod tests {
                 && !valid_password(&"x".repeat(129))
         );
         assert!(same("abc", "abc") && !same("abc", "abd") && !same("abc", "ab"));
+    }
+
+    #[test]
+    fn the_scopes_of_a_design_program_never_include_those_of_the_machines() {
+        let all: Vec<String> = SCOPES.iter().map(|s| s.to_string()).collect();
+        // without scopes a phoenix or cam token gets all it may hold, which is not the machines
+        for template in ["phoenix", "cam"] {
+            let got = effective_scopes(Some(template), None).unwrap();
+            assert!(
+                got.contains(&"tasks:run".to_string()) && got.contains(&"jobs:prepare".to_string())
+            );
+            for forbidden in MACHINE_SCOPES {
+                assert!(
+                    !got.contains(&forbidden.to_string()),
+                    "{template} {forbidden}"
+                );
+            }
+            // and a file that was edited by hand to give one is not believed
+            let edited = effective_scopes(Some(template), Some(&all)).unwrap();
+            assert_eq!(edited, got);
+        }
+        // the others keep what they were given, and none given means no limit
+        assert_eq!(effective_scopes(Some("client"), Some(&all)).unwrap(), all);
+        assert_eq!(effective_scopes(Some("custom"), None), None);
+        assert_eq!(effective_scopes(None, None), None);
+        assert_eq!(
+            effective_scopes(None, Some(&["tasks:read".to_string()])),
+            Some(vec!["tasks:read".to_string()])
+        );
+    }
+
+    #[test]
+    fn a_token_is_made_with_checked_scopes_and_a_known_template() {
+        let (mut a, d) = set_up("scopes");
+        let give = |scopes: &[&str]| scopes.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(a
+            .create_token_with(
+                "p",
+                Role::Operator,
+                1,
+                None,
+                Some("phoenix"),
+                Some(&give(&["tasks:run", "tasks:run"]))
+            )
+            .is_ok());
+        assert_eq!(
+            a.tokens().last().unwrap().scopes,
+            Some(give(&["tasks:run"])),
+            "repeats are dropped"
+        );
+        for (template, scopes, error) in [
+            (
+                Some("phoenix"),
+                vec!["jobs:start"],
+                AuthError::ForbiddenScope,
+            ),
+            (
+                Some("cam"),
+                vec!["jobs:authorize"],
+                AuthError::ForbiddenScope,
+            ),
+            (Some("custom"), vec!["whatever"], AuthError::BadScope),
+            (Some("robot"), vec![], AuthError::BadTemplate),
+        ] {
+            let got =
+                a.create_token_with("q", Role::Operator, 1, None, template, Some(&give(&scopes)));
+            assert_eq!(got.unwrap_err(), error, "{template:?} {scopes:?}");
+        }
+        let before = a.tokens().len();
+        assert!(a
+            .create_token_with(
+                "q",
+                Role::Operator,
+                1,
+                None,
+                Some("custom"),
+                Some(&give(&["jobs:start"]))
+            )
+            .is_ok());
+        assert_eq!(a.tokens().len(), before + 1, "the refusals made nothing");
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn a_rotated_token_keeps_its_id_and_its_limits_and_loses_its_old_secret() {
+        let (mut a, d) = set_up("rotate");
+        let (id, old) = a
+            .create_token_with(
+                "p",
+                Role::Operator,
+                1,
+                None,
+                Some("custom"),
+                Some(&["tasks:read".to_string()]),
+            )
+            .unwrap();
+        assert!(a.identify(&old, 2).is_some());
+        let new = a.rotate_token(&id).unwrap();
+        assert_ne!(new, old);
+        assert!(
+            a.identify(&old, 3).is_none(),
+            "the old secret stops at once"
+        );
+        let who = a.identify(&new, 3).unwrap();
+        assert_eq!(who.token_id.as_deref(), Some(id.as_str()));
+        assert_eq!(who.scopes, Some(vec!["tasks:read".to_string()]));
+        assert!(who.allows("tasks:read") && !who.allows("tasks:run"));
+        assert_eq!(a.rotate_token("nope"), Err(AuthError::UnknownToken));
+        let _ = std::fs::remove_dir_all(d);
     }
 }

@@ -69,6 +69,10 @@ pub struct AppState {
     pub scoped: broadcast::Sender<ScopedEvent>,
     /// The computing tasks (they have no effect on any machine).
     pub tasks: crate::tasks::Tasks,
+    /// The artifacts, the blobs and the uploads.
+    pub artifacts: crate::artifacts::Artifacts,
+    /// The projects, their revisions and who they are shared with.
+    pub projects: crate::projects::Projects,
     /// The updates of the installed services, when the settings give the folder for them.
     pub updates: Option<crate::updates::Updates>,
     /// The last check of the work through the camera of the drill head, by the id of the machine.
@@ -113,6 +117,11 @@ impl AppState {
         let (events, _) = broadcast::channel(256);
         let (scoped, _) = broadcast::channel(256);
         let tasks = crate::tasks::Tasks::open(&cfg)?;
+        let artifacts = crate::artifacts::Artifacts::open(&cfg)?;
+        let projects = crate::projects::Projects {
+            book: Mutex::new(crate::projects::ProjectBook::open(&cfg.data_dir)?),
+            shares_enabled: cfg.shares_enabled,
+        };
         let audit = crate::audit::Audit::new(&cfg.data_dir, cfg.audit_file, cfg.log_max_kb);
         let job_log = crate::audit::LogFile::new(
             cfg.data_dir.join("eh3d-jobs.log"),
@@ -133,14 +142,17 @@ impl AppState {
             events,
             scoped,
             tasks,
+            artifacts,
+            projects,
             updates,
             inspections: Mutex::new(HashMap::new()),
             tickets: Mutex::new(crate::tickets::Tickets::default()),
             audit,
             job_log,
         });
-        // the tasks that were queued when the server stopped go on
+        // the tasks that were queued when the server stopped go on, and what waited long enough is cleaned
         state.tasks_pump();
+        state.artifact_housekeeping();
         Ok(state)
     }
 

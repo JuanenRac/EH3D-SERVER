@@ -49,6 +49,7 @@ async fn list_tasks(
     Query(f): Query<TaskFilter>,
 ) -> ApiResult {
     crate::api::need(&who, Role::Viewer)?;
+    crate::api::need_scope(&who, "tasks:read")?;
     on(&s)?;
     let book = s.tasks.book.locked();
     let list: Vec<Value> = book
@@ -65,6 +66,7 @@ async fn list_tasks(
 
 async fn task_kinds(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
     crate::api::need(&who, Role::Viewer)?;
+    crate::api::need_scope(&who, "tasks:read")?;
     on(&s)?;
     Ok(axum::Json(json!({ "kinds": s.tasks.engines.kinds() })))
 }
@@ -75,6 +77,7 @@ async fn get_task(
     Path(id): Path<String>,
 ) -> ApiResult {
     crate::api::need(&who, Role::Viewer)?;
+    crate::api::need_scope(&who, "tasks:read")?;
     on(&s)?;
     let book = s.tasks.book.locked();
     book.get(&id)
@@ -89,6 +92,7 @@ async fn create_task(
     ApiJson(body): ApiJson<NewTask>,
 ) -> Result<(StatusCode, axum::Json<Value>), ApiError> {
     crate::api::need(&who, Role::Operator)?;
+    crate::api::need_scope(&who, "tasks:run")?;
     on(&s)?;
     let state = s.clone();
     let by = who.clone();
@@ -113,6 +117,7 @@ async fn cancel_task(
     Path(id): Path<String>,
 ) -> ApiResult {
     crate::api::need(&who, Role::Operator)?;
+    crate::api::need_scope(&who, "tasks:run")?;
     on(&s)?;
     let (task, accepted) = s.cancel_task(&who, &id)?;
     if accepted {
@@ -129,6 +134,7 @@ async fn delete_task(
     Path(id): Path<String>,
 ) -> ApiResult {
     crate::api::need(&who, Role::Operator)?;
+    crate::api::need_scope(&who, "tasks:run")?;
     on(&s)?;
     s.delete_task(&who, &id)?;
     crate::api::note(&s, "task_delete", &who, &[("task", &id)]);
