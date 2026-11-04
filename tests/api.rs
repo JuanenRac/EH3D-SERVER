@@ -3326,9 +3326,11 @@ async fn the_default_life_of_a_token_is_a_setting() {
     )
     .await;
     let (_, list) = call(&s, Method::GET, "/api/v1/tokens", Some(&token), None).await;
-    let created = list[0]["created"].as_u64().unwrap();
-    assert_eq!(list[0]["expires"].as_u64(), Some(created + 7 * 86_400));
-    assert_eq!(list[1]["expires"].as_u64(), Some(created + 2 * 86_400));
+    // each token counts its life from its own creation: the two are made some milliseconds apart and may fall in different seconds
+    let first = list[0]["created"].as_u64().unwrap();
+    let second = list[1]["created"].as_u64().unwrap();
+    assert_eq!(list[0]["expires"].as_u64(), Some(first + 7 * 86_400));
+    assert_eq!(list[1]["expires"].as_u64(), Some(second + 2 * 86_400));
 }
 
 #[tokio::test]
