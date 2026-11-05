@@ -30,7 +30,7 @@
 |---|---|
 | バージョン | `0.1.1` |
 | 成熟度 | 機能する |
-| テスト | 231 |
+| テスト | 238 |
 | 技術スタック | Rust (axum, tokio) |
 | 実機での動作 | いいえ：シミュレーターでテスト済み。サーバー経由で実機を動かしたことはまだありません |
 
@@ -45,8 +45,8 @@
 | 領域 | 状態 | ここでの意味 |
 |---|---|---|
 | ソフトウェア | 🟡 | Rust サーバー（axum）がユーザー、機械、ジョブを保持し、EH3D-DRILLPRO と EH3D-ROUTEPRO のライブラリでドリル／ルーティングのジョブを計画し、プレビューを表示して、オペレーターのダイアログと停止付きで実行します。 |
-| テスト | 🟡 | 231 件のテストが通ります（`cargo test`）：モジュール内 135 件、シミュレーターでジョブを動かすインターフェースのエンドツーエンド 96 件（`tests/api.rs` に 41 件、実プログラムを使う `tests/programs.rs` に 7 件）。 |
-| クライアント向けインターフェース（API） | 🟡 | REST リクエストと WebSocket イベントは `docs/API.md` に記載され、テストで網羅されています。現時点で使っているのはプログラム自身のサーバー接続だけです。 |
+| テスト | 🟡 | 238 件のテストが通ります（`cargo test`）：モジュール内 135 件、シミュレーターでジョブを動かすインターフェースのエンドツーエンド 103 件（`tests/api.rs` に 41 件、実プログラムを使う `tests/programs.rs` に 7 件）。 |
+| クライアント向けインターフェース（API） | 🟡 | REST リクエストと WebSocket イベントは `docs/API.md` とルートの OpenAPI 契約 `docs/openapi.yaml` に記載され、テストで網羅されています。現時点で使っているのはプログラム自身のサーバー接続だけです。 |
 | クライアント | 🔴 | EH3D-STUDIO はこれを使います（実機では未試験）。Android アプリと機械の横のタッチ パネルはまだ存在しません。 |
 | セキュリティ | 🟡 | すべてのリクエストに 3 つの権限のいずれかを持つトークンが必要で、パスワードは Argon2 ハッシュ、誤ったパスワードは遅延されます。TLS は終端しない（前段に HTTPS を置く）ため、独立したレビューも受けていません。 |
 | 実機 | 🟠 | ジョブはシミュレーターに対してのみ実行されました。サーバー経由で実機を動かしたことはありません。 |
@@ -167,7 +167,7 @@ python -I tools/ci_validate.py
 
 ## 🧪 テスト
 
-テストは 231 件です（`cargo test`、CI では COMMON, DRILLPRO と ROUTEPRO をサーバーの隣に取得して Windows と Linux で実行）。モジュール内 135 件（設定とその範囲、ユーザー、権限、トークン、誤ったパスワードの遅延、ファイルとジョブ台帳、計画）、実際のルーターを通すインターフェースのエンドツーエンド 41 件（`tests/api.rs`）、クライアントが読む応答の例を保つ 2 件（`tests/examples.rs`）、実プログラムが実サーバーへ実ポートでジョブを送り機械はシミュレーターという 7 件（`tests/programs.rs`）です。`tests/` の他のファイルにはさらに 46 件あります（アーティファクト、計算タスク、共有、イベント、エラーカタログ、API ドキュメントのルート、シグナルによる停止とパニック）。CI は `cargo fmt --all --check`、警告をエラーとする `cargo clippy`、`python -I tools/ci_validate.py` も実行します。実際のノードや機械に対するテストはありません。 更新を行うヘルパーには専用のテストがさらに 21 件あります（`python -I tests/test_update_helper.py`、GitHub と systemd は代役に置き換え）。 さらに 2 つのテストファイルが、ロックを汚染する panic でもサーバーが止まらないこと（`tests/poison.rs`）と、実バイナリーが SIGTERM で停止すること（`tests/sigterm.rs`、Linux）を確認します。バックアップとデプロイ用ファイルにはそれぞれ 7 件と 8 件の専用テストがあります（`tests/test_backup.py`、`tests/test_deploy_files.py`）。 さらに 2 つのテストファイルが、実際のソケット上のイベント用 websocket（`tests/events.rs`、3 件）と、サーバーのソースに対するエラーコード一覧（`tests/errors.rs`、3 件）を確認します。
+テストは 238 件です（`cargo test`、CI では COMMON, DRILLPRO と ROUTEPRO をサーバーの隣に取得して Windows と Linux で実行）。モジュール内 135 件（設定とその範囲、ユーザー、権限、トークン、誤ったパスワードの遅延、ファイルとジョブ台帳、計画）、実際のルーターを通すインターフェースのエンドツーエンド 41 件（`tests/api.rs`）、クライアントが読む応答の例を保つ 2 件（`tests/examples.rs`）、実プログラムが実サーバーへ実ポートでジョブを送り機械はシミュレーターという 7 件（`tests/programs.rs`）です。`tests/` の他のファイルにはさらに 53 件あります（アーティファクト、計算タスク、共有、イベント、エラーカタログ、API ドキュメントのルート、シグナルによる停止とパニック）。CI は `cargo fmt --all --check`、警告をエラーとする `cargo clippy`、`python -I tools/ci_validate.py` も実行します。実際のノードや機械に対するテストはありません。 更新を行うヘルパーには専用のテストがさらに 21 件あります（`python -I tests/test_update_helper.py`、GitHub と systemd は代役に置き換え）。 さらに 2 つのテストファイルが、ロックを汚染する panic でもサーバーが止まらないこと（`tests/poison.rs`）と、実バイナリーが SIGTERM で停止すること（`tests/sigterm.rs`、Linux）を確認します。バックアップとデプロイ用ファイルにはそれぞれ 7 件と 8 件の専用テストがあります（`tests/test_backup.py`、`tests/test_deploy_files.py`）。 さらに 2 つのテストファイルが、実際のソケット上のイベント用 websocket（`tests/events.rs`、3 件）と、サーバーのソースに対するエラーコード一覧（`tests/errors.rs`、3 件）を確認します。 ルートの契約はルーターに対して `tests/openapi.rs`（6 件）と `python -I tools/check_openapi.py` で検査され、後者は CI でも実行されます。
 
 ## 🏗️ ビルドとリリース
 
@@ -197,10 +197,10 @@ EH3D-SERVER/
 │   ├── gcode.rs gcode_run.rs                    自由な G コード：整形、解析、シミュレーターまたは GRBL での実行
 │   └── spindle.rs                               機械のスピンドル、その限界、安全スイッチ
 ├── tests/                                       シミュレーター上のインターフェースのエンドツーエンドと、実サーバーに対する実プログラム
-├── docs/                                        API、サーバー運用の手引き、2 つの図のデータ
+├── docs/                                        API、その OpenAPI 契約、サーバー運用の手引き、2 つの図のデータ
 ├── deploy/                                      systemd ユニットとサービスのヘルパー
 ├── server.cfg.example                           すべてのキーに説明を付けた設定ファイル
-├── tools/                                       CI と README のチェック、スクリプトのパネル、図のツール
+├── tools/                                       CI と README のチェック、OpenAPI、スクリプトのパネル、図のツール
 ├── images/                                      バナーとアーキテクチャ・リポジトリ構成の図
 ├── .github/                                     CI とリリースのワークフロー、Issue と PR のテンプレート
 ├── build.sh build.bat                           ライブ パネルでリリース バイナリをビルド
@@ -245,6 +245,7 @@ README とテキストは、英語、スペイン語、フランス語、イタ�
 ## 📚 ドキュメント
 
 * [API](docs/API.md)：すべてのリクエスト、ジョブとクライアントが描くビュー、状態、WebSocket。
+* [ルート](docs/openapi.yaml)：各ルートの OpenAPI 契約（ロール、スコープ、スキーマ、例、エラーコード）と、その一覧表 [docs/ROUTES.md](docs/ROUTES.md)。
 * [サーバーの運用](docs/DEPLOY.md)：ビルド、初回起動、CM5 上のサービス、配備の安全性。
 * [変更履歴](CHANGELOG.md)
 
@@ -252,7 +253,7 @@ README とテキストは、英語、スペイン語、フランス語、イタ�
 
 * プルリクエストの前に `cargo fmt --all --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test`、`python -I tools/ci_validate.py` を実行し、すべて通してください。[CONTRIBUTING.md](CONTRIBUTING.md) と[行動規範](CODE_OF_CONDUCT.md)を参照してください。
 * README は 8 言語あります。文章を変更するときは 8 つのファイルすべてを変更し、2 つの図は `docs/architecture.json` と `docs/structure.json` から `tools/make_architecture.py` と `tools/make_structure.py` で描画します。
-* API のルートを変更するときは、`docs/API.md` に項目を追加し、実際のルーターを通すテストを書き、何かを変更するリクエストには実行できる権限を定めてください。
+* API のルートを変更するときは、`docs/API.md` に項目を追加し、実際のルーターを通すテストを書き、何かを変更するリクエストには実行できる権限を定めてください。OpenAPI ドキュメントにもその操作が必要です：`python tools/make_openapi.py` を実行すると `docs/openapi.yaml`、`docs/openapi.json`、`docs/ROUTES.md` が書き出されます。
 * 脆弱性は非公開で報告してください：[SECURITY.md](SECURITY.md)。質問、アイデア、報告：electrohobby3d@gmail.com（[SUPPORT.md](SUPPORT.md)）。
 
 ## 👤 作者

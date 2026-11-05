@@ -261,6 +261,20 @@
         },
         {
           "desc": {
+            "en": "the OpenAPI contract of the routes and their table",
+            "es": "el contrato OpenAPI de las rutas y su tabla",
+            "de": "der OpenAPI-Vertrag der Routen und ihre Tabelle",
+            "fr": "le contrat OpenAPI des routes et leur tableau",
+            "it": "il contratto OpenAPI delle rotte e la loro tabella",
+            "ja": "ルートの OpenAPI 契約とその一覧表",
+            "zh": "路由的 OpenAPI 契约及其表格",
+            "pt": "o contrato OpenAPI das rotas e a sua tabela"
+          },
+          "name": "openapi.yaml  .json  ROUTES.md",
+          "tree_name": "openapi.yaml openapi.json ROUTES.md"
+        },
+        {
+          "desc": {
             "en": "the build, the first start and the service on the CM5",
             "es": "la compilación, el primer arranque y el servicio en la CM5",
             "de": "der Build, der erste Start und der Dienst auf der CM5",
@@ -288,14 +302,14 @@
         }
       ],
       "tree": {
-        "en": "the API, the guide to running the server and the data of the two pictures",
-        "es": "la API, la guía para ejecutar el servidor y los datos de las dos imágenes",
-        "de": "die API, die Anleitung zum Betrieb des Servers und die Daten der beiden Bilder",
-        "fr": "l'API, le guide pour exécuter le serveur et les données des deux images",
-        "it": "l'API, la guida per eseguire il server e i dati delle due immagini",
-        "ja": "API、サーバー運用の手引き、2 つの図のデータ",
-        "zh": "API、运行服务器的指南和两张图的数据",
-        "pt": "a API, o guia para executar o servidor e os dados das duas imagens"
+        "en": "the API, its OpenAPI contract, the guide to running the server and the data of the two pictures",
+        "es": "la API, su contrato OpenAPI, la guía para ejecutar el servidor y los datos de las dos imágenes",
+        "de": "die API, ihr OpenAPI-Vertrag, die Anleitung zum Betrieb des Servers und die Daten der beiden Bilder",
+        "fr": "l'API, son contrat OpenAPI, le guide pour exécuter le serveur et les données des deux images",
+        "it": "l'API, il suo contratto OpenAPI, la guida per eseguire il server e i dati delle due immagini",
+        "ja": "API、その OpenAPI 契約、サーバー運用の手引き、2 つの図のデータ",
+        "zh": "API、其 OpenAPI 契约、运行服务器的指南和两张图的数据",
+        "pt": "a API, o seu contrato OpenAPI, o guia para executar o servidor e os dados das duas imagens"
       }
     },
     {
@@ -341,14 +355,14 @@
         },
         {
           "desc": {
-            "en": "CI check, README check, the panel of the scripts and the picture tools",
-            "es": "comprobación del CI y del README, el panel de los scripts y herramientas de imágenes",
-            "de": "CI-Prüfung, README-Prüfung, das Panel der Skripte und die Bildwerkzeuge",
-            "fr": "contrôle de la CI et du README, le panneau des scripts et outils d'images",
-            "it": "controllo della CI e del README, il pannello degli script e strumenti per le immagini",
-            "ja": "CI と README のチェック、スクリプトのパネル、図のツール",
-            "zh": "CI 和 README 检查、脚本面板和绘图工具",
-            "pt": "verificação da CI e do README, o painel dos scripts e ferramentas de imagens"
+            "en": "CI and README checks, OpenAPI, the script panel and the picture tools",
+            "es": "comprobaciones de CI y README, OpenAPI, el panel de scripts y herramientas de imágenes",
+            "de": "CI- und README-Prüfung, OpenAPI, das Skript-Panel und die Bildwerkzeuge",
+            "fr": "contrôles CI et README, OpenAPI, le panneau des scripts et outils d'images",
+            "it": "controlli di CI e README, OpenAPI, il pannello degli script e strumenti per le immagini",
+            "ja": "CI と README のチェック、OpenAPI、スクリプトのパネル、図のツール",
+            "zh": "CI 与 README 检查、OpenAPI、脚本面板和绘图工具",
+            "pt": "verificações de CI e README, OpenAPI, o painel dos scripts e ferramentas de imagens"
           },
           "name": "tools/"
         },

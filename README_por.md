@@ -30,7 +30,7 @@
 |---|---|
 | Versão | `0.1.1` |
 | Maturidade | Funcional |
-| Testes | 231 |
+| Testes | 238 |
 | Tecnologias | Rust (axum, tokio) |
 | Em hardware real | Não: testado contra o simulador; ainda nada correu numa máquina real através do servidor |
 
@@ -45,8 +45,8 @@ Cada linha é uma parte deste repositório e a luz diz até onde chega hoje. É 
 | Área | Estado | O que significa aqui |
 |---|---|---|
 | Software | 🟡 | Um servidor em Rust (axum) guarda utilizadores, máquinas e trabalhos, planeia trabalhos de furação e fresagem com as bibliotecas do EH3D-DRILLPRO e do EH3D-ROUTEPRO, mostra uma pré-visualização e executa o trabalho com diálogos de operador e uma paragem. |
-| Testes | 🟡 | Passam 231 testes (`cargo test`): 135 nos módulos e 96 sobre a interface de ponta a ponta, com trabalhos no simulador (41 em `tests/api.rs`, 7 com os programas reais em `tests/programs.rs`). |
-| Interface para clientes (API) | 🟡 | Os pedidos REST e os eventos websocket estão descritos em `docs/API.md` e cobertos pelos testes; até agora só a ligação ao servidor dos próprios programas os usa. |
+| Testes | 🟡 | Passam 238 testes (`cargo test`): 135 nos módulos e 103 sobre a interface de ponta a ponta, com trabalhos no simulador (41 em `tests/api.rs`, 7 com os programas reais em `tests/programs.rs`). |
+| Interface para clientes (API) | 🟡 | Os pedidos REST e os eventos websocket estão descritos em `docs/API.md` (as rotas também no contrato OpenAPI `docs/openapi.yaml`) e cobertos pelos testes; até agora só a ligação ao servidor dos próprios programas os usa. |
 | Clientes | 🔴 | O EH3D-STUDIO usa-o (nunca experimentado com uma máquina real); a app Android e o painel tátil junto à máquina ainda não existem. |
 | Segurança | 🟡 | Cada pedido precisa de um token com um de três papéis, as palavras-passe são hashes Argon2 e as palavras-passe erradas são abrandadas; o servidor não termina TLS (ponha HTTPS à frente) e não teve revisão independente. |
 | Hardware real | 🟠 | Os trabalhos só correram contra o simulador: nada correu numa máquina real através do servidor. |
@@ -167,7 +167,7 @@ Execute-o com `run.bat` (Windows) ou `./run.sh` (Linux); compila primeiro se for
 
 ## 🧪 Testes
 
-A suite tem 231 testes (`cargo test`, executados em Windows e Linux na CI com o COMMON, DRILLPRO e o ROUTEPRO descarregados junto ao servidor): 135 nos módulos (definições e as suas gamas, utilizadores, papéis, tokens, o abrandamento perante palavras-passe erradas, os ficheiros e o livro de trabalhos, o planeamento), 41 sobre a interface de ponta a ponta através do router real (`tests/api.rs`), 2 que mantêm os exemplos de respostas lidos pelos clientes (`tests/examples.rs`) e 7 com os programas reais a enviar os seus trabalhos a um servidor real numa porta real, com a máquina no simulador (`tests/programs.rs`). Os restantes ficheiros de `tests/` somam mais 46 (artefactos, tarefas de cálculo, partilha, eventos, o catálogo de erros, as rotas do documento da API, uma paragem por sinal e um pânico). A CI executa também `cargo fmt --all --check`, `cargo clippy` com avisos como erros e `python -I tools/ci_validate.py`. Nada disto foi testado contra um nó ou uma máquina reais. O ajudante que faz as atualizações tem mais 21 testes próprios (`python -I tests/test_update_helper.py`, com o GitHub e o systemd substituídos por simulações). Mais dois ficheiros de testes verificam que um pânico que envenena um bloqueio não pára o servidor (`tests/poison.rs`) e que o binário real pára com SIGTERM (`tests/sigterm.rs`, em Linux); a cópia de segurança e os ficheiros da instalação têm 7 e 8 testes próprios (`tests/test_backup.py`, `tests/test_deploy_files.py`). Mais dois ficheiros de testes verificam o websocket de eventos num socket real (`tests/events.rs`, 3 testes) e o catálogo dos códigos de erro contra o código do servidor (`tests/errors.rs`, 3 testes).
+A suite tem 238 testes (`cargo test`, executados em Windows e Linux na CI com o COMMON, DRILLPRO e o ROUTEPRO descarregados junto ao servidor): 135 nos módulos (definições e as suas gamas, utilizadores, papéis, tokens, o abrandamento perante palavras-passe erradas, os ficheiros e o livro de trabalhos, o planeamento), 41 sobre a interface de ponta a ponta através do router real (`tests/api.rs`), 2 que mantêm os exemplos de respostas lidos pelos clientes (`tests/examples.rs`) e 7 com os programas reais a enviar os seus trabalhos a um servidor real numa porta real, com a máquina no simulador (`tests/programs.rs`). Os restantes ficheiros de `tests/` somam mais 53 (artefactos, tarefas de cálculo, partilha, eventos, o catálogo de erros, as rotas do documento da API, uma paragem por sinal e um pânico). A CI executa também `cargo fmt --all --check`, `cargo clippy` com avisos como erros e `python -I tools/ci_validate.py`. Nada disto foi testado contra um nó ou uma máquina reais. O ajudante que faz as atualizações tem mais 21 testes próprios (`python -I tests/test_update_helper.py`, com o GitHub e o systemd substituídos por simulações). Mais dois ficheiros de testes verificam que um pânico que envenena um bloqueio não pára o servidor (`tests/poison.rs`) e que o binário real pára com SIGTERM (`tests/sigterm.rs`, em Linux); a cópia de segurança e os ficheiros da instalação têm 7 e 8 testes próprios (`tests/test_backup.py`, `tests/test_deploy_files.py`). Mais dois ficheiros de testes verificam o websocket de eventos num socket real (`tests/events.rs`, 3 testes) e o catálogo dos códigos de erro contra o código do servidor (`tests/errors.rs`, 3 testes). O contrato das rotas é verificado contra o router por `tests/openapi.rs` (6 testes) e por `python -I tools/check_openapi.py`, que a CI também executa.
 
 ## 🏗️ Compilação e publicação
 
@@ -197,10 +197,10 @@ EH3D-SERVER/
 │   ├── gcode.rs gcode_run.rs                    G-code livre: limpeza, leitura e execução no simulador ou no GRBL
 │   └── spindle.rs                               o fuso de uma máquina, os seus limites e o interruptor de segurança
 ├── tests/                                       a interface de ponta a ponta no simulador e os programas reais contra um servidor real
-├── docs/                                        a API, o guia para executar o servidor e os dados das duas imagens
+├── docs/                                        a API, o seu contrato OpenAPI, o guia para executar o servidor e os dados das duas imagens
 ├── deploy/                                      as unidades systemd e os ajudantes do serviço
 ├── server.cfg.example                           o ficheiro de definições com cada chave explicada
-├── tools/                                       verificação da CI e do README, o painel dos scripts e ferramentas de imagens
+├── tools/                                       verificações de CI e README, OpenAPI, o painel dos scripts e ferramentas de imagens
 ├── images/                                      banner e as imagens de Arquitetura e Estrutura do repositório
 ├── .github/                                     fluxos de CI e de publicação, modelos de issues e pull requests
 ├── build.sh build.bat                           compila o binário de release com um painel em direto
@@ -245,6 +245,7 @@ O README e os textos existem em inglês, espanhol, francês, italiano, alemão, 
 ## 📚 Documentação
 
 * [A API](docs/API.md): cada pedido, o trabalho e a vista que um cliente desenha, os estados e o websocket.
+* [As rotas](docs/openapi.yaml): o contrato OpenAPI de cada rota (papel, âmbito, esquemas, exemplos e códigos de erro), com a sua tabela em [docs/ROUTES.md](docs/ROUTES.md).
 * [Executar o servidor](docs/DEPLOY.md): a compilação, o primeiro arranque, o serviço na CM5 e a segurança da instalação.
 * [Registo de alterações](CHANGELOG.md)
 
@@ -252,7 +253,7 @@ O README e os textos existem em inglês, espanhol, francês, italiano, alemão, 
 
 * Antes de um pull request execute `cargo fmt --all --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` e `python -I tools/ci_validate.py`: tudo tem de passar. Consulte [CONTRIBUTING.md](CONTRIBUTING.md) e o [código de conduta](CODE_OF_CONDUCT.md).
 * O README existe em oito idiomas: uma alteração ao texto faz-se nos oito ficheiros, e as duas imagens são desenhadas a partir de `docs/architecture.json` e `docs/structure.json` com `tools/make_architecture.py` e `tools/make_structure.py`.
-* Uma alteração a uma rota da API precisa da sua entrada em `docs/API.md`, de um teste através do router real e, para um pedido que altera algo, do papel que o pode fazer.
+* Uma alteração a uma rota da API precisa da sua entrada em `docs/API.md`, de um teste através do router real e, para um pedido que altera algo, do papel que o pode fazer. Precisa também da sua operação no documento OpenAPI: executa `python tools/make_openapi.py`, que escreve `docs/openapi.yaml`, `docs/openapi.json` e `docs/ROUTES.md`.
 * Comunique uma vulnerabilidade em privado: [SECURITY.md](SECURITY.md). Perguntas, ideias e relatórios: electrohobby3d@gmail.com ([SUPPORT.md](SUPPORT.md)).
 
 ## 👤 AUTOR

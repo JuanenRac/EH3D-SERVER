@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.1.1` |
 | Reifegrad | Funktionsfähig |
-| Tests | 231 |
+| Tests | 238 |
 | Technologie-Stack | Rust (axum, tokio) |
 | Auf echter Hardware | Nein: gegen den Simulator getestet; über den Server lief noch nichts auf einer echten Maschine |
 
@@ -45,8 +45,8 @@ Jede Zeile ist ein Teil dieses Repositorys, und die Ampel sagt, wie weit er heut
 | Bereich | Stand | Was das hier bedeutet |
 |---|---|---|
 | Software | 🟡 | Ein Rust-Server (axum) verwaltet Benutzer, Maschinen und Aufträge, plant Bohr- und Fräsaufträge mit den Bibliotheken von EH3D-DRILLPRO und EH3D-ROUTEPRO, zeigt eine Vorschau und führt den Auftrag mit Bedienerdialogen und einem Stopp aus. |
-| Tests | 🟡 | 231 Tests bestehen (`cargo test`): 135 in den Modulen und 96 an der Schnittstelle von Ende zu Ende, mit Aufträgen im Simulator (41 in `tests/api.rs`, 7 mit den echten Programmen in `tests/programs.rs`). |
-| Schnittstelle für Clients (API) | 🟡 | Die REST-Anfragen und die Websocket-Ereignisse sind in `docs/API.md` beschrieben und von den Tests abgedeckt; bisher nutzt sie nur die Serververbindung der Programme selbst. |
+| Tests | 🟡 | 238 Tests bestehen (`cargo test`): 135 in den Modulen und 103 an der Schnittstelle von Ende zu Ende, mit Aufträgen im Simulator (41 in `tests/api.rs`, 7 mit den echten Programmen in `tests/programs.rs`). |
+| Schnittstelle für Clients (API) | 🟡 | Die REST-Anfragen und die Websocket-Ereignisse sind in `docs/API.md` (die Routen außerdem im OpenAPI-Vertrag `docs/openapi.yaml`) beschrieben und von den Tests abgedeckt; bisher nutzt sie nur die Serververbindung der Programme selbst. |
 | Clients | 🔴 | EH3D-STUDIO nutzt ihn (nie an einer echten Maschine probiert); die Android-App und das Touch-Panel an der Maschine gibt es noch nicht. |
 | Sicherheit | 🟡 | Jede Anfrage braucht ein Token mit einer von drei Rollen, Passwörter sind Argon2-Hashes und falsche Passwörter werden ausgebremst; der Server beendet kein TLS (setze HTTPS davor) und wurde nicht unabhängig geprüft. |
 | Echte Hardware | 🟠 | Die Aufträge liefen nur gegen den Simulator: Über den Server lief nichts auf einer echten Maschine. |
@@ -167,7 +167,7 @@ Starte ihn mit `run.bat` (Windows) oder `./run.sh` (Linux); bei Bedarf baut er z
 
 ## 🧪 Tests
 
-Die Suite hat 231 Tests (`cargo test`, in der CI unter Windows und Linux mit COMMON, DRILLPRO und ROUTEPRO neben dem Server ausgeführt): 135 in den Modulen (Einstellungen und ihre Bereiche, Benutzer, Rollen, Tokens, die Bremse bei falschen Passwörtern, die Dateien und das Auftragsbuch, die Planung), 41 an der Schnittstelle von Ende zu Ende über den echten Router (`tests/api.rs`), 2 für die Beispiele der Antworten, die die Clients lesen (`tests/examples.rs`) und 7 mit den echten Programmen, die ihre Aufträge an einen echten Server auf einem echten Port schicken, mit der Maschine im Simulator (`tests/programs.rs`). Die übrigen Dateien von `tests/` bringen 46 weitere (Artefakte, Rechenaufgaben, Freigaben, Ereignisse, den Fehlerkatalog, die Routen des API-Dokuments, einen Stopp per Signal und eine Panik). Die CI führt außerdem `cargo fmt --all --check`, `cargo clippy` mit Warnungen als Fehlern und `python -I tools/ci_validate.py` aus. Nichts davon wurde gegen einen echten Knoten oder eine echte Maschine getestet. Der Helfer, der die Aktualisierungen macht, hat 21 weitere eigene Tests (`python -I tests/test_update_helper.py`, mit durch Attrappen ersetzten GitHub und systemd). Zwei weitere Testdateien prüfen, dass ein Panic, der eine Sperre vergiftet, den Server nicht anhält (`tests/poison.rs`), und dass das echte Binary bei SIGTERM stoppt (`tests/sigterm.rs`, unter Linux); die Sicherung und die Dateien der Bereitstellung haben 7 und 8 eigene Tests (`tests/test_backup.py`, `tests/test_deploy_files.py`). Zwei weitere Testdateien prüfen den Event-Websocket auf einem echten Socket (`tests/events.rs`, 3 Tests) und den Katalog der Fehlercodes gegen den Quelltext des Servers (`tests/errors.rs`, 3 Tests).
+Die Suite hat 238 Tests (`cargo test`, in der CI unter Windows und Linux mit COMMON, DRILLPRO und ROUTEPRO neben dem Server ausgeführt): 135 in den Modulen (Einstellungen und ihre Bereiche, Benutzer, Rollen, Tokens, die Bremse bei falschen Passwörtern, die Dateien und das Auftragsbuch, die Planung), 41 an der Schnittstelle von Ende zu Ende über den echten Router (`tests/api.rs`), 2 für die Beispiele der Antworten, die die Clients lesen (`tests/examples.rs`) und 7 mit den echten Programmen, die ihre Aufträge an einen echten Server auf einem echten Port schicken, mit der Maschine im Simulator (`tests/programs.rs`). Die übrigen Dateien von `tests/` bringen 53 weitere (Artefakte, Rechenaufgaben, Freigaben, Ereignisse, den Fehlerkatalog, die Routen des API-Dokuments, einen Stopp per Signal und eine Panik). Die CI führt außerdem `cargo fmt --all --check`, `cargo clippy` mit Warnungen als Fehlern und `python -I tools/ci_validate.py` aus. Nichts davon wurde gegen einen echten Knoten oder eine echte Maschine getestet. Der Helfer, der die Aktualisierungen macht, hat 21 weitere eigene Tests (`python -I tests/test_update_helper.py`, mit durch Attrappen ersetzten GitHub und systemd). Zwei weitere Testdateien prüfen, dass ein Panic, der eine Sperre vergiftet, den Server nicht anhält (`tests/poison.rs`), und dass das echte Binary bei SIGTERM stoppt (`tests/sigterm.rs`, unter Linux); die Sicherung und die Dateien der Bereitstellung haben 7 und 8 eigene Tests (`tests/test_backup.py`, `tests/test_deploy_files.py`). Zwei weitere Testdateien prüfen den Event-Websocket auf einem echten Socket (`tests/events.rs`, 3 Tests) und den Katalog der Fehlercodes gegen den Quelltext des Servers (`tests/errors.rs`, 3 Tests). Der Vertrag der Routen wird von `tests/openapi.rs` (6 Tests) und von `python -I tools/check_openapi.py` gegen den Router geprüft; Letzteres führt die CI ebenfalls aus.
 
 ## 🏗️ Build und Veröffentlichung
 
@@ -197,10 +197,10 @@ EH3D-SERVER/
 │   ├── gcode.rs gcode_run.rs                    freier G-Code: Bereinigen, Lesen und Ausführen am Simulator oder an GRBL
 │   └── spindle.rs                               die Spindel einer Maschine, ihre Grenzen und der Sicherheitsschalter
 ├── tests/                                       die Schnittstelle von Ende zu Ende im Simulator und die echten Programme gegen einen echten Server
-├── docs/                                        die API, die Anleitung zum Betrieb des Servers und die Daten der beiden Bilder
+├── docs/                                        die API, ihr OpenAPI-Vertrag, die Anleitung zum Betrieb des Servers und die Daten der beiden Bilder
 ├── deploy/                                      die systemd-Units und Helfer des Dienstes
 ├── server.cfg.example                           die Einstellungsdatei mit jeder erklärten Taste
-├── tools/                                       CI-Prüfung, README-Prüfung, das Panel der Skripte und die Bildwerkzeuge
+├── tools/                                       CI- und README-Prüfung, OpenAPI, das Skript-Panel und die Bildwerkzeuge
 ├── images/                                      Banner und die Bilder von Architektur und Repository-Struktur
 ├── .github/                                     CI- und Release-Workflows, Vorlagen für Issues und Pull Requests
 ├── build.sh build.bat                           baut die Release-Binärdatei mit einem Live-Panel
@@ -245,6 +245,7 @@ README und Texte gibt es auf Englisch, Spanisch, Französisch, Italienisch, Deut
 ## 📚 Dokumentation
 
 * [Die API](docs/API.md): jede Anfrage, der Auftrag und die Ansicht, die ein Client zeichnet, die Zustände und der Websocket.
+* [Die Routen](docs/openapi.yaml): der OpenAPI-Vertrag jeder Route (Rolle, Scope, Schemas, Beispiele und Fehlercodes), mit ihrer Tabelle in [docs/ROUTES.md](docs/ROUTES.md).
 * [Den Server betreiben](docs/DEPLOY.md): der Build, der erste Start, der Dienst auf der CM5 und die Sicherheit der Bereitstellung.
 * [Änderungsprotokoll](CHANGELOG.md)
 
@@ -252,7 +253,7 @@ README und Texte gibt es auf Englisch, Spanisch, Französisch, Italienisch, Deut
 
 * Führe vor einem Pull Request `cargo fmt --all --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test` und `python -I tools/ci_validate.py` aus: alles muss bestehen. Siehe [CONTRIBUTING.md](CONTRIBUTING.md) und den [Verhaltenskodex](CODE_OF_CONDUCT.md).
 * Das README gibt es in acht Sprachen: Eine Textänderung wird in allen acht Dateien gemacht, und die beiden Bilder werden aus `docs/architecture.json` und `docs/structure.json` mit `tools/make_architecture.py` und `tools/make_structure.py` gezeichnet.
-* Eine Änderung an einer Route der API braucht ihren Eintrag in `docs/API.md`, einen Test über den echten Router und, bei einer Anfrage, die etwas ändert, die Rolle, die sie ausführen darf.
+* Eine Änderung an einer Route der API braucht ihren Eintrag in `docs/API.md`, einen Test über den echten Router und, bei einer Anfrage, die etwas ändert, die Rolle, die sie ausführen darf. Sie braucht außerdem ihre Operation im OpenAPI-Dokument: `python tools/make_openapi.py` ausführen, das `docs/openapi.yaml`, `docs/openapi.json` und `docs/ROUTES.md` schreibt.
 * Melde eine Schwachstelle privat: [SECURITY.md](SECURITY.md). Fragen, Ideen und Meldungen: electrohobby3d@gmail.com ([SUPPORT.md](SUPPORT.md)).
 
 ## 👤 AUTOR
