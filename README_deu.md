@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.1.1` |
 | Reifegrad | Funktionsfähig |
-| Tests | 160 |
+| Tests | 231 |
 | Technologie-Stack | Rust (axum, tokio) |
 | Auf echter Hardware | Nein: gegen den Simulator getestet; über den Server lief noch nichts auf einer echten Maschine |
 
@@ -45,7 +45,7 @@ Jede Zeile ist ein Teil dieses Repositorys, und die Ampel sagt, wie weit er heut
 | Bereich | Stand | Was das hier bedeutet |
 |---|---|---|
 | Software | 🟡 | Ein Rust-Server (axum) verwaltet Benutzer, Maschinen und Aufträge, plant Bohr- und Fräsaufträge mit den Bibliotheken von EH3D-DRILLPRO und EH3D-ROUTEPRO, zeigt eine Vorschau und führt den Auftrag mit Bedienerdialogen und einem Stopp aus. |
-| Tests | 🟡 | 160 Tests bestehen (`cargo test`): 102 in den Modulen und 58 an der Schnittstelle von Ende zu Ende, mit Aufträgen im Simulator (41 in `tests/api.rs`, 7 mit den echten Programmen in `tests/programs.rs`). |
+| Tests | 🟡 | 231 Tests bestehen (`cargo test`): 135 in den Modulen und 96 an der Schnittstelle von Ende zu Ende, mit Aufträgen im Simulator (41 in `tests/api.rs`, 7 mit den echten Programmen in `tests/programs.rs`). |
 | Schnittstelle für Clients (API) | 🟡 | Die REST-Anfragen und die Websocket-Ereignisse sind in `docs/API.md` beschrieben und von den Tests abgedeckt; bisher nutzt sie nur die Serververbindung der Programme selbst. |
 | Clients | 🔴 | EH3D-STUDIO nutzt ihn (nie an einer echten Maschine probiert); die Android-App und das Touch-Panel an der Maschine gibt es noch nicht. |
 | Sicherheit | 🟡 | Jede Anfrage braucht ein Token mit einer von drei Rollen, Passwörter sind Argon2-Hashes und falsche Passwörter werden ausgebremst; der Server beendet kein TLS (setze HTTPS davor) und wurde nicht unabhängig geprüft. |
@@ -167,7 +167,7 @@ Starte ihn mit `run.bat` (Windows) oder `./run.sh` (Linux); bei Bedarf baut er z
 
 ## 🧪 Tests
 
-Die Suite hat 160 Tests (`cargo test`, in der CI unter Windows und Linux mit COMMON, DRILLPRO und ROUTEPRO neben dem Server ausgeführt): 102 in den Modulen (Einstellungen und ihre Bereiche, Benutzer, Rollen, Tokens, die Bremse bei falschen Passwörtern, die Dateien und das Auftragsbuch, die Planung), 41 an der Schnittstelle von Ende zu Ende über den echten Router (`tests/api.rs`), 2 für die Beispiele der Antworten, die die Clients lesen (`tests/examples.rs`) und 7 mit den echten Programmen, die ihre Aufträge an einen echten Server auf einem echten Port schicken, mit der Maschine im Simulator (`tests/programs.rs`). Die CI führt außerdem `cargo fmt --all --check`, `cargo clippy` mit Warnungen als Fehlern und `python -I tools/ci_validate.py` aus. Nichts davon wurde gegen einen echten Knoten oder eine echte Maschine getestet. Der Helfer, der die Aktualisierungen macht, hat 21 weitere eigene Tests (`python -I tests/test_update_helper.py`, mit durch Attrappen ersetzten GitHub und systemd). Zwei weitere Testdateien prüfen, dass ein Panic, der eine Sperre vergiftet, den Server nicht anhält (`tests/poison.rs`), und dass das echte Binary bei SIGTERM stoppt (`tests/sigterm.rs`, unter Linux); die Sicherung und die Dateien der Bereitstellung haben 7 und 8 eigene Tests (`tests/test_backup.py`, `tests/test_deploy_files.py`). Zwei weitere Testdateien prüfen den Event-Websocket auf einem echten Socket (`tests/events.rs`, 3 Tests) und den Katalog der Fehlercodes gegen den Quelltext des Servers (`tests/errors.rs`, 3 Tests).
+Die Suite hat 231 Tests (`cargo test`, in der CI unter Windows und Linux mit COMMON, DRILLPRO und ROUTEPRO neben dem Server ausgeführt): 135 in den Modulen (Einstellungen und ihre Bereiche, Benutzer, Rollen, Tokens, die Bremse bei falschen Passwörtern, die Dateien und das Auftragsbuch, die Planung), 41 an der Schnittstelle von Ende zu Ende über den echten Router (`tests/api.rs`), 2 für die Beispiele der Antworten, die die Clients lesen (`tests/examples.rs`) und 7 mit den echten Programmen, die ihre Aufträge an einen echten Server auf einem echten Port schicken, mit der Maschine im Simulator (`tests/programs.rs`). Die übrigen Dateien von `tests/` bringen 46 weitere (Artefakte, Rechenaufgaben, Freigaben, Ereignisse, den Fehlerkatalog, die Routen des API-Dokuments, einen Stopp per Signal und eine Panik). Die CI führt außerdem `cargo fmt --all --check`, `cargo clippy` mit Warnungen als Fehlern und `python -I tools/ci_validate.py` aus. Nichts davon wurde gegen einen echten Knoten oder eine echte Maschine getestet. Der Helfer, der die Aktualisierungen macht, hat 21 weitere eigene Tests (`python -I tests/test_update_helper.py`, mit durch Attrappen ersetzten GitHub und systemd). Zwei weitere Testdateien prüfen, dass ein Panic, der eine Sperre vergiftet, den Server nicht anhält (`tests/poison.rs`), und dass das echte Binary bei SIGTERM stoppt (`tests/sigterm.rs`, unter Linux); die Sicherung und die Dateien der Bereitstellung haben 7 und 8 eigene Tests (`tests/test_backup.py`, `tests/test_deploy_files.py`). Zwei weitere Testdateien prüfen den Event-Websocket auf einem echten Socket (`tests/events.rs`, 3 Tests) und den Katalog der Fehlercodes gegen den Quelltext des Servers (`tests/errors.rs`, 3 Tests).
 
 ## 🏗️ Build und Veröffentlichung
 
