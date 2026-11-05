@@ -1,5 +1,7 @@
 //! The checklist of the routes: every route that the files of the tasks, the artifacts and the projects register has to be written down in `docs/API.md`, with the same shape
-//! (the names of the parameters may differ), and the document must not describe a request of these families that is not there.
+//! (the names of the parameters may differ), and the document must not describe a request of these families that is not there. The contract of all the routes is the
+//! OpenAPI document (`docs/openapi.yaml`, with `docs/openapi.json` and the table `docs/ROUTES.md`), which `tests/openapi.rs` compares with the router; this file keeps
+//! the text of `docs/API.md` in step with it.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -80,4 +82,17 @@ fn the_rotation_of_a_token_is_documented() {
     assert!(doc.contains("/tokens/:id/rotate"));
     let api = std::fs::read_to_string(root().join("src").join("api.rs")).unwrap();
     assert!(api.contains("\"/api/v1/tokens/:id/rotate\""));
+}
+
+#[test]
+fn the_api_document_names_the_openapi_contract_and_its_files_exist() {
+    let doc = std::fs::read_to_string(root().join("docs").join("API.md")).unwrap();
+    assert!(doc.contains("docs/openapi.yaml"));
+    assert!(doc.contains("docs/ROUTES.md"));
+    for file in ["openapi.json", "openapi.yaml", "ROUTES.md"] {
+        assert!(
+            root().join("docs").join(file).is_file(),
+            "docs/{file} is missing"
+        );
+    }
 }

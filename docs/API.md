@@ -2,6 +2,8 @@
 
 Everything is under `/api/v1/` and answers JSON. A mistake is `{"error": "<code>", "detail": "..."}` with the status that fits. Except the health check, the first set-up and the login, every request carries `Authorization: Bearer <token>`: the token of a login or the token of a program. A **viewer** reads, an **operator** also prepares, starts, stops and confirms jobs, an **administrator** also manages users, tokens and machines. The default port is 18200.
 
+**The contract of the routes.** The list of the routes, with the method, the role and the scope each one needs, the schemas of what it takes and gives, an example and the error codes it can answer with, is `docs/openapi.yaml` (OpenAPI 3.1; `docs/openapi.json` is the same document for the tests, and `docs/ROUTES.md` is its table of routes). They are written by `tools/make_openapi.py` and checked against the router by `tests/openapi.rs` and `tools/check_openapi.py`. This document explains how the server behaves; when the two seem to differ, the OpenAPI document is the contract of the routes and this text is what to fix.
+
 ## Who is who
 
 | Request | Role | What it does |
