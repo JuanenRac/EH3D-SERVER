@@ -166,7 +166,7 @@ jobs:
         run: |
           set -euo pipefail
           cd files
-          find . -maxdepth 1 -type f ! -name '*.sha256' -printf '%P\n' | LC_ALL=C sort | xargs sha256sum > SHA256SUMS
+          find . -maxdepth 1 -type f ! -name '*.sha256' ! -name SHA256SUMS -printf '%P\n' | LC_ALL=C sort | xargs sha256sum > SHA256SUMS
           test -s SHA256SUMS
           python3 - <<'PY'
           import json, os
