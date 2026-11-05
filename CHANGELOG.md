@@ -3,6 +3,9 @@
 All notable changes to this project are documented here.
 
 ## [Unreleased]
+
+## [0.1.2] - OpenAPI contract of the interface, attested release builds and the real test count
+
 - **The contract of the interface is an OpenAPI document:** `docs/openapi.yaml` (OpenAPI 3.1, "EH3D Server API", with the version of the server) describes all 83 operations of the router with their tag, the role and scope each one needs, the schemas of what it takes and gives, examples and the error codes it can answer with (their status comes from `docs/error-codes.json`); `docs/openapi.json` is the same document for the tests and `docs/ROUTES.md` is its table of routes. `tools/make_openapi.py` writes the three files; `tests/openapi.rs` (6 tests) and `tools/check_openapi.py`, which the CI runs, check that every route of the router is in the document and the other way round, that every operation has a summary, a tag, a role and responses, that the error codes exist in the catalog with a status the operation answers, and that the YAML and the table say the same as the JSON. `docs/API.md` and `tests/routes_doc.rs` name it as the contract of the routes. 7 tests.
 - **The count of tests is the real one:** the READMEs said 160 tests; the suite has 231 (135 in the modules and 96 on the interface end to end).
 - **Brand:** Add the application icon and the logos of the program.
