@@ -27,6 +27,10 @@ jobs:
           python -I tests/test_update_helper.py
           python -I tests/test_backup.py
           python -I tests/test_deploy_files.py
+      - name: Contract of the interface (OpenAPI, table of routes) against the router
+        run: |
+          python -I tools/make_openapi.py --check
+          python -I tools/check_openapi.py
       - name: Pictures of the README
         run: |
           python -I tools/make_architecture.py --check
