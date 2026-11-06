@@ -259,6 +259,8 @@ A scope the token lacks answers `403 forbidden_scope`; a role that is too low st
 
 **The shared catalogs** (materials, tools, machine profiles, footprints, symbols, components) are read by every application under `/api/v1/catalogs` and written by an administrator; see `docs/CATALOGS.md`.
 
+**The single sign-in of every application** (sessions that name the application they were opened for, the list of open sessions, the keys and the policy of the server) is described in `docs/AUTH.md`.
+
 **The project store of every application** is a second way to keep a project: files with versions, `If-Match`, editing locks and the `.eh3dproj` container, under `/api/v1/apps/{app}/projects`. It does not change anything above; it is described in `docs/PROJECT_STORE.md` and in the `store` tag of the contract.
 
 ## What happens, as it happens
