@@ -243,6 +243,7 @@ An upload nobody touched for `upload_ttl_s` is cleaned, and so are the files of 
 |---|---|
 | `projects:read`, `projects:write` | read the projects; make, change, share and delete them |
 | `artifacts:read`, `artifacts:write` | read artifacts and ask about blobs; make, upload, share and delete them |
+| `catalog:read`, `catalog:write` | read the shared catalogs; replace or empty one of them (`docs/CATALOGS.md`) |
 | `tasks:read`, `tasks:run` | list and read tasks; make, cancel and delete them |
 | `machines:view` | read the machines, the fleet and the jobs |
 | `jobs:prepare` | the preview, the creation of a job and the resuming from a stopped one |
@@ -250,8 +251,11 @@ An upload nobody touched for `upload_ttl_s` is cleaned, and so are the files of 
 | `jobs:start` | start, hold and resume a job |
 | `jobs:confirm` | answer the dialog a running job waits at |
 | `jobs:cancel` | cancel a job and stop a machine |
+| `machines:manage` | make, change and remove the machines of the plugins (`docs/MACHINE_PLUGINS.md`) |
 
-A scope the token lacks answers `403 forbidden_scope`; a role that is too low still answers `403 forbidden`, whatever the scopes. The `phoenix` and `cam` templates are for the design programs and **can never hold** `jobs:authorize`, `jobs:start`, `jobs:confirm` or `jobs:cancel`: asking for one is refused (`403 forbidden_scope`) and nothing is made, and a token of those templates made without scopes gets all the others. Even a file of tokens edited by hand cannot give them the scopes of the machines: they are taken away when the token is recognised. Only a person logged in (or a `client` or `custom` token) carries them. `GET /tokens` lists `template` and `scopes`. `POST /tokens/:id/rotate` (admin) gives the token a new secret, shown this once, and the old one stops working at once; the id, the scopes and the expiry stay. A revoked (`DELETE /tokens/:id`) or expired token is answered `401 unauthorized`.
+A scope the token lacks answers `403 forbidden_scope`; a role that is too low still answers `403 forbidden`, whatever the scopes. The `phoenix` and `cam` templates are for the design programs and **can never hold** `jobs:authorize`, `jobs:start`, `jobs:confirm`, `jobs:cancel` or `machines:manage`: asking for one is refused (`403 forbidden_scope`) and nothing is made, and a token of those templates made without scopes gets all the others. Even a file of tokens edited by hand cannot give them the scopes of the machines: they are taken away when the token is recognised. Only a person logged in (or a `client` or `custom` token) carries them. `GET /tokens` lists `template` and `scopes`. `POST /tokens/:id/rotate` (admin) gives the token a new secret, shown this once, and the old one stops working at once; the id, the scopes and the expiry stay. A revoked (`DELETE /tokens/:id`) or expired token is answered `401 unauthorized`.
+
+**The shared catalogs** (materials, tools, machine profiles, footprints, symbols, components) are read by every application under `/api/v1/catalogs` and written by an administrator; see `docs/CATALOGS.md`.
 
 **The project store of every application** is a second way to keep a project: files with versions, `If-Match`, editing locks and the `.eh3dproj` container, under `/api/v1/apps/{app}/projects`. It does not change anything above; it is described in `docs/PROJECT_STORE.md` and in the `store` tag of the contract.
 
@@ -270,6 +274,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `bad_app` | 422 | The name of the application is not one this server accepts (lower case letters, digits and hyphens, one of the known applications or of auth_extra_apps). |
 | `bad_artifact` | 422 | The description of an artifact does not fit (name, format, result_type, inputs or params). |
 | `bad_board` | 422 | board_mm is not from 0 to 50. |
+| `bad_catalog` | 422 | The dataset uploaded to a catalog does not fit: not JSON or CSV that reads, items that are not objects, an item without the field that names it (or repeated), a missing format, or more items than catalog_max_items. |
 | `bad_cfg` | 422 | The tuning text of the machine does not read. |
 | `bad_container` | 422 | The .eh3dproj container cannot be read or written: structure, names, sizes, integrity record, or the project has no project.json. |
 | `bad_credentials` | 401 | The name or the password is wrong. |
@@ -300,6 +305,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `bad_upload` | 422 | The declaration of an upload or one of its parts does not fit (hash, empty part, a part past the declared size). |
 | `blob_damaged` | 500 | The bytes of an artifact are missing or are not what their hash says. |
 | `both_sources` | 422 | The job brings the work as data and as files; it must be one of them. |
+| `catalog_readonly` | 409 | The catalog is built in and is not written, not even by an administrator. |
 | `engine_missing` | 422 | The kind of task is known but this build has no engine for it. |
 | `file_too_big` | 413 | The file is bigger than project_max_file_mb. |
 | `forbidden` | 403 | The role of the caller is not enough for this request. |
@@ -348,7 +354,9 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `too_many_holes` | 422 | More holes than one inspection takes. |
 | `unauthorized` | 401 | The token is missing, not valid or has expired. |
 | `unknown_artifact` | 404 | There is no artifact with this id, or it belongs to somebody else. |
+| `unknown_catalog` | 404 | There is no catalog with this name. |
 | `unknown_file` | 404 | The project has no such file. |
+| `unknown_item` | 404 | The catalog has no item with this name. |
 | `unknown_job` | 404 | There is no job with this id. |
 | `unknown_kind` | 422 | There is no such kind of task. |
 | `unknown_machine` | 404 | There is no machine with this id. |

@@ -38,6 +38,7 @@ eh3d-inspect = { version = ">=0.0.1", path = "../EH3D-COMMON/crates/inspect" }
 eh3d-diagnostic = { version = ">=0.0.1", path = "../EH3D-COMMON/crates/diagnostic" }
 eh3d-controller = { version = ">=0.0.1", path = "../EH3D-COMMON/crates/controller" }
 eh3d-container = { version = ">=0.0.1", path = "../EH3D-COMMON/crates/container" }
+eh3d-materials = { version = ">=0.0.1", path = "../EH3D-COMMON/crates/materials" }
 
 [dev-dependencies]
 # the test of the programs reads the fleet the way a program does

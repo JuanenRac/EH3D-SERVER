@@ -245,6 +245,8 @@ PATH_PARAMS = {
     "name": "The name of the user.",
     "sha": "The SHA-256 of the bytes, 64 lower-case hexadecimal digits.",
     "who": "The name of a user, or `token:<id>`.",
+    "catalog": "The name of a catalog (`materials`, `tools`, `machine-profiles`, `footprints`, `symbols` or `components`).",
+    "item": "The name of an item of the catalog (the value of its `id`, or of its `name` for footprints and symbols).",
     "app": "The application that owns the projects (`studio`, `android`, `pcb`...; see docs/AUTH.md).",
 }
 TAGS = [
@@ -258,6 +260,7 @@ TAGS = [
     ("artifacts", "Files kept by identity: artifacts, blobs and uploads."),
     ("projects", "Projects with revisions and explicit sharing."),
     ("store", "The project store of every application: projects, files with versions, editing locks and the .eh3dproj container."),
+    ("catalogs", "Shared catalogs the applications read: materials, tools, machine profiles, footprints, symbols and components."),
 ]
 SECURITY_BEARER = [{"bearerAuth": []}]
 SECURITY_OPEN = [{"bearerAuth": []}, {"ticketAuth": []}]
@@ -535,6 +538,45 @@ op("POST", STORE + "/{id}/import", "store", "operator", "Import an .eh3dproj con
 op("GET", STORE + "/{id}/export", "store", "viewer", "Export a project as an .eh3dproj container", scope="projects:read", ok=(200, BINARY, "application/zip"),
    errors=STORE_ERR + ["bad_container", "blob_damaged"], query=[q("spec", {"type": "string", "enum": ["1.0", "1.1"]}, "The version of the container (1.0 first, then 1.1, without it).")],
    desc="The current files, each checked against its hash, in a container with its integrity record. The project has to hold the `project.json` of the format.")
+
+# -- the shared catalogs (docs/CATALOGS.md)
+SCHEMAS.update({
+    "CatalogSummary": obj({
+        "name": s(), "title": s(), "builtin": B, "items": I, "version": I, "sha256": s(), "updated": I, "by": s(), "source": s(), "etag": s(),
+    }, ["name", "builtin", "items", "version", "etag"], description="`version` is 0 for a catalog nobody uploaded to; `source` is `embedded`, `json` or `csv`."),
+    "CatalogList": obj({"catalogs": arr(ref("CatalogSummary"))}, ["catalogs"]),
+    "CatalogPage": obj({
+        "catalog": s(), "version": I, "etag": s("Also the `ETag` header."), "total": I, "offset": I, "limit": I,
+        "items": arr({"type": "object", "additionalProperties": True}),
+    }, ["catalog", "version", "etag", "total", "offset", "limit", "items"]),
+    "CatalogItem": {"type": "object", "additionalProperties": True, "description": "One item, as the dataset has it; the field that names it is `id` (`name` for footprints and symbols)."},
+    "CatalogDataset": {
+        "oneOf": [arr({"type": "object", "additionalProperties": True}), {"type": "object", "additionalProperties": True}],
+        "description": "A list of items, or an object with the list under `tools`, `profiles`, `footprints`, `symbols` or `parts` (`items` also works); the components base declares "
+                       "`\"format\": \"phoenix-parts/1\"`. As CSV (`Content-Type: text/csv`): a header line and a row per item, the values as text.",
+    },
+})
+
+CAT_ERR = ["unknown_catalog"]
+op("GET", "/catalogs", "catalogs", "viewer", "List the catalogs", scope="catalog:read", ok=(200, "CatalogList", "application/json"),
+   desc="Every catalog with its version, its number of items and its tag, also the ones nobody uploaded to.")
+op("GET", "/catalogs/{catalog}", "catalogs", "viewer", "Search a catalog", scope="catalog:read", ok=(200, "CatalogPage", "application/json"),
+   errors=CAT_ERR + ["bad_request"],
+   query=[q("q", S, "Keep the items that have this text in any value, in any letter case."),
+          q("filter", S, "Conditions `field:value` separated by commas: the field (`a.b` for a nested one) equals the value in any letter case; a value that starts with `~` only has to contain the rest; "
+                         "on a list one of the values has to match."),
+          q("sort", S, "The field to sort by (numbers as numbers, the rest as text)."), q("desc", B, "Descending."),
+          q("limit", {"type": "integer", "minimum": 1}, "Items per page (50, at most `catalog_page_max`)."), q("offset", {"type": "integer", "minimum": 0}, "Items to skip.")],
+   responses={"304": {"description": "The `If-None-Match` tag is the one of the catalog: nothing changed. No body."}},
+   desc="With the `ETag` of the dataset in the header (its content, so it changes only when the dataset does). A client that keeps a copy sends it back in `If-None-Match`.")
+op("GET", "/catalogs/{catalog}/items/{item}", "catalogs", "viewer", "Read one item of a catalog", scope="catalog:read", ok=(200, "CatalogItem", "application/json"),
+   errors=CAT_ERR + ["unknown_item"])
+op("PUT", "/catalogs/{catalog}", "catalogs", "admin", "Replace the dataset of a catalog", scope="catalog:write", body="CatalogDataset", ok=(200, "CatalogSummary", "application/json"),
+   errors=CAT_ERR + ["bad_catalog", "catalog_readonly", "too_big"],
+   desc="The whole dataset, as a new version, or nothing: one item that does not fit refuses the upload. The built-in `materials` is not written. Audited and told on the stream as `catalog.changed`.",
+   example=[{"id": "d08", "kind": "drill", "dia_mm": 0.8}])
+op("DELETE", "/catalogs/{catalog}", "catalogs", "admin", "Empty a catalog", scope="catalog:write", ok=(200, "CatalogSummary", "application/json"), errors=CAT_ERR + ["catalog_readonly"],
+   desc="A new version with no items; the file of the previous one stays beside it.")
 
 # ---------------------------------------------------------------------------------------------------------------------------------------
 # Building the document

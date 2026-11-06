@@ -32,6 +32,11 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/artifacts/:id/shares/:who` | DELETE | operator + `artifacts:write` | Take the sharing of an artifact back |
 | `/api/v1/artifacts/verify` | POST | admin + `artifacts:read` | Read every blob again against its hash |
 | `/api/v1/blobs/:sha` | HEAD | viewer + `artifacts:read` | Ask whether the caller can see bytes with this hash |
+| `/api/v1/catalogs` | GET | viewer + `catalog:read` | List the catalogs |
+| `/api/v1/catalogs/:catalog` | GET | viewer + `catalog:read` | Search a catalog |
+| `/api/v1/catalogs/:catalog` | PUT | admin + `catalog:write` | Replace the dataset of a catalog |
+| `/api/v1/catalogs/:catalog` | DELETE | admin + `catalog:write` | Empty a catalog |
+| `/api/v1/catalogs/:catalog/items/:item` | GET | viewer + `catalog:read` | Read one item of a catalog |
 | `/api/v1/events` | GET | viewer | Open the websocket of the events |
 | `/api/v1/fleet` | GET | viewer + `machines:view` | Every machine at once, grouped by station |
 | `/api/v1/health` | GET | none | Health check |

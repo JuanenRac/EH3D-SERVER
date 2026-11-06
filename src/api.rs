@@ -315,6 +315,7 @@ pub fn router(state: Shared) -> Router {
         .merge(crate::api_artifacts::routes())
         .merge(crate::api_projects::routes())
         .merge(crate::api_pstore::routes(&state.cfg))
+        .merge(crate::api_catalogs::routes(&state.cfg))
         .layer(DefaultBodyLimit::max(limit))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

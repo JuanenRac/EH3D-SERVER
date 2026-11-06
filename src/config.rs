@@ -699,14 +699,57 @@ project_require_if_match = no
         assert_eq!(set.project_max_file_mb, 8);
         assert_eq!(set.project_versions_kept, 0);
         assert!(set.project_shared && !set.project_require_if_match);
-        assert!(parse("project_max_file_mb = 0
-").is_err());
-        assert!(parse("project_lock_ttl_s = 5
-").is_err());
-        assert!(parse("project_max_files = lots
-").is_err());
-        assert!(parse("project_shared = maybe
-").is_err());
+        assert!(parse(
+            "project_max_file_mb = 0
+"
+        )
+        .is_err());
+        assert!(parse(
+            "project_lock_ttl_s = 5
+"
+        )
+        .is_err());
+        assert!(parse(
+            "project_max_files = lots
+"
+        )
+        .is_err());
+        assert!(parse(
+            "project_shared = maybe
+"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn the_settings_of_the_catalogs_are_checked() {
+        let c = parse("").unwrap();
+        assert_eq!(
+            (c.catalog_max_mb, c.catalog_max_items, c.catalog_page_max),
+            (16, 100_000, 200)
+        );
+        let set = parse(
+            "catalog_max_mb = 2
+catalog_page_max = 10
+",
+        )
+        .unwrap();
+        assert_eq!((set.catalog_max_mb, set.catalog_page_max), (2, 10));
+        assert!(parse(
+            "catalog_max_mb = 0
+"
+        )
+        .is_err());
+        assert!(parse(
+            "catalog_page_max = 0
+"
+        )
+        .is_err());
+        assert!(parse(
+            "catalog_max_items = many
+"
+        )
+        .is_err());
     }
 
     #[test]

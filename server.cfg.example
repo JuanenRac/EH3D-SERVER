@@ -66,3 +66,9 @@ project_lock_ttl_s = 300
 project_require_if_match = true
 # Team mode: everybody with access to the store sees and writes the projects of the application. Off: only the owner of a project and the administrators.
 project_shared = false
+
+# ---- the shared catalogs (docs/CATALOGS.md)
+# The largest dataset an administrator may upload to a catalog, in megabytes (1 to 1024), the most items of a dataset, and the most items one page answers with.
+catalog_max_mb = 16
+catalog_max_items = 100000
+catalog_page_max = 200

@@ -75,6 +75,8 @@ pub struct AppState {
     pub projects: crate::projects::Projects,
     /// The projects and the files of every application (`/api/v1/apps/:app/projects`).
     pub pstore: crate::pstore::ProjectStore,
+    /// The shared catalogs (`/api/v1/catalogs`).
+    pub catalogs: crate::catalogs::Catalogs,
     /// The events of the common services, with their numbers, for the stream and for the clients that reconnect.
     pub feed: crate::feed::Feed,
     /// The updates of the installed services, when the settings give the folder for them.
@@ -128,6 +130,7 @@ impl AppState {
             shares_enabled: cfg.shares_enabled,
         };
         let pstore = crate::pstore::ProjectStore::open(&cfg)?;
+        let catalogs = crate::catalogs::Catalogs::open(&cfg)?;
         let feed = crate::feed::Feed::new(cfg.events_queue, cfg.events_clients_max);
         let audit = crate::audit::Audit::new(&cfg.data_dir, cfg.audit_file, cfg.log_max_kb);
         let job_log = crate::audit::LogFile::new(
@@ -152,6 +155,7 @@ impl AppState {
             artifacts,
             projects,
             pstore,
+            catalogs,
             feed,
             updates,
             inspections: Mutex::new(HashMap::new()),

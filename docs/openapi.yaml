@@ -33,6 +33,8 @@ tags:
     description: Projects with revisions and explicit sharing.
   - name: store
     description: "The project store of every application: projects, files with versions, editing locks and the .eh3dproj container."
+  - name: catalogs
+    description: "Shared catalogs the applications read: materials, tools, machine profiles, footprints, symbols and components."
 paths:
   "/health":
     get:
@@ -6899,6 +6901,371 @@ paths:
               example:
                 error: blob_damaged
                 detail: ""
+  "/catalogs":
+    get:
+      operationId: get_catalogs
+      tags:
+        - catalogs
+      summary: List the catalogs
+      description: "Every catalog with its version, its number of items and its tag, also the ones nobody uploaded to. Role viewer or higher. Scope `catalog:read` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "catalog:read"
+      x-error-codes:
+        - forbidden_scope
+        - unauthorized
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/CatalogList"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
+  "/catalogs/{catalog}":
+    get:
+      operationId: get_catalogs_catalog
+      tags:
+        - catalogs
+      summary: Search a catalog
+      description: "With the `ETag` of the dataset in the header (its content, so it changes only when the dataset does). A client that keeps a copy sends it back in `If-None-Match`. Role viewer or higher. Scope `catalog:read` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "catalog:read"
+      x-error-codes:
+        - bad_request
+        - forbidden_scope
+        - unauthorized
+        - unknown_catalog
+      parameters:
+        - name: catalog
+          in: path
+          required: true
+          description: "The name of a catalog (`materials`, `tools`, `machine-profiles`, `footprints`, `symbols` or `components`)."
+          schema:
+            type: string
+        - name: q
+          in: query
+          required: false
+          description: "Keep the items that have this text in any value, in any letter case."
+          schema:
+            type: string
+        - name: filter
+          in: query
+          required: false
+          description: "Conditions `field:value` separated by commas: the field (`a.b` for a nested one) equals the value in any letter case; a value that starts with `~` only has to contain the rest; on a list one of the values has to match."
+          schema:
+            type: string
+        - name: sort
+          in: query
+          required: false
+          description: "The field to sort by (numbers as numbers, the rest as text)."
+          schema:
+            type: string
+        - name: desc
+          in: query
+          required: false
+          description: Descending.
+          schema:
+            type: boolean
+        - name: limit
+          in: query
+          required: false
+          description: "Items per page (50, at most `catalog_page_max`)."
+          schema:
+            type: integer
+            minimum: 1
+        - name: offset
+          in: query
+          required: false
+          description: Items to skip.
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/CatalogPage"
+        "400":
+          description: "Refused with `bad_request`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_request
+                detail: ""
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
+        "404":
+          description: "Refused with `unknown_catalog`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_catalog
+                detail: ""
+        "304":
+          description: "The `If-None-Match` tag is the one of the catalog: nothing changed. No body."
+    put:
+      operationId: put_catalogs_catalog
+      tags:
+        - catalogs
+      summary: Replace the dataset of a catalog
+      description: "The whole dataset, as a new version, or nothing: one item that does not fit refuses the upload. The built-in `materials` is not written. Audited and told on the stream as `catalog.changed`. Role admin. Scope `catalog:write` if the token is limited by scopes."
+      x-role: admin
+      x-scope: "catalog:write"
+      x-error-codes:
+        - bad_catalog
+        - bad_request
+        - catalog_readonly
+        - forbidden
+        - forbidden_scope
+        - too_big
+        - unauthorized
+        - unknown_catalog
+      parameters:
+        - name: catalog
+          in: path
+          required: true
+          description: "The name of a catalog (`materials`, `tools`, `machine-profiles`, `footprints`, `symbols` or `components`)."
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/CatalogDataset"
+            example:
+              - id: d08
+                kind: drill
+                dia_mm: 0.8
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/CatalogSummary"
+              example:
+                - id: d08
+                  kind: drill
+                  dia_mm: 0.8
+        "400":
+          description: "Refused with `bad_request`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_request
+                detail: ""
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_catalog`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_catalog
+                detail: ""
+        "409":
+          description: "Refused with `catalog_readonly`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: catalog_readonly
+                detail: ""
+        "422":
+          description: "Refused with `bad_catalog`, `too_big`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_catalog
+                detail: ""
+    delete:
+      operationId: delete_catalogs_catalog
+      tags:
+        - catalogs
+      summary: Empty a catalog
+      description: "A new version with no items; the file of the previous one stays beside it. Role admin. Scope `catalog:write` if the token is limited by scopes."
+      x-role: admin
+      x-scope: "catalog:write"
+      x-error-codes:
+        - catalog_readonly
+        - forbidden
+        - forbidden_scope
+        - unauthorized
+        - unknown_catalog
+      parameters:
+        - name: catalog
+          in: path
+          required: true
+          description: "The name of a catalog (`materials`, `tools`, `machine-profiles`, `footprints`, `symbols` or `components`)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/CatalogSummary"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_catalog`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_catalog
+                detail: ""
+        "409":
+          description: "Refused with `catalog_readonly`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: catalog_readonly
+                detail: ""
+  "/catalogs/{catalog}/items/{item}":
+    get:
+      operationId: get_catalogs_catalog_items_item
+      tags:
+        - catalogs
+      summary: Read one item of a catalog
+      description: "Role viewer or higher. Scope `catalog:read` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "catalog:read"
+      x-error-codes:
+        - forbidden_scope
+        - unauthorized
+        - unknown_catalog
+        - unknown_item
+      parameters:
+        - name: catalog
+          in: path
+          required: true
+          description: "The name of a catalog (`materials`, `tools`, `machine-profiles`, `footprints`, `symbols` or `components`)."
+          schema:
+            type: string
+        - name: item
+          in: path
+          required: true
+          description: "The name of an item of the catalog (the value of its `id`, or of its `name` for footprints and symbols)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/CatalogItem"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
+        "404":
+          description: "Refused with `unknown_catalog`, `unknown_item`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_catalog
+                detail: ""
 components:
   securitySchemes:
     bearerAuth:
@@ -8570,5 +8937,89 @@ components:
         - unchanged
         - files
       additionalProperties: false
+    CatalogSummary:
+      type: object
+      properties:
+        name:
+          type: string
+        title:
+          type: string
+        builtin:
+          type: boolean
+        items:
+          type: integer
+        version:
+          type: integer
+        sha256:
+          type: string
+        updated:
+          type: integer
+        by:
+          type: string
+        source:
+          type: string
+        etag:
+          type: string
+      required:
+        - name
+        - builtin
+        - items
+        - version
+        - etag
+      additionalProperties: false
+      description: "`version` is 0 for a catalog nobody uploaded to; `source` is `embedded`, `json` or `csv`."
+    CatalogList:
+      type: object
+      properties:
+        catalogs:
+          type: array
+          items:
+            "$ref": "#/components/schemas/CatalogSummary"
+      required:
+        - catalogs
+      additionalProperties: false
+    CatalogPage:
+      type: object
+      properties:
+        catalog:
+          type: string
+        version:
+          type: integer
+        etag:
+          type: string
+          description: "Also the `ETag` header."
+        total:
+          type: integer
+        offset:
+          type: integer
+        limit:
+          type: integer
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+      required:
+        - catalog
+        - version
+        - etag
+        - total
+        - offset
+        - limit
+        - items
+      additionalProperties: false
+    CatalogItem:
+      type: object
+      additionalProperties: true
+      description: "One item, as the dataset has it; the field that names it is `id` (`name` for footprints and symbols)."
+    CatalogDataset:
+      oneOf:
+        - type: array
+          items:
+            type: object
+            additionalProperties: true
+        - type: object
+          additionalProperties: true
+      description: "A list of items, or an object with the list under `tools`, `profiles`, `footprints`, `symbols` or `parts` (`items` also works); the components base declares `\"format\": \"phoenix-parts/1\"`. As CSV (`Content-Type: text/csv`): a header line and a row per item, the values as text."
 security:
   - bearerAuth: []

@@ -6,12 +6,14 @@
 pub mod api;
 pub mod api_pstore;
 pub mod api_artifacts;
+pub mod api_catalogs;
 pub mod api_projects;
 pub mod api_tasks;
 pub mod apps;
 pub mod artifacts;
 pub mod audit;
 pub mod auth;
+pub mod catalogs;
 pub mod config;
 pub mod emergency;
 pub mod errors;
