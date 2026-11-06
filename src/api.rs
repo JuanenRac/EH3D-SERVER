@@ -91,7 +91,9 @@ impl From<AuthError> for ApiError {
             | AuthError::BadScope => StatusCode::UNPROCESSABLE_ENTITY,
             AuthError::BadCredentials => StatusCode::UNAUTHORIZED,
             AuthError::Throttled => StatusCode::TOO_MANY_REQUESTS,
-            AuthError::UnknownUser | AuthError::UnknownToken => StatusCode::NOT_FOUND,
+            AuthError::UnknownUser | AuthError::UnknownToken | AuthError::UnknownSession => {
+                StatusCode::NOT_FOUND
+            }
             AuthError::UserExists | AuthError::LastAdmin => StatusCode::CONFLICT,
             AuthError::Storage => StatusCode::INTERNAL_SERVER_ERROR,
         };
@@ -317,10 +319,15 @@ pub fn router(state: Shared) -> Router {
         .merge(crate::api_pstore::routes(&state.cfg))
         .merge(crate::api_catalogs::routes(&state.cfg))
         .merge(crate::api_work::routes())
+        .merge(crate::api_auth::routes())
         .layer(DefaultBodyLimit::max(limit))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             local_until_setup,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::api_auth::audit_denials,
         ))
         .with_state(state);
     match studio {

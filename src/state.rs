@@ -122,6 +122,13 @@ impl AppState {
         let mut auth = Auth::open(&cfg.data_dir, cfg.session_hours)?;
         auth.set_ip_limit(cfg.login_ip_limit);
         auth.set_persist_sessions(cfg.persist_sessions);
+        auth.set_lockout(cfg.auth_max_failures, cfg.auth_lockout_s);
+        auth.set_refresh_max_hours(cfg.auth_refresh_max_hours);
+        auth.set_password_policy(crate::auth::PasswordPolicy {
+            min_len: cfg.password_min_len,
+            classes: cfg.password_classes,
+            deny_name: cfg.password_deny_name,
+        });
         crate::plan::set_rack_max_slots(cfg.rack_max_slots);
         let machines = Machines::open(&cfg.data_dir)?;
         let jobs = JobBook::open(&cfg.data_dir, cfg.keep_jobs)?;

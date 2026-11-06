@@ -31,6 +31,15 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/artifacts/:id/shares` | POST | operator + `artifacts:write` | Share an artifact for reading |
 | `/api/v1/artifacts/:id/shares/:who` | DELETE | operator + `artifacts:write` | Take the sharing of an artifact back |
 | `/api/v1/artifacts/verify` | POST | admin + `artifacts:read` | Read every blob again against its hash |
+| `/api/v1/auth/apps` | GET | any login or token | The applications the server accepts |
+| `/api/v1/auth/login` | POST | none | Log in for an application |
+| `/api/v1/auth/logout` | POST | any login or token | End the login |
+| `/api/v1/auth/logout-all` | POST | a person | End every login of the caller |
+| `/api/v1/auth/policy` | GET | admin | See the switches of security |
+| `/api/v1/auth/refresh` | POST | a person | Renew the login |
+| `/api/v1/auth/session` | GET | any login or token | The claims of the login |
+| `/api/v1/auth/sessions` | GET | any login or token | List the open logins of the caller |
+| `/api/v1/auth/sessions/:id` | DELETE | a person | Close one login |
 | `/api/v1/blobs/:sha` | HEAD | viewer + `artifacts:read` | Ask whether the caller can see bytes with this hash |
 | `/api/v1/catalogs` | GET | viewer + `catalog:read` | List the catalogs |
 | `/api/v1/catalogs/:catalog` | GET | viewer + `catalog:read` | Search a catalog |

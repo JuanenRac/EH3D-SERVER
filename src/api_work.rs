@@ -282,7 +282,7 @@ fn job_view(s: &AppState, job: &crate::work::WorkJob, full: bool) -> Value {
 
 async fn create_job(
     State(s): State<Shared>,
-    Authed(who, _): Authed,
+    Authed(who, token): Authed,
     ApiJson(b): ApiJson<NewJob>,
 ) -> Result<(StatusCode, Json<Value>), ApiError> {
     crate::api::need(&who, Role::Operator)?;
@@ -291,7 +291,7 @@ async fn create_job(
     let app = match b.app {
         Some(a) if crate::apps::allowed(&s.cfg, &a) => a,
         Some(_) => return Err(bad_app()),
-        None => String::new(),
+        None => s.auth.locked().app_of(&token).unwrap_or_default(),
     };
     let state = s.clone();
     let (machine, name, request, by) = (b.machine, b.name, b.request, who.clone());

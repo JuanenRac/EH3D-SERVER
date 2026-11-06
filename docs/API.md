@@ -368,6 +368,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `unknown_machine` | 404 | There is no machine with this id. |
 | `unknown_plugin` | 422 | There is no plugin of this kind. |
 | `unknown_project` | 404 | There is no project with this id, or it belongs to somebody else. |
+| `unknown_session` | 404 | There is no open login with this id, or it is not the caller's, or the login cannot be renewed any more. |
 | `unknown_task` | 404 | There is no task with this id, or it belongs to somebody else. |
 | `unknown_token` | 404 | There is no token with this id. |
 | `unknown_tool` | 422 | The job uses a tool that it does not describe. |

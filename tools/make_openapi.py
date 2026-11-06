@@ -666,6 +666,49 @@ op("GET", "/notifications", "work", "viewer", "List the notifications of the cal
 op("POST", "/notifications/read", "work", "viewer", "Mark notifications as read", body="ReadNotifications", ok=(200, "Marked", "application/json"), **W_READ,
    example={"all": True})
 
+# -- the single login of every application (docs/AUTH.md)
+SCHEMAS.update({
+    "AppLoginRequest": obj({"name": s(), "password": s(), "app": s("The application the login is for: one of `GET /auth/apps` (`studio`, `android`, `ios`, `watch`, `hmi`, `pcb`, `cam`...).")},
+                           ["name", "password", "app"]),
+    "AppLoginResponse": obj({"token": s(), "name": s(), "role": ref("Role"), "app": s(), "session_id": s("Shown in the list of sessions; the token never is."), "expires_s": I},
+                            ["token", "name", "role", "app", "session_id", "expires_s"]),
+    "AuthClaims": obj({
+        "name": s(), "role": ref("Role"), "is_token": B, "app": nullable(S), "session_id": nullable(S), "created": nullable(I), "last_seen": nullable(I),
+        "expires": nullable(I), "token_id": nullable(S), "template": nullable(S), "scopes": nullable(arr(S)),
+    }, ["name", "role", "is_token"], description="The claims of the login: who, with which role, for which application, limited to which scopes (a token of a program has no session, so `app` is null)."),
+    "AuthSession": obj({
+        "id": s(), "name": s(), "role": ref("Role"), "app": s("Empty for a login made with `POST /login`."), "created": I, "last_seen": I, "expires": I, "ip": s(), "current": B,
+    }, ["id", "name", "role", "app", "created", "expires", "current"]),
+    "AuthSessionList": obj({"sessions": arr(ref("AuthSession"))}, ["sessions"]),
+    "Refreshed": obj({"expires_s": I}, ["expires_s"]),
+    "LoggedOutAll": obj({"closed": I}, ["closed"]),
+    "AuthPolicy": obj({
+        "switches": arr(obj({"key": s(), "value": {}, "safe": B}, ["key", "value", "safe"])),
+        "attention": arr(S), "extra_apps": arr(S),
+    }, ["switches", "attention", "extra_apps"], description="The switches of security of `server.cfg` with their values (never a secret) and, in `attention`, those that are looser than the recommended value."),
+    "AuthApps": obj({"apps": arr(S), "known_only": B}, ["apps", "known_only"]),
+})
+
+op("POST", "/auth/login", "auth", "none", "Log in for an application", body="AppLoginRequest", ok=(200, "AppLoginResponse", "application/json"),
+   errors=["bad_credentials", "throttled", "bad_app"],
+   desc="Like `POST /login`, and the login says which application it is for. Wrong passwords block the name (`auth_max_failures`, `auth_lockout_s`) and the address (`login_ip_limit`); "
+        "a person has at most `auth_max_sessions` logins open (the oldest is closed). Every login, failure and refusal is in the audit, never the password or the token.",
+   example={"name": "juan", "password": "a long password", "app": "studio"})
+op("POST", "/auth/logout", "auth", "any", "End the login")
+op("POST", "/auth/logout-all", "auth", "person", "End every login of the caller", ok=(200, "LoggedOutAll", "application/json"))
+op("POST", "/auth/refresh", "auth", "person", "Renew the login", ok=(200, "Refreshed", "application/json"), errors=["unknown_session"],
+   desc="The login lasts again as long as a login does, but never past `auth_refresh_max_hours` from the moment it was made. The token stays the same.")
+op("GET", "/auth/session", "auth", "any", "The claims of the login", ok=(200, "AuthClaims", "application/json"),
+   example={"name": "juan", "role": "admin", "is_token": False, "app": "studio"})
+op("GET", "/auth/sessions", "auth", "any", "List the open logins of the caller", ok=(200, "AuthSessionList", "application/json"), errors=["forbidden"],
+   query=[q("all", B, "Every login of every person; only for an administrator.")],
+   desc="The newest first, with the application, the address and when each was last seen; `current` marks the one that asks. A token of a program has none.")
+op("DELETE", "/auth/sessions/{id}", "auth", "person", "Close one login", errors=["unknown_session"],
+   desc="A person closes their own logins; an administrator closes anybody's. The id is the one the list shows. The token of that login stops working at once.")
+op("GET", "/auth/policy", "auth", "admin", "See the switches of security", ok=(200, "AuthPolicy", "application/json"),
+   desc="What Studio shows in its security page: the values of the switches in `server.cfg` and which of them deserve attention. No secret is ever in it.")
+op("GET", "/auth/apps", "auth", "any", "The applications the server accepts", ok=(200, "AuthApps", "application/json"))
+
 # ---------------------------------------------------------------------------------------------------------------------------------------
 # Building the document
 

@@ -485,6 +485,11 @@
     "status": 404
   },
   {
+    "code": "unknown_session",
+    "description": "There is no open login with this id, or it is not the caller's, or the login cannot be renewed any more.",
+    "status": 404
+  },
+  {
     "code": "unknown_task",
     "description": "There is no task with this id, or it belongs to somebody else.",
     "status": 404

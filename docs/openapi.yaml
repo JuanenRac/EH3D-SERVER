@@ -8474,6 +8474,374 @@ paths:
               example:
                 error: forbidden_scope
                 detail: ""
+  "/auth/login":
+    post:
+      operationId: post_auth_login
+      tags:
+        - auth
+      summary: Log in for an application
+      description: "Like `POST /login`, and the login says which application it is for. Wrong passwords block the name (`auth_max_failures`, `auth_lockout_s`) and the address (`login_ip_limit`); a person has at most `auth_max_sessions` logins open (the oldest is closed). Every login, failure and refusal is in the audit, never the password or the token. No login."
+      x-role: none
+      x-error-codes:
+        - bad_app
+        - bad_credentials
+        - bad_request
+        - throttled
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/AppLoginRequest"
+            example:
+              name: juan
+              password: a long password
+              app: studio
+      security: []
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/AppLoginResponse"
+        "400":
+          description: "Refused with `bad_request`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_request
+                detail: ""
+        "401":
+          description: "Refused with `bad_credentials`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_credentials
+                detail: ""
+        "422":
+          description: "Refused with `bad_app`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_app
+                detail: ""
+        "429":
+          description: "Refused with `throttled`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: throttled
+                detail: ""
+  "/auth/logout":
+    post:
+      operationId: post_auth_logout
+      tags:
+        - auth
+      summary: End the login
+      description: Any login or token.
+      x-role: any
+      x-error-codes:
+        - unauthorized
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Ok"
+              example:
+                ok: true
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+  "/auth/logout-all":
+    post:
+      operationId: post_auth_logout_all
+      tags:
+        - auth
+      summary: End every login of the caller
+      description: "A person logged in (not a token)."
+      x-role: person
+      x-error-codes:
+        - forbidden
+        - unauthorized
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/LoggedOutAll"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+  "/auth/refresh":
+    post:
+      operationId: post_auth_refresh
+      tags:
+        - auth
+      summary: Renew the login
+      description: "The login lasts again as long as a login does, but never past `auth_refresh_max_hours` from the moment it was made. The token stays the same. A person logged in (not a token)."
+      x-role: person
+      x-error-codes:
+        - forbidden
+        - unauthorized
+        - unknown_session
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Refreshed"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_session`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_session
+                detail: ""
+  "/auth/session":
+    get:
+      operationId: get_auth_session
+      tags:
+        - auth
+      summary: The claims of the login
+      description: Any login or token.
+      x-role: any
+      x-error-codes:
+        - unauthorized
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/AuthClaims"
+              example:
+                name: juan
+                role: admin
+                is_token: false
+                app: studio
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+  "/auth/sessions":
+    get:
+      operationId: get_auth_sessions
+      tags:
+        - auth
+      summary: List the open logins of the caller
+      description: "The newest first, with the application, the address and when each was last seen; `current` marks the one that asks. A token of a program has none. Any login or token."
+      x-role: any
+      x-error-codes:
+        - forbidden
+        - unauthorized
+      parameters:
+        - name: all
+          in: query
+          required: false
+          description: "Every login of every person; only for an administrator."
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/AuthSessionList"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+  "/auth/sessions/{id}":
+    delete:
+      operationId: delete_auth_sessions_id
+      tags:
+        - auth
+      summary: Close one login
+      description: "A person closes their own logins; an administrator closes anybody's. The id is the one the list shows. The token of that login stops working at once. A person logged in (not a token)."
+      x-role: person
+      x-error-codes:
+        - forbidden
+        - unauthorized
+        - unknown_session
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Ok"
+              example:
+                ok: true
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_session`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_session
+                detail: ""
+  "/auth/policy":
+    get:
+      operationId: get_auth_policy
+      tags:
+        - auth
+      summary: See the switches of security
+      description: "What Studio shows in its security page: the values of the switches in `server.cfg` and which of them deserve attention. No secret is ever in it. Role admin."
+      x-role: admin
+      x-error-codes:
+        - forbidden
+        - unauthorized
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/AuthPolicy"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+  "/auth/apps":
+    get:
+      operationId: get_auth_apps
+      tags:
+        - auth
+      summary: The applications the server accepts
+      description: Any login or token.
+      x-role: any
+      x-error-codes:
+        - unauthorized
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/AuthApps"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
 components:
   securitySchemes:
     bearerAuth:
@@ -10526,6 +10894,196 @@ components:
           type: integer
       required:
         - marked
+      additionalProperties: false
+    AppLoginRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        password:
+          type: string
+        app:
+          type: string
+          description: "The application the login is for: one of `GET /auth/apps` (`studio`, `android`, `ios`, `watch`, `hmi`, `pcb`, `cam`...)."
+      required:
+        - name
+        - password
+        - app
+      additionalProperties: false
+    AppLoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        name:
+          type: string
+        role:
+          "$ref": "#/components/schemas/Role"
+        app:
+          type: string
+        session_id:
+          type: string
+          description: "Shown in the list of sessions; the token never is."
+        expires_s:
+          type: integer
+      required:
+        - token
+        - name
+        - role
+        - app
+        - session_id
+        - expires_s
+      additionalProperties: false
+    AuthClaims:
+      type: object
+      properties:
+        name:
+          type: string
+        role:
+          "$ref": "#/components/schemas/Role"
+        is_token:
+          type: boolean
+        app:
+          oneOf:
+            - type: string
+            - type: "null"
+        session_id:
+          oneOf:
+            - type: string
+            - type: "null"
+        created:
+          oneOf:
+            - type: integer
+            - type: "null"
+        last_seen:
+          oneOf:
+            - type: integer
+            - type: "null"
+        expires:
+          oneOf:
+            - type: integer
+            - type: "null"
+        token_id:
+          oneOf:
+            - type: string
+            - type: "null"
+        template:
+          oneOf:
+            - type: string
+            - type: "null"
+        scopes:
+          oneOf:
+            - type: array
+              items:
+                type: string
+            - type: "null"
+      required:
+        - name
+        - role
+        - is_token
+      additionalProperties: false
+      description: "The claims of the login: who, with which role, for which application, limited to which scopes (a token of a program has no session, so `app` is null)."
+    AuthSession:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        role:
+          "$ref": "#/components/schemas/Role"
+        app:
+          type: string
+          description: "Empty for a login made with `POST /login`."
+        created:
+          type: integer
+        last_seen:
+          type: integer
+        expires:
+          type: integer
+        ip:
+          type: string
+        current:
+          type: boolean
+      required:
+        - id
+        - name
+        - role
+        - app
+        - created
+        - expires
+        - current
+      additionalProperties: false
+    AuthSessionList:
+      type: object
+      properties:
+        sessions:
+          type: array
+          items:
+            "$ref": "#/components/schemas/AuthSession"
+      required:
+        - sessions
+      additionalProperties: false
+    Refreshed:
+      type: object
+      properties:
+        expires_s:
+          type: integer
+      required:
+        - expires_s
+      additionalProperties: false
+    LoggedOutAll:
+      type: object
+      properties:
+        closed:
+          type: integer
+      required:
+        - closed
+      additionalProperties: false
+    AuthPolicy:
+      type: object
+      properties:
+        switches:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                type: string
+              value: {}
+              safe:
+                type: boolean
+            required:
+              - key
+              - value
+              - safe
+            additionalProperties: false
+        attention:
+          type: array
+          items:
+            type: string
+        extra_apps:
+          type: array
+          items:
+            type: string
+      required:
+        - switches
+        - attention
+        - extra_apps
+      additionalProperties: false
+      description: "The switches of security of `server.cfg` with their values (never a secret) and, in `attention`, those that are looser than the recommended value."
+    AuthApps:
+      type: object
+      properties:
+        apps:
+          type: array
+          items:
+            type: string
+        known_only:
+          type: boolean
+      required:
+        - apps
+        - known_only
       additionalProperties: false
 security:
   - bearerAuth: []

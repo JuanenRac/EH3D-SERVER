@@ -81,3 +81,20 @@ work_keep = 500
 events_clients_max = 32
 events_queue = 256
 notifications_keep = 200
+
+# ---- the single login of every application (docs/AUTH.md)
+# Only the known applications (docs/AUTH.md) and the ones named in auth_extra_apps (names separated by commas) may log in or have a store. Off: any well-formed name.
+auth_known_apps_only = true
+auth_extra_apps =
+# How many logins of the applications one person may have open at once (0: no limit); the oldest is closed when a new one comes.
+auth_max_sessions = 20
+# How many wrong passwords in a row block a name (1 to 100), the first block in seconds (it doubles while they go on), and the longest a login can be renewed in all, in hours from the moment it was made.
+auth_max_failures = 5
+auth_lockout_s = 30
+auth_refresh_max_hours = 168
+# What a password has to be: the shortest (8 to 128), how many of the four classes (lower case, upper case, digits, anything else) it needs (1 to 4), and whether it may contain the name of the person (names of four characters or more).
+password_min_len = 8
+password_classes = 1
+password_deny_name = true
+# Write a line to the audit for every request refused with 401 or 403 (the method, the path and the address; never the query).
+audit_denials = true

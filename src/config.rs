@@ -54,6 +54,8 @@ pub struct ServerConfig {
     pub events_idle_s: u64,
     /// Write a line for every event of the audit (who did what) to `audit.jsonl` in the data folder, besides the console.
     pub audit_file: bool,
+    /// Write a line to the audit for every request refused with 401 or 403 (the method, the path, the address; never the query).
+    pub audit_denials: bool,
     /// Write a line at the start and at the end of every job to `eh3d-jobs.log` in the data folder.
     pub job_log: bool,
     /// The size, in kilobytes, at which `audit.jsonl` and `eh3d-jobs.log` are set aside (one older copy is kept).
@@ -179,6 +181,7 @@ impl Default for ServerConfig {
             events_ping_s: 30,
             events_idle_s: 90,
             audit_file: true,
+            audit_denials: true,
             job_log: true,
             log_max_kb: 1024,
             tasks_enabled: true,
@@ -331,6 +334,7 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
             "trust_forwarded_for" => c.trust_forwarded_for = flag(&key, value).map_err(at)?,
             "persist_sessions" => c.persist_sessions = flag(&key, value).map_err(at)?,
             "audit_file" => c.audit_file = flag(&key, value).map_err(at)?,
+            "audit_denials" => c.audit_denials = flag(&key, value).map_err(at)?,
             "job_log" => c.job_log = flag(&key, value).map_err(at)?,
             "token_default_days" => {
                 c.token_default_days = number(&key, value, 0, 3_650).map_err(at)? as u32
@@ -793,6 +797,57 @@ events_queue = 16
         .is_err());
         assert!(parse(
             "notifications_keep = many
+"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn the_settings_of_the_logins_are_checked() {
+        let c = parse("").unwrap();
+        assert!(c.auth_known_apps_only && c.auth_extra_apps.is_empty() && c.audit_denials);
+        assert_eq!(
+            (c.auth_max_sessions, c.auth_max_failures, c.auth_lockout_s),
+            (20, 5, 30)
+        );
+        assert_eq!(
+            (c.password_min_len, c.password_classes, c.password_deny_name),
+            (8, 1, true)
+        );
+        let set = parse(
+            "auth_extra_apps = my-tool, other-tool
+password_min_len = 12
+password_classes = 3
+auth_known_apps_only = off
+audit_denials = no
+",
+        )
+        .unwrap();
+        assert_eq!(set.auth_extra_apps, vec!["my-tool", "other-tool"]);
+        assert_eq!((set.password_min_len, set.password_classes), (12, 3));
+        assert!(!set.auth_known_apps_only && !set.audit_denials);
+        assert!(parse(
+            "auth_extra_apps = Bad Name
+"
+        )
+        .is_err());
+        assert!(parse(
+            "password_min_len = 7
+"
+        )
+        .is_err());
+        assert!(parse(
+            "password_classes = 5
+"
+        )
+        .is_err());
+        assert!(parse(
+            "auth_max_failures = 0
+"
+        )
+        .is_err());
+        assert!(parse(
+            "auth_lockout_s = 0
 "
         )
         .is_err());

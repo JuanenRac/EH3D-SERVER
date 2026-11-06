@@ -193,6 +193,19 @@ pub async fn user(s: &Server, boss: &str, name: &str, role: &str) -> String {
     body["token"].as_str().unwrap().to_string()
 }
 
+/// Makes a user with a role without logging them in (the administrator's token is `boss`).
+pub async fn add_user(s: &Server, boss: &str, name: &str, role: &str) {
+    let (status, body) = call(
+        s,
+        Method::POST,
+        "/api/v1/users",
+        Some(boss),
+        Some(json!({"name": name, "role": role, "password": PASSWORD})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
 /// A token of a program with scopes (the administrator's token is `boss`).
 pub async fn scoped_token(s: &Server, boss: &str, role: &str, scopes: &[&str]) -> String {
     let (status, body) = call(

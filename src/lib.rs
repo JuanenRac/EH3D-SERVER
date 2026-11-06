@@ -5,6 +5,7 @@
 
 pub mod api;
 pub mod api_artifacts;
+pub mod api_auth;
 pub mod api_catalogs;
 pub mod api_projects;
 pub mod api_pstore;

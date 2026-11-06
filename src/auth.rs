@@ -128,6 +128,12 @@ struct SavedSession {
     hash: String,
     name: String,
     expires: u64,
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    app: String,
+    #[serde(default)]
+    created: u64,
 }
 
 /// How long the disk may be behind the memory about when a token was last used, in seconds.
@@ -182,6 +188,8 @@ pub enum AuthError {
     /// The last administrator cannot be deleted, disabled or demoted.
     LastAdmin,
     UnknownToken,
+    /// There is no login with this id (or it is not the person's).
+    UnknownSession,
     /// The days a token should last are not a number from 1 to 3650.
     BadDays,
     /// The template is not one of `phoenix`, `cam`, `client` or `custom`.
@@ -206,6 +214,7 @@ impl AuthError {
             AuthError::UserExists => "user_exists",
             AuthError::LastAdmin => "last_admin",
             AuthError::UnknownToken => "unknown_token",
+            AuthError::UnknownSession => "unknown_session",
             AuthError::BadDays => "bad_days",
             AuthError::BadTemplate => "bad_template",
             AuthError::BadScope => "bad_scope",
@@ -218,6 +227,75 @@ impl AuthError {
 struct Session {
     who: Identity,
     expires: u64,
+    /// The id the person sees in the list of their sessions (the token itself is never shown or kept).
+    id: String,
+    /// The application the login was made for (`studio`, `android`...); empty for a login made with `POST /login`.
+    app: String,
+    created: u64,
+    last_seen: u64,
+    /// The address of the socket the login came from, as text; empty when it was not known.
+    ip: String,
+    /// The order the logins were made in, which the seconds of `created` cannot tell (not kept on the disk).
+    seq: u64,
+}
+
+/// A login as the person sees it in the list of their sessions.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SessionInfo {
+    pub id: String,
+    pub name: String,
+    pub role: Role,
+    pub app: String,
+    pub created: u64,
+    pub last_seen: u64,
+    pub expires: u64,
+    pub ip: String,
+}
+
+/// What a password has to be, from `server.cfg` (`password_min_len`, `password_classes`, `password_deny_name`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PasswordPolicy {
+    pub min_len: usize,
+    /// How many of the four classes (lower case, upper case, digits, anything else) it needs.
+    pub classes: usize,
+    /// It may not contain the name of the person (a name of four characters or more), in any letter case.
+    pub deny_name: bool,
+}
+
+impl Default for PasswordPolicy {
+    fn default() -> Self {
+        PasswordPolicy {
+            min_len: 8,
+            classes: 1,
+            deny_name: false,
+        }
+    }
+}
+
+impl PasswordPolicy {
+    /// Whether `password` is good for the person called `name`: from `min_len` to 128 characters, enough classes, and not the name inside.
+    pub fn allows(&self, name: &str, password: &str) -> bool {
+        let count = password.chars().count();
+        if count < self.min_len || count > 128 {
+            return false;
+        }
+        let classes = [
+            password.chars().any(|c| c.is_lowercase()),
+            password.chars().any(|c| c.is_uppercase()),
+            password.chars().any(|c| c.is_ascii_digit()),
+            password.chars().any(|c| !c.is_alphanumeric()),
+        ]
+        .iter()
+        .filter(|present| **present)
+        .count();
+        if classes < self.classes {
+            return false;
+        }
+        if self.deny_name && name.chars().count() >= 4 {
+            return !password.to_lowercase().contains(&name.to_lowercase());
+        }
+        true
+    }
 }
 
 pub struct Auth {
@@ -240,6 +318,13 @@ pub struct Auth {
     /// When the tokens were last written because of a use (see [`ApiToken::last_used`]).
     tokens_saved_at: u64,
     tokens_dirty: bool,
+    /// How many wrong passwords in a row block a name, and the first block in seconds (it doubles while they go on).
+    max_failures: u32,
+    lockout_base: u64,
+    policy: PasswordPolicy,
+    /// The longest a login can be renewed in all, in seconds from the moment it was made.
+    refresh_max_secs: u64,
+    next_seq: u64,
 }
 
 pub const TOKEN_PREFIX: &str = "eh3d_";
@@ -321,6 +406,11 @@ impl Auth {
             persist_sessions: false,
             tokens_saved_at: 0,
             tokens_dirty: false,
+            max_failures: MAX_FAILURES,
+            lockout_base: 30,
+            policy: PasswordPolicy::default(),
+            refresh_max_secs: 168 * 3600,
+            next_seq: 1,
         })
     }
 
@@ -362,8 +452,15 @@ impl Auth {
                             template: None,
                         },
                         expires: s.expires,
+                        id: if s.id.is_empty() { random_hex(8) } else { s.id },
+                        app: s.app,
+                        created: if s.created == 0 { now } else { s.created },
+                        last_seen: now,
+                        ip: String::new(),
+                        seq: self.next_seq,
                     },
                 );
+                self.next_seq += 1;
             }
         }
     }
@@ -382,6 +479,9 @@ impl Auth {
                 hash: hash.clone(),
                 name: s.who.name.clone(),
                 expires: s.expires,
+                id: s.id.clone(),
+                app: s.app.clone(),
+                created: s.created,
             })
             .collect();
         if let Err(e) = store::write_json(&self.dir.join("sessions.json"), &list) {
@@ -428,7 +528,7 @@ impl Auth {
         if !valid_name(name) {
             return Err(AuthError::BadName);
         }
-        if !valid_password(password) {
+        if !self.policy.allows(name, password) {
             return Err(AuthError::WeakPassword);
         }
         let hash = hash_password(password).ok_or(AuthError::Storage)?;
@@ -458,6 +558,25 @@ impl Auth {
         self.ip_limit = limit;
     }
 
+    /// How many wrong passwords in a row block a name, and for how long the first block lasts (`auth_max_failures`, `auth_lockout_s`).
+    pub fn set_lockout(&mut self, max_failures: u32, base_secs: u64) {
+        self.max_failures = max_failures.max(1);
+        self.lockout_base = base_secs.max(1);
+    }
+
+    pub fn set_password_policy(&mut self, policy: PasswordPolicy) {
+        self.policy = policy;
+    }
+
+    pub fn password_policy(&self) -> &PasswordPolicy {
+        &self.policy
+    }
+
+    /// The longest a login can be renewed in all, in hours from the moment it was made.
+    pub fn set_refresh_max_hours(&mut self, hours: u64) {
+        self.refresh_max_secs = hours.max(1) * 3600;
+    }
+
     /// Like `login`, knowing the address the request came from (the address of the socket, never a header): a person who tries many names from one
     /// address is slowed down without blocking the name of somebody else.
     pub fn login_from(
@@ -467,6 +586,22 @@ impl Auth {
         now: u64,
         ip: Option<std::net::IpAddr>,
     ) -> Result<(String, Role, u64), AuthError> {
+        self.login_with(name, password, now, ip, "", 0)
+            .map(|(token, role, secs, _)| (token, role, secs))
+    }
+
+    /// The login of an application: the same checks, and the session remembers the application and the address. With `max_sessions` above 0 the oldest login of the
+    /// person is closed when they already have that many. Gives the token, the role, how long it lasts in seconds and the id of the session.
+    pub fn login_with(
+        &mut self,
+        name: &str,
+        password: &str,
+        now: u64,
+        ip: Option<std::net::IpAddr>,
+        app: &str,
+        max_sessions: usize,
+    ) -> Result<(String, Role, u64, String), AuthError> {
+        let shown_ip = ip.map(|a| a.to_string()).unwrap_or_default();
         let ip = ip.filter(|_| self.ip_limit > 0);
         if let Some(a) = ip {
             if matches!(self.ip_failures.get(&a), Some(&(_, until)) if until > now) {
@@ -498,7 +633,7 @@ impl Auth {
                     let e = self.ip_failures.entry(a).or_insert((0, 0));
                     e.0 += 1;
                     if e.0 >= self.ip_limit {
-                        e.1 = now + (30u64 << (e.0 - self.ip_limit).min(6));
+                        e.1 = now + (self.lockout_base << (e.0 - self.ip_limit).min(6));
                     }
                 }
             }
@@ -511,9 +646,9 @@ impl Auth {
             }
             let entry = self.failures.entry(name.to_string()).or_insert((0, 0));
             entry.0 += 1;
-            if entry.0 >= MAX_FAILURES {
+            if entry.0 >= self.max_failures {
                 // 30 s, then 60 s, 120 s... for as long as the wrong passwords go on
-                entry.1 = now + (30u64 << (entry.0 - MAX_FAILURES).min(6));
+                entry.1 = now + (self.lockout_base << (entry.0 - self.max_failures).min(6));
             }
             return Err(AuthError::BadCredentials);
         }
@@ -523,6 +658,21 @@ impl Auth {
         }
         let role = user.map(|u| u.role).unwrap_or(Role::Viewer);
         let token = random_hex(32);
+        // the person already has as many logins as they may: the oldest is closed
+        if max_sessions > 0 {
+            let mut mine: Vec<(u64, String)> = self
+                .sessions
+                .iter()
+                .filter(|(_, s)| s.who.name == name && s.expires > now)
+                .map(|(hash, s)| (s.seq, hash.clone()))
+                .collect();
+            mine.sort();
+            while mine.len() >= max_sessions {
+                let (_, hash) = mine.remove(0);
+                self.sessions.remove(&hash);
+            }
+        }
+        let id = random_hex(8);
         self.sessions.insert(
             sha(&token),
             Session {
@@ -535,10 +685,107 @@ impl Auth {
                     template: None,
                 },
                 expires: now + self.session_secs,
+                id: id.clone(),
+                app: app.to_string(),
+                created: now,
+                last_seen: now,
+                ip: shown_ip,
+                seq: self.next_seq,
             },
         );
+        self.next_seq += 1;
         self.save_sessions(now);
-        Ok((token, role, self.session_secs))
+        Ok((token, role, self.session_secs, id))
+    }
+
+    fn info_of(session: &Session) -> SessionInfo {
+        SessionInfo {
+            id: session.id.clone(),
+            name: session.who.name.clone(),
+            role: session.who.role,
+            app: session.app.clone(),
+            created: session.created,
+            last_seen: session.last_seen,
+            expires: session.expires,
+            ip: session.ip.clone(),
+        }
+    }
+
+    /// The session a token belongs to (a login of a person; a program's token has none).
+    pub fn session_of(&self, token: &str) -> Option<SessionInfo> {
+        self.sessions.get(&sha(token)).map(Self::info_of)
+    }
+
+    /// The application of the login a token belongs to; `None` for a program's token and for a login made without one.
+    pub fn app_of(&self, token: &str) -> Option<String> {
+        self.session_of(token)
+            .map(|s| s.app)
+            .filter(|a| !a.is_empty())
+    }
+
+    /// The logins that are still good, the newest first: those of one person, or all of them.
+    pub fn sessions(&self, name: Option<&str>, now: u64) -> Vec<SessionInfo> {
+        let mut list: Vec<(u64, SessionInfo)> = self
+            .sessions
+            .values()
+            .filter(|s| s.expires > now)
+            .filter(|s| name.is_none_or(|n| s.who.name == n))
+            .map(|s| (s.seq, Self::info_of(s)))
+            .collect();
+        list.sort_by(|a, b| b.1.created.cmp(&a.1.created).then_with(|| b.0.cmp(&a.0)));
+        list.into_iter().map(|(_, info)| info).collect()
+    }
+
+    /// Closes the login with this id; with `owner` only if it is that person's. The login that was closed.
+    pub fn close_session(
+        &mut self,
+        id: &str,
+        owner: Option<&str>,
+    ) -> Result<SessionInfo, AuthError> {
+        let hash = self
+            .sessions
+            .iter()
+            .find(|(_, s)| s.id == id && owner.is_none_or(|o| s.who.name == o))
+            .map(|(hash, _)| hash.clone())
+            .ok_or(AuthError::UnknownSession)?;
+        let closed = self
+            .sessions
+            .remove(&hash)
+            .map(|s| Self::info_of(&s))
+            .ok_or(AuthError::UnknownSession)?;
+        self.save_sessions(crate::jobs::now());
+        Ok(closed)
+    }
+
+    /// Closes every login of a person. How many there were.
+    pub fn close_sessions_of(&mut self, name: &str) -> usize {
+        let before = self.sessions.len();
+        self.sessions.retain(|_, s| s.who.name != name);
+        let closed = before - self.sessions.len();
+        if closed > 0 {
+            self.save_sessions(crate::jobs::now());
+        }
+        closed
+    }
+
+    /// Renews the login of a token: it lasts again as long as a login does, but never past `auth_refresh_max_hours` from the moment it was made. Gives how many seconds
+    /// it has left.
+    pub fn refresh(&mut self, token: &str, now: u64) -> Result<u64, AuthError> {
+        let limit = self.refresh_max_secs;
+        let secs = self.session_secs;
+        let session = self
+            .sessions
+            .get_mut(&sha(token))
+            .filter(|s| s.expires > now)
+            .ok_or(AuthError::UnknownSession)?;
+        let longest = session.created + limit;
+        let renewed = (now + secs).min(longest);
+        if renewed > session.expires {
+            session.expires = renewed;
+        }
+        let left = session.expires.saturating_sub(now);
+        self.save_sessions(now);
+        Ok(left)
     }
 
     pub fn logout(&mut self, token: &str) {
@@ -576,12 +823,14 @@ impl Auth {
             return Some(who);
         }
         self.sessions.retain(|_, s| s.expires > now);
-        let session = self.sessions.get(&hash)?;
+        let session = self.sessions.get_mut(&hash)?;
+        session.last_seen = now;
+        let session_name = session.who.name.clone();
         // a user that was deleted or disabled since the login no longer counts
         let user = self
             .users
             .iter()
-            .find(|u| u.name == session.who.name && !u.disabled)?;
+            .find(|u| u.name == session_name && !u.disabled)?;
         Some(Identity {
             name: user.name.clone(),
             role: user.role,
@@ -612,7 +861,7 @@ impl Auth {
         if !valid_name(name) {
             return Err(AuthError::BadName);
         }
-        if !valid_password(password) {
+        if !self.policy.allows(name, password) {
             return Err(AuthError::WeakPassword);
         }
         if self.users.iter().any(|u| u.name == name) {
@@ -648,7 +897,7 @@ impl Auth {
             return Err(AuthError::LastAdmin);
         }
         if let Some(p) = password {
-            if !valid_password(p) {
+            if !self.policy.allows(name, p) {
                 return Err(AuthError::WeakPassword);
             }
             self.users[index].hash = hash_password(p).ok_or(AuthError::Storage)?;
@@ -1273,6 +1522,122 @@ mod tests {
         assert_eq!(who.scopes, Some(vec!["tasks:read".to_string()]));
         assert!(who.allows("tasks:read") && !who.allows("tasks:run"));
         assert_eq!(a.rotate_token("nope"), Err(AuthError::UnknownToken));
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn the_policy_of_the_passwords_is_the_settings() {
+        let strict = PasswordPolicy {
+            min_len: 12,
+            classes: 3,
+            deny_name: true,
+        };
+        assert!(strict.allows("juan", "Clave-larga-77"));
+        // too short, too few classes, the name inside (in any letter case)
+        assert!(!strict.allows("juan", "Cl-77"));
+        assert!(!strict.allows("juan", "clavelargaclave"));
+        assert!(!strict.allows("juan", "xxJUAN-clave-77"));
+        // a name shorter than four characters is not looked for
+        assert!(strict.allows("ana", "Ana-clave-larga-77"));
+        assert!(!strict.allows("juan", &"Aa1-".repeat(33)));
+        let plain = PasswordPolicy::default();
+        assert!(plain.allows("juan", "12345678") && !plain.allows("juan", "1234567"));
+        let (mut a, d) = set_up("policy");
+        a.set_password_policy(strict);
+        assert_eq!(
+            a.add_user("ana2", Role::Viewer, "corta"),
+            Err(AuthError::WeakPassword)
+        );
+        assert_eq!(
+            a.add_user("ana2", Role::Viewer, "Ana2-clave-larga"),
+            Err(AuthError::WeakPassword)
+        );
+        assert!(a.add_user("ana2", Role::Viewer, "Clave-larga-77").is_ok());
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn a_login_of_an_application_is_listed_closed_and_renewed() {
+        let (mut a, d) = set_up("app-sessions");
+        let ip: std::net::IpAddr = "10.0.0.5".parse().unwrap();
+        let (phone, _, secs, phone_id) = a
+            .login_with("juan", "una-clave-larga", 100, Some(ip), "android", 0)
+            .unwrap();
+        let (studio, _, _, studio_id) = a
+            .login_with("juan", "una-clave-larga", 200, None, "studio", 0)
+            .unwrap();
+        assert_ne!(phone_id, studio_id);
+        assert_eq!(a.app_of(&phone).as_deref(), Some("android"));
+        assert_eq!(a.app_of("nope"), None);
+        // a login made without an application has none
+        let (plain, _, _) = a.login("juan", "una-clave-larga", 300).unwrap();
+        assert_eq!(a.app_of(&plain), None);
+        let list = a.sessions(Some("juan"), 400);
+        assert_eq!(list.len(), 3);
+        assert_eq!(list[0].created, 300);
+        let first = list.iter().find(|s| s.id == phone_id).unwrap();
+        assert_eq!(
+            (first.app.as_str(), first.ip.as_str()),
+            ("android", "10.0.0.5")
+        );
+        assert!(a.sessions(Some("nobody"), 400).is_empty());
+        // seen when it is used
+        a.identify(&phone, 350).unwrap();
+        assert_eq!(a.session_of(&phone).unwrap().last_seen, 350);
+        // renewed up to the limit counted from the moment it was made
+        a.set_refresh_max_hours(24);
+        assert_eq!(a.refresh(&phone, 100 + secs - 10).unwrap(), secs);
+        // never past the limit counted from the moment it was made (100 + 24 hours)
+        assert_eq!(a.refresh(&phone, 86_400).unwrap(), 100);
+        assert_eq!(a.refresh("nope", 500), Err(AuthError::UnknownSession));
+        // closed by id: only the person's own when asked so
+        assert_eq!(
+            a.close_session(&studio_id, Some("ana")),
+            Err(AuthError::UnknownSession)
+        );
+        assert_eq!(
+            a.close_session(&studio_id, Some("juan")).unwrap().app,
+            "studio"
+        );
+        assert!(a.identify(&studio, 500).is_none());
+        assert_eq!(
+            a.close_session(&studio_id, None),
+            Err(AuthError::UnknownSession)
+        );
+        assert_eq!(a.close_sessions_of("juan"), 2);
+        assert!(a.identify(&phone, 500).is_none());
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn the_most_logins_of_a_person_close_the_oldest_and_the_lockout_is_the_settings() {
+        let (mut a, d) = set_up("app-limits");
+        let (first, _, _, _) = a
+            .login_with("juan", "una-clave-larga", 10, None, "android", 2)
+            .unwrap();
+        let (second, _, _, _) = a
+            .login_with("juan", "una-clave-larga", 20, None, "ios", 2)
+            .unwrap();
+        let (third, _, _, _) = a
+            .login_with("juan", "una-clave-larga", 30, None, "studio", 2)
+            .unwrap();
+        assert!(a.identify(&first, 40).is_none(), "the oldest was closed");
+        assert!(a.identify(&second, 40).is_some() && a.identify(&third, 40).is_some());
+        // three wrong passwords block the name for 7 seconds
+        a.set_lockout(3, 7);
+        for _ in 0..3 {
+            assert_eq!(
+                a.login_with("juan", "mala-clave-larga", 100, None, "studio", 0),
+                Err(AuthError::BadCredentials)
+            );
+        }
+        assert_eq!(
+            a.login_with("juan", "una-clave-larga", 101, None, "studio", 0),
+            Err(AuthError::Throttled)
+        );
+        assert!(a
+            .login_with("juan", "una-clave-larga", 107, None, "studio", 0)
+            .is_ok());
         let _ = std::fs::remove_dir_all(d);
     }
 }
