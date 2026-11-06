@@ -272,10 +272,10 @@ async fn a_request_that_does_not_fit_is_refused_before_anything_runs() {
         (status, body["error"].as_str()),
         (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_design_request"))
     );
-    let (status, body) = start_run(&s, &boss, 
-        json!({"kind": "fabpack", "project": id, "file": "main.json", "options": {"profile": "--out"}}),
-    )
-    .await;
+    let options = json!({"profile": "--out"});
+    let request =
+        json!({"kind": "fabpack", "project": id, "file": "main.json", "options": options});
+    let (status, body) = start_run(&s, &boss, request).await;
     assert_eq!(
         (status, body["error"].as_str()),
         (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_design_request"))
