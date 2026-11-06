@@ -36,7 +36,7 @@ Three things change by default on a server that is updated, all of them in `serv
 
 ## Types
 
-The shapes of the answers (`StoreProject`, `CatalogPage`, `WorkJob`, `AuthClaims`...) are defined in the contract of this server. EH3D-COMMON has no types for REST of its own yet; the project container (`eh3d-container`) and the database of materials (`eh3d-materials`) are used from it as libraries. When COMMON gets a place for the shared REST types, the ones above are the candidates to move there, with the same names.
+The shapes of the answers (`StoreProject`, `CatalogPage`, `WorkJob`, `AuthClaims`...) are defined in the contract of this server. EH3D-COMMON has the data model of the projects and of the machine telemetry, but no types for the requests and answers of a REST interface yet; the project container (`eh3d-container`) and the database of materials (`eh3d-materials`) are used from it as libraries. When COMMON gets a place for the shared REST types, the ones above are the candidates to move there, with the same names.
 
 ## What has been tried
 

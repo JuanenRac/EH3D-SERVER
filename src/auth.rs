@@ -276,7 +276,7 @@ impl PasswordPolicy {
     /// Whether `password` is good for the person called `name`: from `min_len` to 128 characters, enough classes, and not the name inside.
     pub fn allows(&self, name: &str, password: &str) -> bool {
         let count = password.chars().count();
-        if count < self.min_len || count > 128 {
+        if !(self.min_len..=128).contains(&count) {
             return false;
         }
         let classes = [
