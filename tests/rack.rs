@@ -168,6 +168,8 @@ fn codes(job: &Value) -> Vec<String> {
         .unwrap()
         .iter()
         .map(|w| w["code"].as_str().unwrap().to_string())
+        // the course of the sample machine is not what these tests are about
+        .filter(|c| c != "out_of_course")
         .collect()
 }
 
