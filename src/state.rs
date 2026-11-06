@@ -112,6 +112,7 @@ impl AppState {
         let mut auth = Auth::open(&cfg.data_dir, cfg.session_hours)?;
         auth.set_ip_limit(cfg.login_ip_limit);
         auth.set_persist_sessions(cfg.persist_sessions);
+        crate::plan::set_rack_max_slots(cfg.rack_max_slots);
         let machines = Machines::open(&cfg.data_dir)?;
         let jobs = JobBook::open(&cfg.data_dir, cfg.keep_jobs)?;
         let (events, _) = broadcast::channel(256);

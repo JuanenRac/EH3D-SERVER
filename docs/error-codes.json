@@ -90,6 +90,11 @@
     "status": 422
   },
   {
+    "code": "bad_rack",
+    "description": "The rack of a job request of the second version does not fit: places that repeat, the test pin as a place, more places than rack_max_slots, a carry_slot without carry_in, or a place the machine does not define or reach.",
+    "status": 422
+  },
+  {
     "code": "bad_request",
     "description": "The body of the request does not read as the request needs.",
     "status": 400

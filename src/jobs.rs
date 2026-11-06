@@ -121,6 +121,10 @@ impl JobRecord {
     pub fn full(&self) -> serde_json::Value {
         let mut value = self.summary();
         value["view"] = serde_json::to_value(&self.view).unwrap_or(serde_json::Value::Null);
+        // a job planned from a request of the second version says at its top whether the chaining of the tool changer was used
+        if let Some(applied) = self.view.rack_applied {
+            value["rack_applied"] = serde_json::Value::Bool(applied);
+        }
         value
     }
 }
@@ -398,6 +402,7 @@ impl JobRecord {
                 spindle_warnings: vec![],
                 dry_run: None,
                 warnings: vec![],
+                rack_applied: None,
             },
         }
     }

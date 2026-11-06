@@ -49,3 +49,5 @@ audit_file = true
 job_log = true
 # The size in kilobytes (16 to 1048576) at which audit.jsonl and eh3d-jobs.log are set aside as <name>.1 (one older copy is kept) and a new file starts.
 log_max_kb = 1024
+# The most places a request may name in the rack of a drilling or routing job, in rack.first and in the entries of rack.slots (1 to 14, the tool changer of the machines has fourteen).
+rack_max_slots = 14

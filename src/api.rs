@@ -1085,15 +1085,20 @@ async fn create_job(
     need_scope(&who, "jobs:prepare")?;
     let machine = machine_of(&s, &id)?;
     let shown = make_job(&s, &who.name, machine, body, String::new()).await?;
-    note(
-        &s,
-        "job_create",
-        &who,
-        &[
-            ("job", shown["id"].as_str().unwrap_or("")),
-            ("machine", &id),
-        ],
-    );
+    // a job asked with the chaining of the tool changer says in the audit whether the plan used it
+    let rack = match shown["rack_applied"].as_bool() {
+        Some(true) => "applied",
+        Some(false) => "left_out",
+        None => "",
+    };
+    let mut fields = vec![
+        ("job", shown["id"].as_str().unwrap_or("")),
+        ("machine", id.as_str()),
+    ];
+    if !rack.is_empty() {
+        fields.push(("rack", rack));
+    }
+    note(&s, "job_create", &who, &fields);
     Ok(Json(shown))
 }
 

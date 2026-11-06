@@ -5,24 +5,72 @@
 
 use eh3d_drillpro::config::{self, MachineSettings};
 use eh3d_drillpro::dryrun;
-use eh3d_drillpro::job::{geometry_from, hole_end_indexes, job_machine, sort_holes, Sorting};
+use eh3d_drillpro::job::{
+    geometry_from, hole_end_indexes, job_machine, job_rack_for, sort_holes, JobOptions,
+    RackRefusal, Sorting,
+};
 use eh3d_drillpro::ncd::{self, MIL_MM};
-use eh3d_drillpro::protocol::job::{plan_drill_job, Item, JobHole, JobTool};
+use eh3d_drillpro::protocol::job::{
+    plan_drill_job, plan_drill_job_marked, Item, JobHole, JobTool, Rack,
+};
 use eh3d_drillpro::protocol::motion::Geometry;
 use eh3d_drillpro::protocol::tuning::Tuning;
 use eh3d_drillpro::summary;
 use eh3d_drillpro::tools as drill_tools;
 use eh3d_routepro::hpgl::{self, Polyline, UNIT_MM};
-use eh3d_routepro::job::plan_route_job_marked;
+use eh3d_routepro::job::plan_route_job_atc_marked;
 use eh3d_routepro::tools as route_tools;
 use eh3d_summary::dryrun::Course;
 use eh3d_summary::summary::{course_warnings, Warning};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::machines::MachineRecord;
 
 /// The most holes or points one job may carry.
 pub const MAX_POINTS: usize = 200_000;
+
+/// The version of the job request that carries the chaining of the tool changer (`rack`); a request without a `request_version` is the first one.
+pub const RACK_REQUEST_VERSION: u32 = 2;
+
+/// The most places a `rack` may name (`rack_max_slots` of `server.cfg`; the tool changer of the machines has fourteen).
+static RACK_MAX_SLOTS: AtomicUsize = AtomicUsize::new(14);
+
+/// Sets the most places a `rack` may name; the server does it once when it opens.
+pub fn set_rack_max_slots(most: usize) {
+    RACK_MAX_SLOTS.store(most, Ordering::Relaxed);
+}
+
+/// The place of one tool of the job in the rack (`rack.slots` of a request of the second version).
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+pub struct RackSlotIn {
+    pub tool: u8,
+    pub place: usize,
+}
+
+/// The chaining of the tool changer in a request of the second version (`JobRackV2` of the OpenAPI document). Every field is optional and the defaults are the
+/// behaviour of a request without it. A field this server does not know (from a later version) is kept in `extra` to be named in a warning, never refused.
+#[derive(Deserialize, Debug, Clone, Default, PartialEq)]
+pub struct JobRackV2 {
+    /// How many places of the rack the tools of the jobs before this one take.
+    #[serde(default)]
+    pub first: usize,
+    /// The chuck comes holding the last tool of the job before.
+    #[serde(default)]
+    pub carry_in: bool,
+    /// This job leaves its last tool in the chuck for the next one.
+    #[serde(default)]
+    pub carry_out: bool,
+    /// The place of each tool of this job, when the person said where each one is.
+    #[serde(default)]
+    pub slots: Vec<RackSlotIn>,
+    /// With `carry_in`, the place of the tool the chuck comes holding.
+    #[serde(default)]
+    pub carry_slot: Option<usize>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
+}
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "kind", rename_all = "lowercase")]
@@ -73,6 +121,10 @@ pub struct DrillRequest {
     /// How many holes, counted in the order the machine drills them, are already done: a job that goes on after a stop leaves them out.
     #[serde(default)]
     pub skip: usize,
+    /// `2` when `rack` is present; absent in the requests of the first version (which take no `rack`).
+    pub request_version: Option<u32>,
+    /// The chaining of the tool changer and the places of the tools in the rack.
+    pub rack: Option<JobRackV2>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -114,6 +166,10 @@ pub struct RouteRequest {
     /// Only the first paths that are left (used to find how many paths a stopped job had done); never read from a client.
     #[serde(skip)]
     pub only_first: Option<usize>,
+    /// `2` when `rack` is present; absent in the requests of the first version (which take no `rack`).
+    pub request_version: Option<u32>,
+    /// The chaining of the tool changer and the places of the tools in the rack.
+    pub rack: Option<JobRackV2>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -184,6 +240,9 @@ pub struct JobView {
     /// goes past its course when the machine's switch is on `warn`). Each one has a `code` and the numbers it is about, in mm.
     #[serde(default)]
     pub warnings: Vec<WorkWarning>,
+    /// Whether the plan used the `rack` of the request: `true` when it did, `false` when it was left out (see the `rack_*` warnings); absent when the request had none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rack_applied: Option<bool>,
 }
 
 /// The dry run of a plan, from the switches of the machine, in mm.
@@ -205,6 +264,9 @@ pub struct WorkWarning {
     #[serde(default)]
     pub axis: String,
     pub values: Vec<f64>,
+    /// A word the warning is about (the name of a field that was left out); empty for the others.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub detail: String,
 }
 
 fn warning_view(w: &Warning) -> WorkWarning {
@@ -233,6 +295,155 @@ fn warning_view(w: &Warning) -> WorkWarning {
         code: code.into(),
         axis,
         values,
+        detail: String::new(),
+    }
+}
+
+/// The warning of a part of the request that was left out.
+fn rack_warning(code: &str, detail: &str, values: Vec<f64>) -> WorkWarning {
+    WorkWarning {
+        code: code.into(),
+        axis: String::new(),
+        values,
+        detail: detail.into(),
+    }
+}
+
+/// What the `rack` of a request came to once judged against the machine: the rack to plan with (if any), whether it was applied and what was left out.
+struct RackDecision {
+    rack: Option<Rack>,
+    applied: Option<bool>,
+    warnings: Vec<WorkWarning>,
+}
+
+/// Judges the chaining of the tool changer of a request. Without `rack` nothing changes. A request of the first version (or with no version) keeps the plan it always
+/// had and says the field was left out. A request of the second version is checked (`422 bad_rack`: places that repeat, a place that is the test pin, more places
+/// than `rack_max_slots`, a `carry_slot` that does not fit, a place the machine file does not define or the machine does not reach) and planned with the rack; a machine
+/// that changes its tools by hand cannot chain them, so the plan is the old one and the answer says so. `tools` is how many tools the job uses.
+fn decide_rack(
+    settings: Option<&MachineSettings>,
+    version: Option<u32>,
+    rack: Option<&JobRackV2>,
+    tools: usize,
+) -> Result<RackDecision, PlanError> {
+    let mut warnings = Vec::new();
+    if let Some(v) = version {
+        if v == 0 {
+            return fail("bad_request", "request_version must be 1 or more");
+        }
+        if v > RACK_REQUEST_VERSION {
+            warnings.push(rack_warning(
+                "request_version_newer",
+                "",
+                vec![f64::from(v)],
+            ));
+        }
+    }
+    let Some(rack) = rack else {
+        return Ok(RackDecision {
+            rack: None,
+            applied: None,
+            warnings,
+        });
+    };
+    if version.unwrap_or(1) < RACK_REQUEST_VERSION {
+        warnings.push(rack_warning("rack_needs_v2", "", Vec::new()));
+        return Ok(RackDecision {
+            rack: None,
+            applied: Some(false),
+            warnings,
+        });
+    }
+    let most = RACK_MAX_SLOTS.load(Ordering::Relaxed);
+    if rack.first > most {
+        return fail("bad_rack", format!("rack.first may be up to {most} places"));
+    }
+    if rack.slots.len() > most {
+        return fail(
+            "bad_rack",
+            format!("rack.slots may name up to {most} places"),
+        );
+    }
+    let mut seen_tools: Vec<u8> = Vec::new();
+    let mut seen_places: Vec<usize> = Vec::new();
+    for slot in &rack.slots {
+        if slot.place == 0 {
+            return fail(
+                "bad_rack",
+                format!(
+                    "rack.slots: place 0 is the test pin, not a place for tool {}",
+                    slot.tool
+                ),
+            );
+        }
+        if seen_tools.contains(&slot.tool) {
+            return fail(
+                "bad_rack",
+                format!("rack.slots: tool {} is given two places", slot.tool),
+            );
+        }
+        if seen_places.contains(&slot.place) {
+            return fail(
+                "bad_rack",
+                format!("rack.slots: place {} is given to two tools", slot.place),
+            );
+        }
+        seen_tools.push(slot.tool);
+        seen_places.push(slot.place);
+    }
+    if let Some(carried) = rack.carry_slot {
+        if !rack.carry_in {
+            return fail("bad_rack", "rack.carry_slot needs rack.carry_in");
+        }
+        if carried == 0 {
+            return fail("bad_rack", "rack.carry_slot: place 0 is the test pin");
+        }
+        if seen_places.contains(&carried) {
+            return fail(
+                "bad_rack",
+                format!("rack.carry_slot: place {carried} is also the place of a tool of this job"),
+            );
+        }
+    }
+    for key in rack.extra.keys() {
+        warnings.push(rack_warning("rack_unknown_field", key, Vec::new()));
+    }
+    let options = JobOptions {
+        rack_first: rack.first,
+        rack_carry_in: rack.carry_in,
+        rack_carry_out: rack.carry_out,
+        rack_slots: rack.slots.iter().map(|s| (s.tool, s.place)).collect(),
+        rack_carry_slot: rack.carry_slot,
+        ..JobOptions::default()
+    };
+    match job_rack_for(settings, tools, &options) {
+        Ok(Some(planned)) => Ok(RackDecision {
+            rack: Some(planned),
+            applied: Some(true),
+            warnings,
+        }),
+        Ok(None) => {
+            warnings.push(rack_warning("rack_no_changer", "", Vec::new()));
+            Ok(RackDecision {
+                rack: None,
+                applied: Some(false),
+                warnings,
+            })
+        }
+        Err(RackRefusal::TooManyTools(n)) => fail(
+            "bad_rack",
+            format!("the rack of the machine holds {n} tools at the most"),
+        ),
+        Err(RackRefusal::Gap(place)) => fail(
+            "bad_rack",
+            format!(
+                "place {place} of the rack is not defined in the configuration file of the machine"
+            ),
+        ),
+        Err(RackRefusal::Outside(place)) => fail(
+            "bad_rack",
+            format!("place {place} of the rack is out of the reach of the machine"),
+        ),
     }
 }
 
@@ -487,6 +698,7 @@ fn plan_gcode(machine: &MachineRecord, req: &GcodeRequest) -> Result<Planned, Pl
         spindle_warnings,
         dry_run: None,
         warnings: Vec::new(),
+        rack_applied: None,
     };
     Ok(Planned {
         items: Vec::new(),
@@ -659,8 +871,21 @@ fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, Pl
         })
         .collect();
 
+    let decision = decide_rack(
+        settings.as_ref(),
+        req.request_version,
+        req.rack.as_ref(),
+        used.len(),
+    )?;
     let jm = job_machine(settings.as_ref(), geometry, &connection, board_mm);
-    let items = plan_drill_job(&jm, &job_tools, &job_holes);
+    let (items, hole_ends) = match &decision.rack {
+        Some(rack) => plan_drill_job_marked(&jm, &job_tools, &job_holes, &[], Some(rack)),
+        None => {
+            let items = plan_drill_job(&jm, &job_tools, &job_holes);
+            let ends = hole_end_indexes(&items);
+            (items, ends)
+        }
+    };
 
     // the holes in the order the machine drills them: by tool in order of first use, the order given inside each tool
     let mut ordered: Vec<HoleView> = Vec::with_capacity(holes.len());
@@ -680,7 +905,7 @@ fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, Pl
         }
     }
     let bounds = bounds_of(ordered.iter().map(|h| (h.x_mm, h.y_mm)));
-    let (dry_run, warnings) = measure(
+    let (dry_run, mut warnings) = measure(
         &items,
         &geometry,
         settings.as_ref(),
@@ -688,6 +913,7 @@ fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, Pl
         bounds,
         holes.len(),
     )?;
+    warnings.extend(decision.warnings);
     let tools = job_tools
         .iter()
         .map(|t| ToolView {
@@ -707,7 +933,7 @@ fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, Pl
         paths: Vec::new(),
         bounds_mm: bounds,
         items: items.len(),
-        hole_ends: hole_end_indexes(&items),
+        hole_ends,
         estimate_s: estimate_seconds(&items),
         travel_mm: travel,
         skipped_tools: req.skip_tools.clone(),
@@ -715,6 +941,7 @@ fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, Pl
         spindle_warnings,
         dry_run: Some(dry_run),
         warnings,
+        rack_applied: decision.applied,
     };
     Ok(Planned {
         items,
@@ -869,7 +1096,14 @@ fn plan_route(machine: &MachineRecord, req: &RouteRequest) -> Result<Planned, Pl
     let board = settings.as_ref().map_or(1.6, |m| m.board_mm);
     let jm = job_machine(settings.as_ref(), geometry, &connection, board);
     // the item that ends each path, so that a run tells how many paths are done from the item it has reached
-    let (items, path_ends) = plan_route_job_marked(&paths, &tool_rows, &jm, None);
+    let decision = decide_rack(
+        settings.as_ref(),
+        req.request_version,
+        req.rack.as_ref(),
+        pens.len(),
+    )?;
+    let (items, path_ends) =
+        plan_route_job_atc_marked(&paths, &tool_rows, &jm, None, decision.rack.as_ref());
 
     let mut length = 0.0;
     let view_paths: Vec<PathView> = paths
@@ -895,7 +1129,7 @@ fn plan_route(machine: &MachineRecord, req: &RouteRequest) -> Result<Planned, Pl
             .iter()
             .flat_map(|p| p.points_mm.iter().map(|q| (q[0], q[1]))),
     );
-    let (dry_run, warnings) = measure(
+    let (dry_run, mut warnings) = measure(
         &items,
         &geometry,
         settings.as_ref(),
@@ -903,6 +1137,7 @@ fn plan_route(machine: &MachineRecord, req: &RouteRequest) -> Result<Planned, Pl
         bounds,
         paths.len(),
     )?;
+    warnings.extend(decision.warnings);
     let tools = pens
         .iter()
         .filter_map(|&pen| tool_rows.iter().find(|t| t.number == pen))
@@ -931,6 +1166,7 @@ fn plan_route(machine: &MachineRecord, req: &RouteRequest) -> Result<Planned, Pl
         spindle_warnings,
         dry_run: Some(dry_run),
         warnings,
+        rack_applied: decision.applied,
     };
     Ok(Planned {
         items,
@@ -1355,5 +1591,276 @@ mod tests {
         let planned = plan(&machine(), &serde_json::from_str(&resumed).unwrap()).unwrap();
         assert_eq!(planned.view.paths.len(), 2);
         assert_eq!(planned.view.skipped, 1);
+    }
+
+    // ---- the chaining of the tool changer (request_version 2, `rack`) ----------------------------------------------------------------
+
+    use eh3d_drillpro::protocol::job::Pause;
+
+    /// A machine whose file asks for the automatic tool change (the sample file of the second machine), when the sibling repository is next to this one.
+    fn changer_machine() -> Option<MachineRecord> {
+        let bytes = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../EH3D-DRILLPRO/testdata/DRILLPRO_CNCA.DCF"
+        ))
+        .ok()?;
+        let dcf = String::from_utf8_lossy(&bytes).into_owned();
+        settings_of(&dcf).filter(|s| s.auto_change)?;
+        let mut m = machine();
+        m.dcf = dcf;
+        // the course is not what these tests are about
+        m.cfg = "dry_run = warn\n".into();
+        Some(m)
+    }
+
+    const ONE_PEN: &str = r#"{"kind":"route","name":"outline","tools":[{"number":1,"depth_mm":1.7,"iterations":1,"feed_xy_mm_min":800,"feed_z_mm_min":300,"spindle_rpm":24000}],
+        "paths":[{"pen":1,"points_mm":[[10,10],[40,10],[40,30]]}]}"#;
+
+    /// The request `base` with the fields of `extra` set over it.
+    fn asked(base: &str, extra: serde_json::Value) -> JobRequest {
+        let mut v: serde_json::Value = serde_json::from_str(base).unwrap();
+        for (key, value) in extra.as_object().unwrap() {
+            v[key] = value.clone();
+        }
+        serde_json::from_value(v).unwrap()
+    }
+
+    fn spindle_asks(items: &[Item]) -> usize {
+        items
+            .iter()
+            .filter(|i| matches!(i, Item::Pause(Pause::SpindleStart)))
+            .count()
+    }
+
+    fn refused(m: &MachineRecord, request: &JobRequest) -> (&'static str, String) {
+        let e = plan(m, request).err().expect("the job is refused");
+        (e.code, e.detail)
+    }
+
+    #[test]
+    fn a_request_without_a_rack_or_of_the_first_version_keeps_its_plan() {
+        let Some(m) = changer_machine() else { return };
+        let plain = plan(&m, &serde_json::from_str(TWO_TOOLS).unwrap()).unwrap();
+        assert_eq!(plain.view.rack_applied, None);
+        assert!(plain.view.warnings.is_empty());
+        // the version alone changes nothing
+        let versioned = plan(
+            &m,
+            &asked(TWO_TOOLS, serde_json::json!({"request_version": 2})),
+        )
+        .unwrap();
+        assert_eq!(versioned.view, plain.view);
+        assert_eq!(versioned.items.len(), plain.items.len());
+        // a rack in a request of the first version (or with no version) is left out, and the plan is the old one
+        for version in [
+            serde_json::json!({}),
+            serde_json::json!({"request_version": 1}),
+        ] {
+            let mut extra = version.as_object().unwrap().clone();
+            extra.insert(
+                "rack".into(),
+                serde_json::json!({"first": 2, "carry_in": true}),
+            );
+            let old = plan(&m, &asked(TWO_TOOLS, extra.into())).unwrap();
+            assert_eq!(old.view.rack_applied, Some(false));
+            assert_eq!(
+                old.view
+                    .warnings
+                    .iter()
+                    .map(|w| w.code.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["rack_needs_v2"]
+            );
+            assert_eq!(old.items.len(), plain.items.len());
+            assert_eq!(old.view.hole_ends, plain.view.hole_ends);
+            assert!((old.view.estimate_s - plain.view.estimate_s).abs() < 1e-9);
+        }
+        assert_eq!(
+            refused(
+                &m,
+                &asked(TWO_TOOLS, serde_json::json!({"request_version": 0}))
+            )
+            .0,
+            "bad_request"
+        );
+    }
+
+    #[test]
+    fn a_drilling_job_followed_by_a_routing_job_hands_the_chuck_on() {
+        let Some(m) = changer_machine() else { return };
+        // alone, on the rack: the spindle is asked for and the tool goes back
+        let alone = asked(
+            TWO_TOOLS,
+            serde_json::json!({"request_version": 2, "rack": {}}),
+        );
+        let alone = plan(&m, &alone).unwrap();
+        assert_eq!(alone.view.rack_applied, Some(true));
+        assert!(alone.view.warnings.is_empty());
+        assert_eq!(spindle_asks(&alone.items), 1);
+        // the drilling leaves its last tool in the chuck: no change back to the test pin
+        let carried_out = asked(
+            TWO_TOOLS,
+            serde_json::json!({"request_version": 2, "rack": {"first": 0, "carry_out": true}}),
+        );
+        let carried_out = plan(&m, &carried_out).unwrap();
+        assert_eq!(carried_out.view.rack_applied, Some(true));
+        assert!(carried_out.items.len() < alone.items.len());
+        // the routing after it takes the chuck with the last drill (the second place) and asks for the spindle no more
+        let unchained = asked(
+            ONE_PEN,
+            serde_json::json!({"request_version": 2, "rack": {"first": 2}}),
+        );
+        let unchained = plan(&m, &unchained).unwrap();
+        assert_eq!(unchained.view.rack_applied, Some(true));
+        assert_eq!(spindle_asks(&unchained.items), 1);
+        let chained = asked(
+            ONE_PEN,
+            serde_json::json!({"request_version": 2, "rack": {"first": 2, "carry_in": true}}),
+        );
+        let chained = plan(&m, &chained).unwrap();
+        assert_eq!(chained.view.rack_applied, Some(true));
+        assert!(chained.view.warnings.is_empty());
+        assert_eq!(
+            spindle_asks(&chained.items),
+            0,
+            "one change, no second ask for the spindle"
+        );
+        assert_eq!(chained.view.hole_ends.len(), 1);
+    }
+
+    #[test]
+    fn the_places_given_to_the_tools_decide_where_the_chuck_goes() {
+        let Some(m) = changer_machine() else { return };
+        let ordered = plan(
+            &m,
+            &asked(
+                TWO_TOOLS,
+                serde_json::json!({"request_version": 2, "rack": {}}),
+            ),
+        )
+        .unwrap();
+        // the tools are not in the bar in the order the job uses them
+        let scattered = asked(
+            TWO_TOOLS,
+            serde_json::json!({"request_version": 2, "rack": {"slots": [{"tool": 1, "place": 6}, {"tool": 2, "place": 3}]}}),
+        );
+        let scattered = plan(&m, &scattered).unwrap();
+        assert_eq!(scattered.view.rack_applied, Some(true));
+        assert!(scattered.view.warnings.is_empty());
+        assert!(
+            (scattered.view.estimate_s - ordered.view.estimate_s).abs() > 1e-9,
+            "the chuck travels to other places"
+        );
+        assert_eq!(scattered.view.hole_ends.len(), 3);
+    }
+
+    #[test]
+    fn a_rack_that_does_not_fit_is_refused_with_a_stable_message() {
+        let m = machine();
+        let with_rack = |rack: serde_json::Value| {
+            asked(
+                TWO_TOOLS,
+                serde_json::json!({"request_version": 2, "rack": rack}),
+            )
+        };
+        let bad = |rack: serde_json::Value| {
+            let (code, detail) = refused(&m, &with_rack(rack));
+            assert_eq!(code, "bad_rack");
+            detail
+        };
+        assert_eq!(
+            bad(serde_json::json!({"slots": [{"tool": 1, "place": 3}, {"tool": 2, "place": 3}]})),
+            "rack.slots: place 3 is given to two tools"
+        );
+        assert_eq!(
+            bad(serde_json::json!({"slots": [{"tool": 1, "place": 3}, {"tool": 1, "place": 4}]})),
+            "rack.slots: tool 1 is given two places"
+        );
+        assert_eq!(
+            bad(serde_json::json!({"slots": [{"tool": 1, "place": 0}]})),
+            "rack.slots: place 0 is the test pin, not a place for tool 1"
+        );
+        assert_eq!(
+            bad(serde_json::json!({"carry_slot": 4})),
+            "rack.carry_slot needs rack.carry_in"
+        );
+        assert_eq!(
+            bad(
+                serde_json::json!({"carry_in": true, "first": 2, "carry_slot": 3, "slots": [{"tool": 1, "place": 3}]})
+            ),
+            "rack.carry_slot: place 3 is also the place of a tool of this job"
+        );
+        assert_eq!(
+            bad(serde_json::json!({"first": 15})),
+            "rack.first may be up to 14 places"
+        );
+        // a field of the wrong type is a request that does not read
+        let wrong =
+            serde_json::json!({"kind": "drill", "request_version": 2, "rack": {"first": "two"}});
+        assert!(serde_json::from_value::<JobRequest>(wrong).is_err());
+    }
+
+    #[test]
+    fn a_place_the_machine_file_does_not_have_is_refused() {
+        let Some(m) = changer_machine() else { return };
+        let (code, detail) = refused(
+            &m,
+            &asked(
+                TWO_TOOLS,
+                serde_json::json!({"request_version": 2, "rack": {"slots": [{"tool": 1, "place": 14}, {"tool": 2, "place": 19}]}}),
+            ),
+        );
+        assert_eq!(code, "bad_rack");
+        assert_eq!(
+            detail,
+            "place 19 of the rack is not defined in the configuration file of the machine"
+        );
+    }
+
+    #[test]
+    fn a_field_of_a_later_version_is_left_out_with_a_warning() {
+        let Some(m) = changer_machine() else { return };
+        let later = asked(
+            TWO_TOOLS,
+            serde_json::json!({"request_version": 3, "rack": {"first": 0, "carry_out": true, "spare_place": 9}}),
+        );
+        let planned = plan(&m, &later).unwrap();
+        assert_eq!(planned.view.rack_applied, Some(true));
+        let codes: Vec<(&str, &str)> = planned
+            .view
+            .warnings
+            .iter()
+            .map(|w| (w.code.as_str(), w.detail.as_str()))
+            .collect();
+        assert_eq!(
+            codes,
+            vec![
+                ("request_version_newer", ""),
+                ("rack_unknown_field", "spare_place")
+            ]
+        );
+        assert_eq!(planned.view.warnings[0].values, vec![3.0]);
+    }
+
+    #[test]
+    fn a_machine_that_changes_its_tools_by_hand_plans_the_old_job_and_says_so() {
+        let plain = plan(&machine(), &serde_json::from_str(TWO_TOOLS).unwrap()).unwrap();
+        let asked_for = asked(
+            TWO_TOOLS,
+            serde_json::json!({"request_version": 2, "rack": {"first": 2, "carry_in": true}}),
+        );
+        let planned = plan(&machine(), &asked_for).unwrap();
+        assert_eq!(planned.view.rack_applied, Some(false));
+        assert_eq!(
+            planned
+                .view
+                .warnings
+                .iter()
+                .map(|w| w.code.as_str())
+                .collect::<Vec<_>>(),
+            vec!["rack_no_changer"]
+        );
+        assert_eq!(planned.items.len(), plain.items.len());
+        assert_eq!(planned.view.hole_ends, plain.view.hole_ends);
     }
 }

@@ -25,6 +25,7 @@ pub const ALL: &[(&str, u16, &str)] = &[
     ("bad_path", 422, "A point of a path has a coordinate that is not a number."),
     ("bad_picture", 502, "The picture the camera of the drill head sent cannot be read."),
     ("bad_profile", 422, "The inspection profile is not valid."),
+    ("bad_rack", 422, "The rack of a job request of the second version does not fit: places that repeat, the test pin as a place, more places than rack_max_slots, a carry_slot without carry_in, or a place the machine does not define or reach."),
     ("bad_request", 400, "The body of the request does not read as the request needs."),
     ("bad_samples", 422, "The number of samples of a measurement is out of range."),
     ("bad_scope", 422, "A scope of a token is not one the server knows."),

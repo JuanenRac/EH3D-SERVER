@@ -1746,6 +1746,7 @@ paths:
         - bad_hole
         - bad_ncd
         - bad_path
+        - bad_rack
         - bad_request
         - bad_sorting
         - bad_tool
@@ -1830,7 +1831,7 @@ paths:
                 error: unknown_machine
                 detail: ""
         "422":
-          description: "Refused with `bad_board`, `bad_dcf`, `bad_gcode`, `bad_hole`, `bad_ncd`, `bad_path`, `bad_sorting`, `bad_tool`, `both_sources`, `no_work`, `out_of_table`, `outside_course`, `spindle_limit`, `too_big`, `unknown_tool`, `wrong_machine`."
+          description: "Refused with `bad_board`, `bad_dcf`, `bad_gcode`, `bad_hole`, `bad_ncd`, `bad_path`, `bad_rack`, `bad_sorting`, `bad_tool`, `both_sources`, `no_work`, `out_of_table`, `outside_course`, `spindle_limit`, `too_big`, `unknown_tool`, `wrong_machine`."
           content:
             application/json:
               schema:
@@ -1844,7 +1845,7 @@ paths:
       tags:
         - jobs
       summary: Plan a job and keep it ready
-      description: "A job never starts by itself: a person starts it with `POST /jobs/{id}/start`. Role operator or higher. Scope `jobs:prepare` if the token is limited by scopes."
+      description: "A job never starts by itself: a person starts it with `POST /jobs/{id}/start`. A request of the second version (`request_version: 2`) may carry a `rack` that chains the changes of the tools (docs/ATC_CHAIN.md). Role operator or higher. Scope `jobs:prepare` if the token is limited by scopes."
       x-role: operator
       x-scope: "jobs:prepare"
       x-error-codes:
@@ -1854,6 +1855,7 @@ paths:
         - bad_hole
         - bad_ncd
         - bad_path
+        - bad_rack
         - bad_request
         - bad_sorting
         - bad_tool
@@ -1888,7 +1890,7 @@ paths:
           content:
             application/json:
               schema:
-                "$ref": "#/components/schemas/Job"
+                "$ref": "#/components/schemas/JobResponse"
         "400":
           description: "Refused with `bad_request`."
           content:
@@ -1926,7 +1928,7 @@ paths:
                 error: unknown_machine
                 detail: ""
         "422":
-          description: "Refused with `bad_board`, `bad_dcf`, `bad_gcode`, `bad_hole`, `bad_ncd`, `bad_path`, `bad_sorting`, `bad_tool`, `both_sources`, `no_work`, `out_of_table`, `outside_course`, `spindle_limit`, `too_big`, `unknown_tool`, `wrong_machine`."
+          description: "Refused with `bad_board`, `bad_dcf`, `bad_gcode`, `bad_hole`, `bad_ncd`, `bad_path`, `bad_rack`, `bad_sorting`, `bad_tool`, `both_sources`, `no_work`, `out_of_table`, `outside_course`, `spindle_limit`, `too_big`, `unknown_tool`, `wrong_machine`."
           content:
             application/json:
               schema:
@@ -2120,6 +2122,7 @@ paths:
         - bad_hole
         - bad_ncd
         - bad_path
+        - bad_rack
         - bad_sorting
         - bad_tool
         - both_sources
@@ -2187,7 +2190,7 @@ paths:
                 error: machine_busy
                 detail: ""
         "422":
-          description: "Refused with `bad_board`, `bad_dcf`, `bad_gcode`, `bad_hole`, `bad_ncd`, `bad_path`, `bad_sorting`, `bad_tool`, `both_sources`, `no_work`, `out_of_table`, `outside_course`, `spindle_limit`, `too_big`, `unknown_tool`, `wrong_machine`."
+          description: "Refused with `bad_board`, `bad_dcf`, `bad_gcode`, `bad_hole`, `bad_ncd`, `bad_path`, `bad_rack`, `bad_sorting`, `bad_tool`, `both_sources`, `no_work`, `out_of_table`, `outside_course`, `spindle_limit`, `too_big`, `unknown_tool`, `wrong_machine`."
           content:
             application/json:
               schema:
@@ -5891,6 +5894,47 @@ components:
           type: number
       required:
         - number
+    RackSlot:
+      type: object
+      properties:
+        tool:
+          type: integer
+          minimum: 0
+          maximum: 255
+        place:
+          type: integer
+          minimum: 1
+      required:
+        - tool
+        - place
+      additionalProperties: false
+      description: The place of the rack one tool of the job is in.
+    JobRackV2:
+      type: object
+      properties:
+        first:
+          type: integer
+          minimum: 0
+          default: 0
+          description: "How many places of the rack the tools of the jobs before this one take (0 for the first job of the load)."
+        carry_in:
+          type: boolean
+          default: false
+          description: "The chuck comes holding the last tool of the job before: the first change takes it to its place and picks the first tool of this job."
+        carry_out:
+          type: boolean
+          default: false
+          description: This job leaves its last tool in the chuck for the next one.
+        slots:
+          type: array
+          items:
+            "$ref": "#/components/schemas/RackSlot"
+          description: "The place of each tool of this job; a tool that is not listed is taken from the place the order of the job gives it."
+        carry_slot:
+          type: integer
+          minimum: 1
+          description: "With `carry_in`, the place of the tool the chuck comes holding."
+      description: "The chaining of the tool changer of a request of the second version. Every field is optional; a field this server does not know is left out and named in a warning. See docs/ATC_CHAIN.md."
     DrillRequest:
       type: object
       properties:
@@ -5944,6 +5988,12 @@ components:
           type: array
           items:
             type: integer
+        request_version:
+          type: integer
+          minimum: 1
+          description: "`2` when `rack` is present; absent in the requests of the first version."
+        rack:
+          "$ref": "#/components/schemas/JobRackV2"
       required:
         - kind
       additionalProperties: false
@@ -5993,6 +6043,12 @@ components:
           type: array
           items:
             type: integer
+        request_version:
+          type: integer
+          minimum: 1
+          description: "`2` when `rack` is present; absent in the requests of the first version."
+        rack:
+          "$ref": "#/components/schemas/JobRackV2"
       required:
         - kind
       additionalProperties: false
@@ -6087,6 +6143,9 @@ components:
           type: array
           items:
             type: object
+        rack_applied:
+          type: boolean
+          description: "Only when the request had a `rack`: `true` when the plan used it, `false` when it was left out (a `rack_*` warning says why)."
       description: "What a client draws and follows; see `The view` in docs/API.md."
     JobSummary:
       type: object
@@ -6156,6 +6215,13 @@ components:
           properties:
             view:
               "$ref": "#/components/schemas/JobView"
+            rack_applied:
+              type: boolean
+              description: "As in the view: present only when the request had a `rack`."
+    JobResponse:
+      allOf:
+        - "$ref": "#/components/schemas/Job"
+      description: "The answer to a request for a job. With a `rack` in the request, `rack_applied` is `true` when the server planned with it, and `view.warnings` lists what was left out (`rack_needs_v2`, `rack_no_changer`, `rack_unknown_field`, `request_version_newer`)."
     JobRequestRecord:
       type: object
       properties:

@@ -88,6 +88,8 @@ pub struct ServerConfig {
     pub artifact_unreferenced_days: u64,
     /// Whether a project or an artifact can be shared with other people at all. Off: only the owner and the administrators see anything.
     pub shares_enabled: bool,
+    /// The most places a request may name in the `rack` of a drilling or routing job (`rack.first` and the entries of `rack.slots`): the tool changer of the machines has fourteen.
+    pub rack_max_slots: usize,
 }
 
 impl ServerConfig {
@@ -144,6 +146,7 @@ impl Default for ServerConfig {
             uploads_per_user: 4,
             artifact_unreferenced_days: 30,
             shares_enabled: true,
+            rack_max_slots: 14,
         }
     }
 }
@@ -286,6 +289,7 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
                 c.uploads_per_user = number(&key, value, 1, 1_000).map_err(at)? as usize
             }
             "shares_enabled" => c.shares_enabled = flag(&key, value).map_err(at)?,
+            "rack_max_slots" => c.rack_max_slots = number(&key, value, 1, 14).map_err(at)? as usize,
             "artifact_unreferenced_days" => {
                 c.artifact_unreferenced_days = number(&key, value, 0, 36_500).map_err(at)?
             }
@@ -516,6 +520,15 @@ events_idle_s = 30
         assert!(parse("upload_ttl_s = 10\n").is_err());
         assert!(parse("uploads_per_user = 0\n").is_err());
         assert!(parse("max_upload_mb = lots\n").is_err());
+    }
+
+    #[test]
+    fn the_most_places_of_a_rack_request_is_a_setting() {
+        assert_eq!(parse("").unwrap().rack_max_slots, 14);
+        assert_eq!(parse("rack_max_slots = 6\n").unwrap().rack_max_slots, 6);
+        assert!(parse("rack_max_slots = 0\n").is_err());
+        assert!(parse("rack_max_slots = 15\n").is_err());
+        assert!(parse("rack_max_slots = many\n").is_err());
     }
 
     #[test]

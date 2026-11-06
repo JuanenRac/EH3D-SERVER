@@ -67,6 +67,8 @@ A job request is a drilling job, a routing job or a free G-code program. A drill
 
 Both kinds of drilling and routing job take two more fields. `skip_tools` is a list of tool numbers (pens for a routing job) that are switched off: their holes or paths are left out of the job, and a tool that is off does not have to be in the tool table. `skip` is how many holes (counted in the order the machine drills them, tool by tool) or paths (in the order sent) are already done, so a job that goes on after a stop does only the rest. A job whose work is all left out by them is refused with `no_work`, and the view says what was left out in `skipped_tools` and `skipped`. A program that sends the job of a window (DRILLPRO, ROUTEPRO, BUNGARD-GUI) sends the holes it chose together with `skip_tools`, so the server and the window agree; a drilling job and a routing job in a row are two jobs, started one after the other on the machine.
 
+A drilling or routing job on a machine with the automatic tool changer may chain its changes with the jobs before and after it and say in which place of the rack each tool is: `"request_version": 2` and a `rack` (`first`, `carry_in`, `carry_out`, `slots`, `carry_slot`, all optional). A request without them, or of the first version, is planned exactly as before. The job and its view answer `rack_applied` (`true` when the plan used the rack, `false` when it was left out, absent when the request had none), the warnings `rack_needs_v2`, `rack_no_changer`, `rack_unknown_field` and `request_version_newer` go in `warnings`, and a rack that does not fit is refused with `422 bad_rack`. The whole contract is in `docs/ATC_CHAIN.md`; the most places a request may name is `rack_max_slots` of `server.cfg`.
+
 A G-code program (`"kind": "gcode"`) is the text of the program. It runs on a machine whose connection is `demo` or `grbl`:
 
 ```json
@@ -79,7 +81,7 @@ The lines that are sent are the code without its comments (in parentheses or aft
 
 Every drilling or routing view carries `dry_run` (the exact steps of the plan followed on paper: `min_mm`, `max_mm` and `end_mm` as X, Y, Z in mm from the switches, `steps`, `seconds` and `within_course`) and `warnings`, what looks wrong in the work (`code`: `tiny`, `too_big`, `far`, `scale` or `out_of_course`, with the numbers it is about in `values`, in mm, and `axis` for the last). A plan that takes an axis past the course of the machine's configuration file is refused with `outside_course` unless the tuning of the machine says `dry_run = warn`; `dry_run_margin_mm`, `sanity_tiny_mm` and `sanity_far_mm` are keys of the same tuning. A G-code job has neither.
 
-The holes or the files, not both. With files the holes are ordered as the program does (`sorting`: `none`, `x`, `y` or `special`; by default the machine's configuration says) and their units come from the machine's configuration file. A job is refused with a code before it exists: `no_work`, `both_sources`, `spindle_limit` (beyond what the spindle of the machine gives, see below), `unknown_tool` (a tool the work uses is not in the table), `bad_tool`, `bad_board`, `out_of_table` (a hole or a point outside the course of the machine), `outside_course` (the exact plan takes an axis past its course), `bad_ncd`, `too_big`, `bad_request`.
+The holes or the files, not both. With files the holes are ordered as the program does (`sorting`: `none`, `x`, `y` or `special`; by default the machine's configuration says) and their units come from the machine's configuration file. A job is refused with a code before it exists: `no_work`, `both_sources`, `spindle_limit` (beyond what the spindle of the machine gives, see below), `unknown_tool` (a tool the work uses is not in the table), `bad_tool`, `bad_board`, `out_of_table` (a hole or a point outside the course of the machine), `outside_course` (the exact plan takes an axis past its course), `bad_ncd`, `too_big`, `bad_rack` (the chaining of the tool changer does not fit, see below), `bad_request`.
 
 The **view** is what a client draws and follows:
 
@@ -279,6 +281,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `bad_path` | 422 | A point of a path has a coordinate that is not a number. |
 | `bad_picture` | 502 | The picture the camera of the drill head sent cannot be read. |
 | `bad_profile` | 422 | The inspection profile is not valid. |
+| `bad_rack` | 422 | The rack of a job request of the second version does not fit: places that repeat, the test pin as a place, more places than rack_max_slots, a carry_slot without carry_in, or a place the machine does not define or reach. |
 | `bad_request` | 400 | The body of the request does not read as the request needs. |
 | `bad_samples` | 422 | The number of samples of a measurement is out of range. |
 | `bad_scope` | 422 | A scope of a token is not one the server knows. |

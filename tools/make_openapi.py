@@ -116,16 +116,29 @@ SCHEMAS: dict[str, dict] = {
     }, ["stations", "machines", "summary"]),
     "DrillTool": obj({"number": I, "extra_stroke_mm": N, "feed_mm_min": N, "spindle_rpm": N}, ["number"], extra=True),
     "RouteTool": obj({"number": I, "depth_mm": N, "iterations": I, "feed_xy_mm_min": N, "feed_z_mm_min": N, "spindle_rpm": N}, ["number"], extra=True),
+    "RackSlot": obj({"tool": {"type": "integer", "minimum": 0, "maximum": 255}, "place": {"type": "integer", "minimum": 1}}, ["tool", "place"],
+                    description="The place of the rack one tool of the job is in."),
+    "JobRackV2": obj({
+        "first": {"type": "integer", "minimum": 0, "default": 0, "description": "How many places of the rack the tools of the jobs before this one take (0 for the first job of the load)."},
+        "carry_in": {"type": "boolean", "default": False, "description": "The chuck comes holding the last tool of the job before: the first change takes it to its place and picks the first tool of this job."},
+        "carry_out": {"type": "boolean", "default": False, "description": "This job leaves its last tool in the chuck for the next one."},
+        "slots": arr(ref("RackSlot"), description="The place of each tool of this job; a tool that is not listed is taken from the place the order of the job gives it."),
+        "carry_slot": {"type": "integer", "minimum": 1, "description": "With `carry_in`, the place of the tool the chuck comes holding."},
+    }, extra=True, description="The chaining of the tool changer of a request of the second version. Every field is optional; a field this server does not know is left out and named in a warning. See docs/ATC_CHAIN.md."),
     "DrillRequest": obj({
         "kind": {"type": "string", "const": "drill"}, "name": s(), "board_mm": {"type": "number", "minimum": 0, "maximum": 50},
         "tools": arr(ref("DrillTool")), "holes": arr(obj({"tool": I, "x_mm": N, "y_mm": N}, ["tool", "x_mm", "y_mm"])),
         "files": obj({"ncd": s(), "dtd": s()}), "sorting": {"type": "string", "enum": ["none", "x", "y", "special"]},
         "skip": I, "skip_tools": arr(I),
+        "request_version": {"type": "integer", "minimum": 1, "description": "`2` when `rack` is present; absent in the requests of the first version."},
+        "rack": ref("JobRackV2"),
     }, ["kind"], description="The holes or the files, not both (`both_sources`)."),
     "RouteRequest": obj({
         "kind": {"type": "string", "const": "route"}, "name": s(), "tools": arr(ref("RouteTool")),
         "paths": arr(obj({"pen": I, "points_mm": arr(NUMBER_PAIR)}, ["pen", "points_mm"])),
         "files": obj({"plt": s(), "rtd": s()}), "skip": I, "skip_tools": arr(I),
+        "request_version": {"type": "integer", "minimum": 1, "description": "`2` when `rack` is present; absent in the requests of the first version."},
+        "rack": ref("JobRackV2"),
     }, ["kind"], description="The paths or the files, not both (`both_sources`)."),
     "GcodeRequest": obj({
         "kind": {"type": "string", "const": "gcode"}, "name": s(), "gcode": s("The text of the program; at most a million lines."),
@@ -137,6 +150,7 @@ SCHEMAS: dict[str, dict] = {
         "kind": s(), "name": s(), "tools": arr({"type": "object"}), "holes": arr({"type": "object"}), "paths": arr({"type": "object"}),
         "bounds_mm": arr(N), "items": I, "hole_ends": arr(I), "estimate_s": N, "travel_mm": N, "skipped_tools": arr(I), "skipped": I,
         "dry_run": {"type": "object"}, "warnings": arr({"type": "object"}), "spindle_warnings": arr({"type": "object"}),
+        "rack_applied": {"type": "boolean", "description": "Only when the request had a `rack`: `true` when the plan used it, `false` when it was left out (a `rack_*` warning says why)."},
     }, extra=True, description="What a client draws and follows; see `The view` in docs/API.md."),
     "JobSummary": obj({
         "id": s(), "machine": s(), "name": s(), "kind": s(),
@@ -145,7 +159,8 @@ SCHEMAS: dict[str, dict] = {
         "items_total": I, "items_done": I, "holes_total": I, "holes_done": I, "line": I, "resumed_from": s(), "message": s(),
         "pause": nullable(ref("Pause")), "estimate_s": N,
     }, ["id", "machine", "state"], extra=True),
-    "Job": {"allOf": [ref("JobSummary"), obj({"view": ref("JobView")}, extra=True)]},
+    "Job": {"allOf": [ref("JobSummary"), obj({"view": ref("JobView"), "rack_applied": {"type": "boolean", "description": "As in the view: present only when the request had a `rack`."}}, extra=True)]},
+    "JobResponse": {"allOf": [ref("Job")], "description": "The answer to a request for a job. With a `rack` in the request, `rack_applied` is `true` when the server planned with it, and `view.warnings` lists what was left out (`rack_needs_v2`, `rack_no_changer`, `rack_unknown_field`, `request_version_newer`)."},
     "JobRequestRecord": obj({
         "id": s(), "machine": s(), "kind": s(), "name": s(), "state": s(), "resumed_from": s(), "next_skip": nullable(I), "request": ref("JobRequest"),
     }, ["id", "request"], extra=True),
@@ -329,13 +344,13 @@ op("GET", "/fleet", "machines", "viewer", "Every machine at once, grouped by sta
 
 # -- jobs
 PLAN_ERR = ["bad_request", "no_work", "both_sources", "spindle_limit", "unknown_tool", "bad_tool", "bad_board", "out_of_table", "outside_course", "bad_ncd", "bad_dcf",
-            "bad_gcode", "bad_hole", "bad_path", "bad_sorting", "too_big", "wrong_machine"]
+            "bad_gcode", "bad_hole", "bad_path", "bad_rack", "bad_sorting", "too_big", "wrong_machine"]
 op("POST", "/machines/{id}/preview", "jobs", "operator", "Plan a job and show its view, creating nothing", scope="jobs:prepare", body="JobRequest",
    ok=(200, "JobView", "application/json"), errors=MACHINE_ERR + PLAN_ERR,
    example={"kind": "drill", "name": "board 1", "board_mm": 1.6, "tools": [{"number": 1, "feed_mm_min": 1000, "spindle_rpm": 24000}],
             "holes": [{"tool": 1, "x_mm": 10.0, "y_mm": 10.0}]})
-op("POST", "/machines/{id}/jobs", "jobs", "operator", "Plan a job and keep it ready", scope="jobs:prepare", body="JobRequest", ok=(200, "Job", "application/json"),
-   errors=MACHINE_ERR + PLAN_ERR, desc="A job never starts by itself: a person starts it with `POST /jobs/{id}/start`.")
+op("POST", "/machines/{id}/jobs", "jobs", "operator", "Plan a job and keep it ready", scope="jobs:prepare", body="JobRequest", ok=(200, "JobResponse", "application/json"),
+   errors=MACHINE_ERR + PLAN_ERR, desc="A job never starts by itself: a person starts it with `POST /jobs/{id}/start`. A request of the second version (`request_version: 2`) may carry a `rack` that chains the changes of the tools (docs/ATC_CHAIN.md).")
 op("GET", "/jobs", "jobs", "viewer", "List the jobs, newest first", scope="machines:view", ok=(200, arr(ref("JobSummary")), "application/json"),
    query=[q("machine", S, "Only the jobs of this machine."), q("state", S, "Only the jobs in this state.")])
 op("GET", "/jobs/{id}", "jobs", "viewer", "Read a job with its view", scope="machines:view", ok=(200, "Job", "application/json"), errors=JOB_ERR)
