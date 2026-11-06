@@ -38,7 +38,10 @@ fn every_route_of_the_services_has_the_tag_of_its_family_in_the_contract() {
     let doc: Value = serde_json::from_str(&read("docs/openapi.json")).unwrap();
     let mut seen = std::collections::BTreeMap::new();
     for (path, item) in doc["paths"].as_object().unwrap() {
-        let wanted = if path.starts_with("/apps/") {
+        let wanted = if path.starts_with("/apps/") && path.ends_with("/jobs") {
+            // the run of a design program is work of the machines, though it keeps its report in the store
+            Some("work")
+        } else if path.starts_with("/apps/") {
             Some("store")
         } else if path.starts_with("/catalogs") {
             Some("catalogs")
