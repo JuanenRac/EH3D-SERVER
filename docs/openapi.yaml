@@ -3,7 +3,7 @@
 openapi: "3.1.0"
 info:
   title: EH3D Server API
-  version: "0.1.2"
+  version: "0.1.3"
   summary: The REST and websocket interface of the EH3D server.
   description: "Everything is under `/api/v1/` and answers JSON. A mistake is `{\"error\": \"<code>\", \"detail\": \"...\"}` with the status that fits; the codes are the catalog in `docs/error-codes.json`. Except the health check, the first set-up and the login, every request carries `Authorization: Bearer <token>`: the token of a login or the token of a program. A viewer reads, an operator also prepares, starts, stops and confirms jobs, an administrator also manages users, tokens and machines; a token may be limited further by scopes. Limits: passwords are 8 to 128 characters, a request body is at most `max_body_mb` of `server.cfg` (else `too_big`), a ticket is good for one use within 30 seconds, and five wrong passwords block a name for a while (`throttled`). `docs/API.md` explains the behaviour; this document is the contract of the routes."
   license:
