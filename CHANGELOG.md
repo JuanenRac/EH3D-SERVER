@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.1.3] - Services shared by every application: project store, catalogs, machine work and single sign-in, with the chaining of the tool changer
+
 - **The server of every EH3D application, with four common services** (`docs/SERVICES.md`): a store of projects and files, shared catalogs, machine plugins with a generic queue of jobs and a stream of events, and one login. Nothing that existed changes: the routes, the answers and the tests of the first version stay as they were.
 - **The project store** (`/api/v1/apps/{app}/projects`, `docs/PROJECT_STORE.md`): the projects and files of each application, a file is never overwritten (every write is a new version with its SHA-256, the last `project_versions_kept` are kept), a write over an existing file needs `If-Match` (`428`/`412`), an editing lock with an expiry, safe file names (nothing that leaves the folder, no Windows device names, no names that differ only in letter case), the bytes checked against their hash at every read, limits per file, per project and per application in `server.cfg`, and import and export of the `.eh3dproj` container with the `eh3d-container` library of EH3D-COMMON.
 - **Shared catalogs** (`/api/v1/catalogs`, `docs/CATALOGS.md`): the materials of `eh3d-materials` (built in, read-only) and the tools, machine profiles, footprints, symbols and components (`phoenix-parts/1`) that an administrator uploads as JSON or CSV, read by everybody with search, filters, sorting, pages, `ETag` and `If-None-Match`; an upload that does not fit is refused whole.
