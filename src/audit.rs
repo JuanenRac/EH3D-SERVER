@@ -125,6 +125,49 @@ impl Audit {
     }
 }
 
+/// What `GET /api/v1/audit` asks for: every field that is `None` lets all the lines through.
+pub struct Filter {
+    pub since: Option<u64>,
+    pub until: Option<u64>,
+    pub who: Option<String>,
+    pub event: Option<String>,
+    pub limit: usize,
+}
+
+/// The lines of the audit file that match, the newest first and at most `filter.limit`. The older copy the file was set aside as is read first. A line that does not read is
+/// skipped. Each line comes as an object with `at` (seconds since 1970), `event` and the fields the event was written with.
+pub fn read_lines(path: &Path, filter: &Filter) -> Vec<serde_json::Value> {
+    let mut older = path.as_os_str().to_owned();
+    older.push(".1");
+    let mut found: Vec<serde_json::Value> = Vec::new();
+    for file in [PathBuf::from(older), path.to_path_buf()] {
+        let Ok(text) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        for raw in text.lines() {
+            let Ok(serde_json::Value::Object(mut line)) = serde_json::from_str(raw) else {
+                continue;
+            };
+            let at = line.remove("t").and_then(|v| v.as_u64()).unwrap_or(0);
+            if filter.since.is_some_and(|s| at < s) || filter.until.is_some_and(|u| at > u) {
+                continue;
+            }
+            let text_of = |key: &str| line.get(key).and_then(|v| v.as_str()).map(str::to_string);
+            if filter.who.is_some() && text_of("who") != filter.who {
+                continue;
+            }
+            if filter.event.is_some() && text_of("event") != filter.event {
+                continue;
+            }
+            line.insert("at".into(), serde_json::json!(at));
+            found.push(serde_json::Value::Object(line));
+        }
+    }
+    found.reverse();
+    found.truncate(filter.limit);
+    found
+}
+
 /// The moment of a count of seconds since 1970 in UTC, as `2000-01-31T12:00:00Z`.
 pub fn iso(secs: u64) -> String {
     let days = (secs / 86_400) as i64;
@@ -200,6 +243,75 @@ mod tests {
         let d2 = dir("audit-off");
         Audit::new(&d2, false, 1024).event("login", &[("who", "juan")]);
         assert!(!d2.join("audit.jsonl").exists());
+    }
+
+    #[test]
+    fn the_audit_is_read_back_newest_first_with_its_filters() {
+        let d = dir("read");
+        let path = d.join("audit.jsonl");
+        std::fs::create_dir_all(&d).unwrap();
+        let rows = [
+            r#"{"t":100,"event":"login","who":"juan"}"#,
+            r#"{"t":200,"event":"logout","who":"juan"}"#,
+            "not json at all",
+            r#"{"t":300,"event":"login","who":"ana"}"#,
+        ];
+        std::fs::write(
+            d.join("audit.jsonl.1"),
+            format!(
+                "{}
+",
+                rows[0]
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            &path,
+            format!(
+                "{}
+{}
+{}
+",
+                rows[1], rows[2], rows[3]
+            ),
+        )
+        .unwrap();
+        let all = Filter {
+            since: None,
+            until: None,
+            who: None,
+            event: None,
+            limit: 10,
+        };
+        let list = read_lines(&path, &all);
+        let times: Vec<u64> = list.iter().map(|l| l["at"].as_u64().unwrap()).collect();
+        assert_eq!(times, vec![300, 200, 100]);
+        assert!(list[0].get("t").is_none());
+        let juan = Filter {
+            who: Some("juan".into()),
+            ..all
+        };
+        assert_eq!(read_lines(&path, &juan).len(), 2);
+        let logins_since = Filter {
+            since: Some(150),
+            event: Some("login".into()),
+            limit: 10,
+            until: None,
+            who: None,
+        };
+        let found = read_lines(&path, &logins_since);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0]["who"], "ana");
+        let one = Filter {
+            since: None,
+            until: Some(250),
+            who: None,
+            event: None,
+            limit: 1,
+        };
+        assert_eq!(read_lines(&path, &one)[0]["at"], 200);
+        assert!(read_lines(&d.join("missing.jsonl"), &one).is_empty());
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

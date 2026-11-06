@@ -98,3 +98,16 @@ password_classes = 1
 password_deny_name = true
 # Write a line to the audit for every request refused with 401 or 403 (the method, the path and the address; never the query).
 audit_denials = true
+
+# ---- running the design program for the pcb application (docs/DESIGN_RUN.md)
+# Whether the server may run the design program on a board of a project (POST /api/v1/apps/pcb/jobs). Off by default; a switch of the security page. Without it the route answers 501 design_run_unavailable.
+design_run = false
+# The full path of the program (never looked up in the search path of the system). Empty: not set.
+design_program =
+# The program is stopped after this many seconds (1 to 3600), and may write at most this many kilobytes to each output (1 to 65536); the rest is dropped.
+design_timeout_s = 120
+design_max_output_kb = 4096
+
+# ---- the certificate in front of the server
+# The certificate (PEM) the reverse proxy shows, so that GET /api/v1/auth/keys can tell its SHA-256 fingerprint. The server does not terminate TLS itself. Empty: none.
+tls_cert_file =

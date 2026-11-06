@@ -103,6 +103,11 @@ fn the_new_settings_are_in_the_example_with_the_values_the_server_starts_with() 
         "password_classes",
         "password_deny_name",
         "audit_denials",
+        "design_run",
+        "design_program",
+        "design_timeout_s",
+        "design_max_output_kb",
+        "tls_cert_file",
     ] {
         assert!(
             text.lines()
@@ -142,4 +147,12 @@ fn the_new_settings_are_in_the_example_with_the_values_the_server_starts_with() 
         default.password_deny_name
     );
     assert_eq!(from_the_example.audit_denials, default.audit_denials);
+    assert_eq!(from_the_example.design_run, default.design_run);
+    assert_eq!(from_the_example.design_program, default.design_program);
+    assert_eq!(from_the_example.design_timeout_s, default.design_timeout_s);
+    assert_eq!(
+        from_the_example.design_max_output_kb,
+        default.design_max_output_kb
+    );
+    assert_eq!(from_the_example.tls_cert_file, default.tls_cert_file);
 }

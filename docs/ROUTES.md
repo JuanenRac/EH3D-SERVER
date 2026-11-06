@@ -21,6 +21,8 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/apps/:app/projects/:id/lock` | PUT | operator + `projects:write` | Take or renew the editing lock of a project |
 | `/api/v1/apps/:app/projects/:id/lock` | DELETE | operator + `projects:write` | Let the editing lock go |
 | `/api/v1/apps/:app/projects/:id/purge` | POST | admin + `projects:write` | Remove a hidden project for good |
+| `/api/v1/apps/:app/quota` | GET | viewer + `projects:read` | The limits of the store and what the application uses |
+| `/api/v1/apps/pcb/jobs` | POST | operator + `jobs:prepare` | Run the design program on a board of a project |
 | `/api/v1/artifacts` | GET | viewer + `artifacts:read` | List the artifacts the caller can see, newest first |
 | `/api/v1/artifacts` | POST | operator + `artifacts:write` | Keep a file as an artifact |
 | `/api/v1/artifacts/:id` | GET | viewer + `artifacts:read` | The bytes of an artifact, streamed |
@@ -31,11 +33,14 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/artifacts/:id/shares` | POST | operator + `artifacts:write` | Share an artifact for reading |
 | `/api/v1/artifacts/:id/shares/:who` | DELETE | operator + `artifacts:write` | Take the sharing of an artifact back |
 | `/api/v1/artifacts/verify` | POST | admin + `artifacts:read` | Read every blob again against its hash |
+| `/api/v1/audit` | GET | admin | Read the audit |
 | `/api/v1/auth/apps` | GET | any login or token | The applications the server accepts |
+| `/api/v1/auth/keys` | GET | admin | The identifiers of the keys and the fingerprint of the certificate |
 | `/api/v1/auth/login` | POST | none | Log in for an application |
 | `/api/v1/auth/logout` | POST | any login or token | End the login |
 | `/api/v1/auth/logout-all` | POST | a person | End every login of the caller |
 | `/api/v1/auth/policy` | GET | admin | See the switches of security |
+| `/api/v1/auth/policy` | PUT | admin | Change a switch of security while the server runs |
 | `/api/v1/auth/refresh` | POST | a person | Renew the login |
 | `/api/v1/auth/session` | GET | any login or token | The claims of the login |
 | `/api/v1/auth/sessions` | GET | any login or token | List the open logins of the caller |

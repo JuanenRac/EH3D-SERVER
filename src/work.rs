@@ -313,10 +313,16 @@ impl WorkBook {
         let at = now();
         let mut changed = false;
         for job in &mut list {
-            if job.plugin == "demo" && !job.state.finished() {
+            if (job.plugin == "demo" || job.plugin == crate::design::PLUGIN)
+                && !job.state.finished()
+            {
                 job.state = WorkState::Failed;
                 job.finished = Some(at);
-                job.message = "the server restarted while the demo job was open".into();
+                job.message = if job.plugin == "demo" {
+                    "the server restarted while the demo job was open".into()
+                } else {
+                    "the server restarted while the job was open".into()
+                };
                 let note = job.message.clone();
                 job.push(at, WorkState::Failed, "server", &note);
                 changed = true;

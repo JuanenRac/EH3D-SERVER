@@ -142,6 +142,16 @@ pub struct ServerConfig {
     pub password_classes: usize,
     /// A password may not contain the name of the person (names of four characters or more).
     pub password_deny_name: bool,
+    /// Whether the server may run the design program (`design_program`) for `POST /api/v1/apps/pcb/jobs`. Off by default: the server executes nothing for a client.
+    pub design_run: bool,
+    /// The explicit path of the design program (`phoenix`) the server runs when `design_run` is on. It is never looked up in the search path of the system.
+    pub design_program: Option<PathBuf>,
+    /// The longest a run of the design program may take, in seconds; past it the program is stopped and the job fails.
+    pub design_timeout_s: u64,
+    /// The most the design program may write to its output, in kilobytes; what comes after is dropped.
+    pub design_max_output_kb: u64,
+    /// The certificate (PEM) the reverse proxy in front of the server shows, so that `GET /auth/keys` can tell its SHA-256 fingerprint. The server does not terminate TLS itself.
+    pub tls_cert_file: Option<PathBuf>,
 }
 
 impl ServerConfig {
@@ -225,6 +235,11 @@ impl Default for ServerConfig {
             password_min_len: 8,
             password_classes: 1,
             password_deny_name: true,
+            design_run: false,
+            design_program: None,
+            design_timeout_s: 120,
+            design_max_output_kb: 4096,
+            tls_cert_file: None,
         }
     }
 }
@@ -442,6 +457,31 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
                 c.password_classes = number(&key, value, 1, 4).map_err(at)? as usize
             }
             "password_deny_name" => c.password_deny_name = flag(&key, value).map_err(at)?,
+            "design_run" => c.design_run = flag(&key, value).map_err(at)?,
+            "design_program" => {
+                c.design_program = if value.is_empty() {
+                    None
+                } else {
+                    let path = PathBuf::from(value);
+                    if !path.is_absolute() {
+                        return Err(at(
+                            "design_program must be the full path of the program (it is never looked up in the search path)".into(),
+                        ));
+                    }
+                    Some(path)
+                }
+            }
+            "design_timeout_s" => c.design_timeout_s = number(&key, value, 1, 3_600).map_err(at)?,
+            "design_max_output_kb" => {
+                c.design_max_output_kb = number(&key, value, 1, 65_536).map_err(at)?
+            }
+            "tls_cert_file" => {
+                c.tls_cert_file = if value.is_empty() {
+                    None
+                } else {
+                    Some(PathBuf::from(value))
+                }
+            }
             other => return Err(at(format!("unknown key '{other}'"))),
         }
     }
@@ -848,6 +888,47 @@ audit_denials = no
         .is_err());
         assert!(parse(
             "auth_lockout_s = 0
+"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn the_settings_of_the_design_program_are_off_and_checked() {
+        let c = parse("").unwrap();
+        assert!(!c.design_run && c.design_program.is_none() && c.tls_cert_file.is_none());
+        assert_eq!((c.design_timeout_s, c.design_max_output_kb), (120, 4096));
+        let program = std::env::temp_dir().join("phoenix");
+        let set = parse(&format!(
+            "design_run = on
+design_program = {}
+design_timeout_s = 30
+design_max_output_kb = 64
+",
+            program.display()
+        ))
+        .unwrap();
+        assert!(set.design_run);
+        assert_eq!(set.design_program, Some(program));
+        assert_eq!((set.design_timeout_s, set.design_max_output_kb), (30, 64));
+        // a bare name would be looked up in the search path of the system: refused
+        assert!(parse(
+            "design_program = phoenix
+"
+        )
+        .is_err());
+        assert!(parse(
+            "design_timeout_s = 0
+"
+        )
+        .is_err());
+        assert!(parse(
+            "design_max_output_kb = 0
+"
+        )
+        .is_err());
+        assert!(parse(
+            "design_run = maybe
 "
         )
         .is_err());

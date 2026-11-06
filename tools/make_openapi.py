@@ -685,6 +685,7 @@ SCHEMAS.update({
     "AuthPolicy": obj({
         "switches": arr(obj({"key": s(), "value": {}, "safe": B}, ["key", "value", "safe"])),
         "attention": arr(S), "extra_apps": arr(S),
+        "editable": arr(S, description="The keys `PUT /auth/policy` can change while the server runs."),
     }, ["switches", "attention", "extra_apps"], description="The switches of security of `server.cfg` with their values (never a secret) and, in `attention`, those that are looser than the recommended value."),
     "AuthApps": obj({"apps": arr(S), "known_only": B}, ["apps", "known_only"]),
 })
@@ -708,6 +709,58 @@ op("DELETE", "/auth/sessions/{id}", "auth", "person", "Close one login", errors=
 op("GET", "/auth/policy", "auth", "admin", "See the switches of security", ok=(200, "AuthPolicy", "application/json"),
    desc="What Studio shows in its security page: the values of the switches in `server.cfg` and which of them deserve attention. No secret is ever in it.")
 op("GET", "/auth/apps", "auth", "any", "The applications the server accepts", ok=(200, "AuthApps", "application/json"))
+
+# -- policy changes, keys and audit (docs/AUTH.md), the quota of the store and the design run (docs/DESIGN_RUN.md)
+SCHEMAS.update({
+    "PolicyChange": obj({
+        "key": s("One of `editable` in `GET /auth/policy`."), "value": {"description": "A boolean or a whole number, as the key takes."},
+        "confirm_weak": {"type": "boolean", "default": False, "description": "Needed when the new value is looser than the recommended one."},
+    }, ["key", "value"], description="Changes one switch of security while the server runs. The change is kept in `policy.json` of the data folder and wins over `server.cfg` for that key."),
+    "AuthKeys": obj({
+        "tokens": arr(obj({
+            "id": s(), "name": s(), "role": ref("Role"), "created": I, "last_used": nullable(I), "expires": nullable(I), "age_s": I, "template": nullable(S),
+        }, ["id", "name", "role", "created", "age_s"])),
+        "tls": obj({"configured": B, "sha256": nullable(s("SHA-256 of the certificate, in hexadecimal."))}, ["configured", "sha256"],
+                   description="The certificate that `tls_cert_file` names, the one the proxy in front of the server shows; the server does not terminate TLS itself."),
+    }, ["tokens", "tls"], description="Identifiers, ages and the fingerprint of the certificate; never a secret."),
+    "AuditLine": obj({"at": I, "event": s(), "who": s()}, ["at", "event"], extra=True, description="The fields the event was written with (`who`, `role`, `ip`, ...); never a password or a token."),
+    "AuditLines": obj({"enabled": B, "lines": arr(ref("AuditLine"))}, ["enabled", "lines"], description="The newest first. `enabled` is false when `audit_file` is off and there is nothing to read."),
+    "AppQuota": obj({
+        "app": s(),
+        "limits": obj({"project_max_mb": I, "project_max_file_mb": I, "project_max_files": I, "project_max_projects": I},
+                      ["project_max_mb", "project_max_file_mb", "project_max_files", "project_max_projects"]),
+        "usage": obj({"projects_in_app": I, "projects_left": I, "visible_projects": I, "bytes": I, "files": I},
+                     ["projects_in_app", "projects_left", "visible_projects", "bytes", "files"]),
+        "projects": arr(obj({"id": s(), "name": s(), "bytes": I, "files": I, "bytes_left": I, "files_left": I}, ["id", "name", "bytes", "files", "bytes_left", "files_left"])),
+    }, ["app", "limits", "usage", "projects"], description="The limits of the store and what the application uses of them, for the projects the caller sees (at most 200 listed, the last changed first)."),
+    "DesignJobRequest": obj({
+        "kind": {"type": "string", "enum": ["check", "bom", "fabpack", "panel"]},
+        "project": s("The id of a project of the `pcb` application."),
+        "file": s("The board file of the project (`options.file` also works)."),
+        "options": obj({
+            "profile": s(), "lang": s(), "panel_boards": {"type": "integer", "minimum": 1, "maximum": 1000}, "dnp": arr(S),
+        }, description="Only `fabpack` takes options (`profile`, `lang`, `panel_boards`, `dnp`); the other kinds take none."),
+    }, ["kind", "project"], extra=True),
+})
+op("PUT", "/auth/policy", "auth", "admin", "Change a switch of security while the server runs", body="PolicyChange", ok=(200, "AuthPolicy", "application/json"),
+   errors=["bad_policy", "weak_confirm_required", "storage"],
+   desc="One switch at a time, answering the new policy. Only the keys in `editable` can change; the others need a restart. A value looser than recommended (`safe: false`) changes nothing "
+        "unless the body says `confirm_weak: true`. Every change is in the audit with the old and the new value.",
+   example={"key": "password_min_len", "value": 12})
+op("GET", "/auth/keys", "auth", "admin", "The identifiers of the keys and the fingerprint of the certificate", ok=(200, "AuthKeys", "application/json"),
+   desc="The tokens of programs by id, name, role and age, and the SHA-256 fingerprint of the certificate named by `tls_cert_file`. No secret is ever in it.")
+op("GET", "/audit", "admin", "admin", "Read the audit", ok=(200, "AuditLines", "application/json"),
+   query=[q("since", I, "Only the lines from this moment (seconds since 1970)."), q("until", I, "Only the lines up to this moment."),
+          q("who", S, "Only the lines of this person or token."), q("event", S, "Only this event."),
+          q("limit", {"type": "integer", "minimum": 1, "maximum": 1000}, "Up to this many lines (100).")],
+   desc="Reads `audit.jsonl` and the older copy it was set aside as, the newest first.")
+op("GET", "/apps/{app}/quota", "store", "viewer", "The limits of the store and what the application uses", scope="projects:read", ok=(200, "AppQuota", "application/json"),
+   errors=["bad_app"], desc="`project_max_mb`, `project_max_file_mb`, `project_max_files` and `project_max_projects` with the use, so that a client shows the limit and not only the use.")
+op("POST", "/apps/pcb/jobs", "work", "operator", "Run the design program on a board of a project", scope="jobs:prepare", body="DesignJobRequest", ok=(201, "WorkJob", "application/json"),
+   errors=["design_run_unavailable", "bad_design_request", "unknown_project", "unknown_file", "bad_filename", "queue_full", "forbidden_scope"],
+   desc="Runs the installed program (`design_program`) with `design_run` on, no shell and an empty environment, in a folder of its own, with a time and an output limit. The job is in the queue "
+        "(plugin `phoenix`) and ends `done` or `failed`; the report is written to the project as `reports/<kind>.json`. The token also needs `projects:write`. Without the setting: `501 design_run_unavailable`.",
+   example={"kind": "check", "project": "p-0190", "file": "board.json", "options": {}})
 
 # ---------------------------------------------------------------------------------------------------------------------------------------
 # Building the document

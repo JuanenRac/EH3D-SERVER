@@ -55,6 +55,11 @@
     "status": 422
   },
   {
+    "code": "bad_design_request",
+    "description": "The request to run the design program does not fit: the kind is not one of check, bom, fabpack or panel, the board file is missing, or the options are not accepted for the kind.",
+    "status": 422
+  },
+  {
     "code": "bad_filename",
     "description": "The name of a file is not safe: empty, absolute, with .. or a drive, with control characters, a reserved name of Windows, too long, or the same as another in other letter case.",
     "status": 422
@@ -107,6 +112,11 @@
   {
     "code": "bad_plugin_request",
     "description": "The request does not fit what the plugin of the machine takes, or the settings of a machine of a plugin are not valid.",
+    "status": 422
+  },
+  {
+    "code": "bad_policy",
+    "description": "The switch of security is not one that can change while the server runs, or its value is not of the right type or is out of range.",
     "status": 422
   },
   {
@@ -188,6 +198,11 @@
     "code": "catalog_readonly",
     "description": "The catalog is built in and is not written, not even by an administrator.",
     "status": 409
+  },
+  {
+    "code": "design_run_unavailable",
+    "description": "The server is not set up to run the design program: design_run is off or design_program is not set.",
+    "status": 501
   },
   {
     "code": "engine_missing",
@@ -542,6 +557,11 @@
   {
     "code": "user_exists",
     "description": "A user with this name already exists.",
+    "status": 409
+  },
+  {
+    "code": "weak_confirm_required",
+    "description": "The new value of the switch of security is looser than recommended: send confirm_weak: true to apply it.",
     "status": 409
   },
   {

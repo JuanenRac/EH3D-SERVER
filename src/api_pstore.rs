@@ -32,6 +32,7 @@ pub fn routes(cfg: &ServerConfig) -> Router<Shared> {
             "/api/v1/apps/:app/projects/:id",
             get(get_project).put(rename_project).delete(hide_project),
         )
+        .route("/api/v1/apps/:app/quota", get(app_quota))
         .route("/api/v1/apps/:app/projects/:id/purge", post(purge_project))
         .route("/api/v1/apps/:app/projects/:id/files", get(list_files))
         .route(
@@ -144,6 +145,20 @@ async fn list_projects(
     Ok(Json(
         json!({ "total": total, "offset": offset, "limit": limit, "items": items }),
     ))
+}
+
+/// The limits of the store (`project_max_mb`, `project_max_file_mb`, `project_max_files`, `project_max_projects`) and what the application uses of them, so that a client can
+/// show the limit and not only the use. The projects listed are the ones the caller sees.
+async fn app_quota(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(app): Path<String>,
+) -> ApiResult {
+    crate::api::need(&who, Role::Viewer)?;
+    crate::api::need_scope(&who, "projects:read")?;
+    app_of(&s, &app)?;
+    let book = s.pstore.book.locked();
+    Ok(Json(book.usage(&app, &who, 200)))
 }
 
 #[derive(Deserialize)]

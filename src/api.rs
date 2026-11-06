@@ -320,6 +320,7 @@ pub fn router(state: Shared) -> Router {
         .merge(crate::api_catalogs::routes(&state.cfg))
         .merge(crate::api_work::routes())
         .merge(crate::api_auth::routes())
+        .merge(crate::design::routes())
         .layer(DefaultBodyLimit::max(limit))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -385,7 +386,7 @@ async fn health(State(s): State<Shared>, headers: axum::http::HeaderMap) -> Json
             "serial": cfg!(feature = "serial"),
             "studio": s.cfg.studio_dir.is_some(),
             "updates": s.updates.is_some(),
-            "url_token": s.cfg.url_token,
+            "url_token": s.policy.get().url_token,
             "local_until_setup": s.cfg.local_until_setup,
             "trust_forwarded_for": s.cfg.trust_forwarded_for,
             "exit_on_panic": s.cfg.exit_on_panic,
@@ -1970,7 +1971,7 @@ pub(crate) fn identify_open(
             .locked()
             .redeem(ticket, now())
             .ok_or_else(|| unauthorized("the ticket is unknown, used or expired"))?
-    } else if let (true, Some(t)) = (s.cfg.url_token, q.token.clone()) {
+    } else if let (true, Some(t)) = (s.policy.get().url_token, q.token.clone()) {
         t
     } else {
         return Err(unauthorized(

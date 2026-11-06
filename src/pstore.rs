@@ -520,6 +520,50 @@ impl PBook {
         (total, page)
     }
 
+    /// The limits of the store and what the application uses of them, for the projects the caller sees (`GET /apps/:app/quota`). `projects_in_app` counts every project of
+    /// the application, the way `project_max_projects` does; the list has the most recently changed projects first, at most `most` of them.
+    pub fn usage(&self, app: &str, who: &Identity, most: usize) -> Value {
+        let in_app = self.projects.values().filter(|m| m.app == app).count();
+        let mut seen: Vec<&ProjectMeta> = self
+            .projects
+            .values()
+            .filter(|m| m.app == app && self.may_see(m, who))
+            .collect();
+        seen.sort_by(|a, b| b.updated.cmp(&a.updated).then_with(|| a.id.cmp(&b.id)));
+        let live_files = |m: &ProjectMeta| m.files.values().filter(|f| !f.deleted).count();
+        let total_bytes: u64 = seen.iter().map(|m| m.bytes()).sum();
+        let total_files: usize = seen.iter().map(|m| live_files(m)).sum();
+        let projects: Vec<Value> = seen
+            .iter()
+            .take(most)
+            .map(|m| {
+                let (bytes, files) = (m.bytes(), live_files(m));
+                json!({
+                    "id": m.id, "name": m.name, "bytes": bytes, "files": files,
+                    "bytes_left": self.limits.max_project.saturating_sub(bytes),
+                    "files_left": self.limits.max_files.saturating_sub(files),
+                })
+            })
+            .collect();
+        json!({
+            "app": app,
+            "limits": {
+                "project_max_mb": self.limits.max_project / (1024 * 1024),
+                "project_max_file_mb": self.limits.max_file / (1024 * 1024),
+                "project_max_files": self.limits.max_files,
+                "project_max_projects": self.limits.max_projects,
+            },
+            "usage": {
+                "projects_in_app": in_app,
+                "projects_left": self.limits.max_projects.saturating_sub(in_app),
+                "visible_projects": seen.len(),
+                "bytes": total_bytes,
+                "files": total_files,
+            },
+            "projects": projects,
+        })
+    }
+
     pub fn create(
         &mut self,
         app: &str,

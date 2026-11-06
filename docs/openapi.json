@@ -13269,6 +13269,137 @@
             }
           }
         }
+      },
+      "put": {
+        "operationId": "put_auth_policy",
+        "tags": [
+          "auth"
+        ],
+        "summary": "Change a switch of security while the server runs",
+        "description": "One switch at a time, answering the new policy. Only the keys in `editable` can change; the others need a restart. A value looser than recommended (`safe: false`) changes nothing unless the body says `confirm_weak: true`. Every change is in the audit with the old and the new value. Role admin.",
+        "x-role": "admin",
+        "x-error-codes": [
+          "bad_policy",
+          "bad_request",
+          "forbidden",
+          "storage",
+          "unauthorized",
+          "weak_confirm_required"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyChange"
+              },
+              "example": {
+                "key": "password_min_len",
+                "value": 12
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthPolicy"
+                },
+                "example": {
+                  "key": "password_min_len",
+                  "value": 12
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused with `bad_request`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_request",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Refused with `weak_confirm_required`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "weak_confirm_required",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Refused with `bad_policy`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_policy",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Refused with `storage`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "storage",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/auth/apps": {
@@ -13303,6 +13434,397 @@
                 },
                 "example": {
                   "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/keys": {
+      "get": {
+        "operationId": "get_auth_keys",
+        "tags": [
+          "auth"
+        ],
+        "summary": "The identifiers of the keys and the fingerprint of the certificate",
+        "description": "The tokens of programs by id, name, role and age, and the SHA-256 fingerprint of the certificate named by `tls_cert_file`. No secret is ever in it. Role admin.",
+        "x-role": "admin",
+        "x-error-codes": [
+          "forbidden",
+          "unauthorized"
+        ],
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthKeys"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/audit": {
+      "get": {
+        "operationId": "get_audit",
+        "tags": [
+          "admin"
+        ],
+        "summary": "Read the audit",
+        "description": "Reads `audit.jsonl` and the older copy it was set aside as, the newest first. Role admin.",
+        "x-role": "admin",
+        "x-error-codes": [
+          "forbidden",
+          "unauthorized"
+        ],
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "description": "Only the lines from this moment (seconds since 1970).",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "description": "Only the lines up to this moment.",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "who",
+            "in": "query",
+            "required": false,
+            "description": "Only the lines of this person or token.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "event",
+            "in": "query",
+            "required": false,
+            "description": "Only this event.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Up to this many lines (100).",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditLines"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/apps/{app}/quota": {
+      "get": {
+        "operationId": "get_apps_app_quota",
+        "tags": [
+          "store"
+        ],
+        "summary": "The limits of the store and what the application uses",
+        "description": "`project_max_mb`, `project_max_file_mb`, `project_max_files` and `project_max_projects` with the use, so that a client shows the limit and not only the use. Role viewer or higher. Scope `projects:read` if the token is limited by scopes.",
+        "x-role": "viewer",
+        "x-scope": "projects:read",
+        "x-error-codes": [
+          "bad_app",
+          "forbidden_scope",
+          "unauthorized"
+        ],
+        "parameters": [
+          {
+            "name": "app",
+            "in": "path",
+            "required": true,
+            "description": "The application that owns the projects (`studio`, `android`, `pcb`...; see docs/AUTH.md).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppQuota"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden_scope",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Refused with `bad_app`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_app",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/apps/pcb/jobs": {
+      "post": {
+        "operationId": "post_apps_pcb_jobs",
+        "tags": [
+          "work"
+        ],
+        "summary": "Run the design program on a board of a project",
+        "description": "Runs the installed program (`design_program`) with `design_run` on, no shell and an empty environment, in a folder of its own, with a time and an output limit. The job is in the queue (plugin `phoenix`) and ends `done` or `failed`; the report is written to the project as `reports/<kind>.json`. The token also needs `projects:write`. Without the setting: `501 design_run_unavailable`. Role operator or higher. Scope `jobs:prepare` if the token is limited by scopes.",
+        "x-role": "operator",
+        "x-scope": "jobs:prepare",
+        "x-error-codes": [
+          "bad_design_request",
+          "bad_filename",
+          "bad_request",
+          "design_run_unavailable",
+          "forbidden",
+          "forbidden_scope",
+          "queue_full",
+          "unauthorized",
+          "unknown_file",
+          "unknown_project"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DesignJobRequest"
+              },
+              "example": {
+                "kind": "check",
+                "project": "p-0190",
+                "file": "board.json",
+                "options": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkJob"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused with `bad_request`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_request",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused with `unknown_file`, `unknown_project`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unknown_file",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Refused with `bad_design_request`, `bad_filename`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_design_request",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Refused with `queue_full`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "queue_full",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refused with `design_run_unavailable`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "design_run_unavailable",
                   "detail": ""
                 }
               }
@@ -16650,6 +17172,13 @@
             "items": {
               "type": "string"
             }
+          },
+          "editable": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The keys `PUT /auth/policy` can change while the server runs."
           }
         },
         "required": [
@@ -16678,6 +17207,318 @@
           "known_only"
         ],
         "additionalProperties": false
+      },
+      "PolicyChange": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "One of `editable` in `GET /auth/policy`."
+          },
+          "value": {
+            "description": "A boolean or a whole number, as the key takes."
+          },
+          "confirm_weak": {
+            "type": "boolean",
+            "default": false,
+            "description": "Needed when the new value is looser than the recommended one."
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ],
+        "additionalProperties": false,
+        "description": "Changes one switch of security while the server runs. The change is kept in `policy.json` of the data folder and wins over `server.cfg` for that key."
+      },
+      "AuthKeys": {
+        "type": "object",
+        "properties": {
+          "tokens": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "role": {
+                  "$ref": "#/components/schemas/Role"
+                },
+                "created": {
+                  "type": "integer"
+                },
+                "last_used": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "expires": {
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "age_s": {
+                  "type": "integer"
+                },
+                "template": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "role",
+                "created",
+                "age_s"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "tls": {
+            "type": "object",
+            "properties": {
+              "configured": {
+                "type": "boolean"
+              },
+              "sha256": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "description": "SHA-256 of the certificate, in hexadecimal."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "configured",
+              "sha256"
+            ],
+            "additionalProperties": false,
+            "description": "The certificate that `tls_cert_file` names, the one the proxy in front of the server shows; the server does not terminate TLS itself."
+          }
+        },
+        "required": [
+          "tokens",
+          "tls"
+        ],
+        "additionalProperties": false,
+        "description": "Identifiers, ages and the fingerprint of the certificate; never a secret."
+      },
+      "AuditLine": {
+        "type": "object",
+        "properties": {
+          "at": {
+            "type": "integer"
+          },
+          "event": {
+            "type": "string"
+          },
+          "who": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "at",
+          "event"
+        ],
+        "description": "The fields the event was written with (`who`, `role`, `ip`, ...); never a password or a token."
+      },
+      "AuditLines": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditLine"
+            }
+          }
+        },
+        "required": [
+          "enabled",
+          "lines"
+        ],
+        "additionalProperties": false,
+        "description": "The newest first. `enabled` is false when `audit_file` is off and there is nothing to read."
+      },
+      "AppQuota": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "project_max_mb": {
+                "type": "integer"
+              },
+              "project_max_file_mb": {
+                "type": "integer"
+              },
+              "project_max_files": {
+                "type": "integer"
+              },
+              "project_max_projects": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "project_max_mb",
+              "project_max_file_mb",
+              "project_max_files",
+              "project_max_projects"
+            ],
+            "additionalProperties": false
+          },
+          "usage": {
+            "type": "object",
+            "properties": {
+              "projects_in_app": {
+                "type": "integer"
+              },
+              "projects_left": {
+                "type": "integer"
+              },
+              "visible_projects": {
+                "type": "integer"
+              },
+              "bytes": {
+                "type": "integer"
+              },
+              "files": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "projects_in_app",
+              "projects_left",
+              "visible_projects",
+              "bytes",
+              "files"
+            ],
+            "additionalProperties": false
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "bytes": {
+                  "type": "integer"
+                },
+                "files": {
+                  "type": "integer"
+                },
+                "bytes_left": {
+                  "type": "integer"
+                },
+                "files_left": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "bytes",
+                "files",
+                "bytes_left",
+                "files_left"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "app",
+          "limits",
+          "usage",
+          "projects"
+        ],
+        "additionalProperties": false,
+        "description": "The limits of the store and what the application uses of them, for the projects the caller sees (at most 200 listed, the last changed first)."
+      },
+      "DesignJobRequest": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "check",
+              "bom",
+              "fabpack",
+              "panel"
+            ]
+          },
+          "project": {
+            "type": "string",
+            "description": "The id of a project of the `pcb` application."
+          },
+          "file": {
+            "type": "string",
+            "description": "The board file of the project (`options.file` also works)."
+          },
+          "options": {
+            "type": "object",
+            "properties": {
+              "profile": {
+                "type": "string"
+              },
+              "lang": {
+                "type": "string"
+              },
+              "panel_boards": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+              },
+              "dnp": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "description": "Only `fabpack` takes options (`profile`, `lang`, `panel_boards`, `dnp`); the other kinds take none."
+          }
+        },
+        "required": [
+          "kind",
+          "project"
+        ]
       }
     }
   },

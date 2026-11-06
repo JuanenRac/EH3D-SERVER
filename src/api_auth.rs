@@ -25,7 +25,9 @@ pub fn routes() -> Router<Shared> {
         .route("/api/v1/auth/session", get(session))
         .route("/api/v1/auth/sessions", get(list_sessions))
         .route("/api/v1/auth/sessions/:id", delete(close_session))
-        .route("/api/v1/auth/policy", get(policy))
+        .route("/api/v1/auth/policy", get(policy).put(change_policy))
+        .route("/api/v1/auth/keys", get(keys))
+        .route("/api/v1/audit", get(audit_lines))
         .route("/api/v1/auth/apps", get(apps))
 }
 
@@ -228,9 +230,10 @@ fn switch(key: &str, value: Value, safe: bool) -> Value {
 async fn policy(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
     crate::api::need(&who, Role::Admin)?;
     let c = &s.cfg;
+    let h = s.policy.get();
     let needs_setup = s.auth.locked().needs_setup();
     let switches = vec![
-        switch("url_token", json!(c.url_token), !c.url_token),
+        switch("url_token", json!(h.url_token), h.is_safe("url_token")),
         switch(
             "trust_forwarded_for",
             json!(c.trust_forwarded_for),
@@ -249,8 +252,8 @@ async fn policy(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
         switch("exit_on_panic", json!(c.exit_on_panic), c.exit_on_panic),
         switch(
             "login_ip_limit",
-            json!(c.login_ip_limit),
-            c.login_ip_limit > 0,
+            json!(h.login_ip_limit),
+            h.is_safe("login_ip_limit"),
         ),
         switch(
             "session_hours",
@@ -274,42 +277,47 @@ async fn policy(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
         ),
         switch(
             "auth_max_failures",
-            json!(c.auth_max_failures),
-            c.auth_max_failures <= 10,
+            json!(h.auth_max_failures),
+            h.is_safe("auth_max_failures"),
         ),
         switch(
             "auth_lockout_s",
-            json!(c.auth_lockout_s),
-            c.auth_lockout_s >= 10,
+            json!(h.auth_lockout_s),
+            h.is_safe("auth_lockout_s"),
         ),
         switch(
             "auth_refresh_max_hours",
-            json!(c.auth_refresh_max_hours),
-            c.auth_refresh_max_hours <= 720,
+            json!(h.auth_refresh_max_hours),
+            h.is_safe("auth_refresh_max_hours"),
         ),
         switch(
             "password_min_len",
-            json!(c.password_min_len),
-            c.password_min_len >= 8,
+            json!(h.password_min_len),
+            h.is_safe("password_min_len"),
         ),
         switch(
             "password_classes",
-            json!(c.password_classes),
-            c.password_classes >= 2,
+            json!(h.password_classes),
+            h.is_safe("password_classes"),
         ),
         switch(
             "password_deny_name",
-            json!(c.password_deny_name),
-            c.password_deny_name,
+            json!(h.password_deny_name),
+            h.is_safe("password_deny_name"),
         ),
         switch("audit_file", json!(c.audit_file), c.audit_file),
-        switch("audit_denials", json!(c.audit_denials), c.audit_denials),
+        switch(
+            "audit_denials",
+            json!(h.audit_denials),
+            h.is_safe("audit_denials"),
+        ),
         switch(
             "project_require_if_match",
             json!(c.project_require_if_match),
             c.project_require_if_match,
         ),
         switch("project_shared", json!(c.project_shared), !c.project_shared),
+        switch("design_run", json!(h.design_run), h.is_safe("design_run")),
     ];
     let attention: Vec<String> = switches
         .iter()
@@ -320,7 +328,149 @@ async fn policy(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
         "switches": switches,
         "attention": attention,
         "extra_apps": c.auth_extra_apps,
+        "editable": crate::policy::KEYS,
     })))
+}
+
+#[derive(Deserialize)]
+struct PolicyChange {
+    key: String,
+    value: Value,
+    /// A value looser than the recommended one is applied only when this is true.
+    #[serde(default)]
+    confirm_weak: bool,
+}
+
+/// Changes one switch of security while the server runs. Only the keys `GET /auth/policy` lists as `editable`; a value looser than recommended needs `confirm_weak`.
+async fn change_policy(
+    State(s): State<Shared>,
+    Authed(who, token): Authed,
+    ApiJson(b): ApiJson<PolicyChange>,
+) -> ApiResult {
+    crate::api::need(&who, Role::Admin)?;
+    let outcome = s.policy.change(&b.key, &b.value, b.confirm_weak);
+    match outcome {
+        Ok((before, after)) => {
+            crate::state::apply_policy(&mut s.auth.locked(), &after);
+            let old = before.value(&b.key).unwrap_or(Value::Null).to_string();
+            let new = after.value(&b.key).unwrap_or(Value::Null).to_string();
+            crate::api::note(
+                &s,
+                "policy_change",
+                &who,
+                &[("key", &b.key), ("from", &old), ("to", &new)],
+            );
+            policy(State(s), Authed(who, token)).await
+        }
+        Err(crate::policy::PolicyError::Bad(detail)) => Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "bad_policy",
+            detail,
+        )),
+        Err(crate::policy::PolicyError::WeakNeedsConfirm) => Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "weak_confirm_required",
+            format!(
+                "{} would be looser than recommended: send confirm_weak: true to apply it",
+                b.key
+            ),
+        )),
+        Err(crate::policy::PolicyError::Storage) => Err(ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "storage",
+            "",
+        )),
+    }
+}
+
+/// The fingerprint (SHA-256, hex) of the first certificate of a PEM text, or `None` when the text has none that reads.
+pub fn pem_fingerprint(pem: &str) -> Option<String> {
+    use base64::Engine;
+    use sha2::{Digest, Sha256};
+    let begin = pem.find("-----BEGIN CERTIFICATE-----")? + "-----BEGIN CERTIFICATE-----".len();
+    let end = begin + pem[begin..].find("-----END CERTIFICATE-----")?;
+    let body: String = pem[begin..end]
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    let der = base64::engine::general_purpose::STANDARD
+        .decode(body)
+        .ok()?;
+    (!der.is_empty()).then(|| hex::encode(Sha256::digest(&der)))
+}
+
+/// The keys of the server by their identifiers: the tokens of programs (never their secret) and the certificate the proxy in front of the server shows, when the settings
+/// name it. The server does not terminate TLS itself.
+async fn keys(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
+    crate::api::need(&who, Role::Admin)?;
+    let at = now();
+    let tokens: Vec<Value> = s
+        .auth
+        .locked()
+        .tokens()
+        .iter()
+        .map(|t| {
+            json!({
+                "id": t.id, "name": t.name, "role": t.role, "created": t.created,
+                "last_used": t.last_used, "expires": t.expires,
+                "age_s": at.saturating_sub(t.created), "template": t.template,
+            })
+        })
+        .collect();
+    let cert = s.cfg.tls_cert_file.clone();
+    let tls = tokio::task::spawn_blocking(move || {
+        cert.map(|path| {
+            let text = std::fs::read_to_string(&path).ok();
+            json!({
+                "configured": true,
+                "sha256": text.as_deref().and_then(pem_fingerprint),
+            })
+        })
+    })
+    .await
+    .map_err(|_| internal())?;
+    Ok(Json(json!({
+        "tokens": tokens,
+        "tls": tls.unwrap_or_else(|| json!({ "configured": false, "sha256": null })),
+    })))
+}
+
+#[derive(Deserialize)]
+struct AuditQuery {
+    /// Only the lines at or after this moment (seconds since 1970).
+    since: Option<u64>,
+    /// Only the lines up to this moment.
+    until: Option<u64>,
+    who: Option<String>,
+    event: Option<String>,
+    limit: Option<usize>,
+}
+
+/// The lines of the audit that match the filters, the newest first. Read from `audit.jsonl` and the older copy the file was set aside as.
+async fn audit_lines(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Query(q): Query<AuditQuery>,
+) -> ApiResult {
+    crate::api::need(&who, Role::Admin)?;
+    let limit = q.limit.unwrap_or(100).clamp(1, 1000);
+    let path = s.audit.path().to_path_buf();
+    let enabled = s.cfg.audit_file;
+    let found = tokio::task::spawn_blocking(move || {
+        crate::audit::read_lines(
+            &path,
+            &crate::audit::Filter {
+                since: q.since,
+                until: q.until,
+                who: q.who,
+                event: q.event,
+                limit,
+            },
+        )
+    })
+    .await
+    .map_err(|_| internal())?;
+    Ok(Json(json!({ "enabled": enabled, "lines": found })))
 }
 
 async fn apps(State(s): State<Shared>, Authed(_who, _): Authed) -> ApiResult {
@@ -348,7 +498,7 @@ pub async fn audit_denials(
     let response = next.run(req).await;
     let status = response.status();
     let own_line = path == "/api/v1/login" || path == "/api/v1/auth/login";
-    if s.cfg.audit_denials
+    if s.policy.get().audit_denials
         && !own_line
         && (status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN)
     {

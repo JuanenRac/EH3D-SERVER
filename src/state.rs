@@ -93,6 +93,8 @@ pub struct AppState {
     pub audit: crate::audit::Audit,
     /// The line at the start and at the end of every job, for the diagnosis of a failure afterwards.
     pub job_log: crate::audit::LogFile,
+    /// The switches of security that can change while the server runs (`PUT /api/v1/auth/policy`).
+    pub policy: crate::policy::Policy,
 }
 
 #[derive(Debug, PartialEq)]
@@ -116,19 +118,25 @@ pub enum PauseError {
     NotInState,
 }
 
+/// Gives the logins the limits and the rules of the passwords in force.
+pub fn apply_policy(auth: &mut Auth, hot: &crate::policy::Hot) {
+    auth.set_ip_limit(hot.login_ip_limit);
+    auth.set_lockout(hot.auth_max_failures, hot.auth_lockout_s);
+    auth.set_refresh_max_hours(hot.auth_refresh_max_hours);
+    auth.set_password_policy(crate::auth::PasswordPolicy {
+        min_len: hot.password_min_len,
+        classes: hot.password_classes,
+        deny_name: hot.password_deny_name,
+    });
+}
+
 impl AppState {
     pub fn open(cfg: ServerConfig) -> io::Result<Arc<AppState>> {
         std::fs::create_dir_all(&cfg.data_dir)?;
         let mut auth = Auth::open(&cfg.data_dir, cfg.session_hours)?;
-        auth.set_ip_limit(cfg.login_ip_limit);
+        let policy = crate::policy::Policy::open(&cfg, &cfg.data_dir)?;
+        apply_policy(&mut auth, &policy.get());
         auth.set_persist_sessions(cfg.persist_sessions);
-        auth.set_lockout(cfg.auth_max_failures, cfg.auth_lockout_s);
-        auth.set_refresh_max_hours(cfg.auth_refresh_max_hours);
-        auth.set_password_policy(crate::auth::PasswordPolicy {
-            min_len: cfg.password_min_len,
-            classes: cfg.password_classes,
-            deny_name: cfg.password_deny_name,
-        });
         crate::plan::set_rack_max_slots(cfg.rack_max_slots);
         let machines = Machines::open(&cfg.data_dir)?;
         let jobs = JobBook::open(&cfg.data_dir, cfg.keep_jobs)?;
@@ -176,6 +184,7 @@ impl AppState {
             tickets: Mutex::new(crate::tickets::Tickets::default()),
             audit,
             job_log,
+            policy,
         });
         // the tasks that were queued when the server stopped go on, and what waited long enough is cleaned
         state.tasks_pump();
