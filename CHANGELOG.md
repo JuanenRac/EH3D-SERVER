@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.1.4] - Routes for the run of a design program, the audit, the keys, the security policy and the quotas of the projects
+
 - **Running the design program on a board of a project (`POST /api/v1/apps/pcb/jobs`, `docs/DESIGN_RUN.md`):** `{kind: check|bom|fabpack|panel, project, file, options}` runs the installed program as a job of the generic queue (plugin `phoenix`) and keeps its report as the file `reports/<kind>.json` of the project, with versions, quotas and the editing lock. It is off by default (`design_run`, a switch of the security page) and needs the full path of the program (`design_program`); it runs with no shell, an empty environment, a folder of its own, a time limit (`design_timeout_s`) and an output limit (`design_max_output_kb`). Without the settings it answers `501 design_run_unavailable`.
 - **`GET /api/v1/audit` (administrator):** reads the audit with `since`, `until`, `who`, `event` and `limit`, the newest first, from `audit.jsonl` and the older copy.
 - **`GET /api/v1/auth/keys` (administrator):** the tokens by identifier, role and age, and the SHA-256 fingerprint of the certificate named by the new `tls_cert_file`; never a secret.
