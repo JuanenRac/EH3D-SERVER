@@ -44,6 +44,8 @@ The name goes in the query (`?name=`) because it may have slashes. `GET .../file
 
 All of them are in `server.cfg`: `project_max_file_mb` (`413 file_too_big`), `project_max_mb` (the bytes of every distinct version of the project, `507 project_quota`), `project_max_files`, `project_max_projects` per application, `project_versions_kept`. A request body is also bounded by the size it could carry.
 
+`GET /apps/{app}/quota` (viewer, scope `projects:read`) tells the limits (`project_max_mb`, `project_max_file_mb`, `project_max_files`, `project_max_projects`) next to what is used: `usage.projects_in_app` counts every project of the application, the way `project_max_projects` does, and the list of `projects` (the caller's own ones, or all of them for an administrator or with `project_shared`; at most 200, the last changed first) gives for each the bytes and files used and `bytes_left` and `files_left`.
+
 ## The lock
 
 `PUT .../lock` takes the editing lock of a project (`?ttl_s=` for a shorter one; at most `project_lock_ttl_s`). While it lasts the others cannot write, remove, rename or import: `423 locked`, with the name of the holder in the detail. The holder renews it by calling again; it expires by itself, so a program that crashed does not hold a project for ever. `DELETE .../lock` lets it go (`409 not_locked` when there is none); an administrator takes it away from somebody else with `?force=true`. The lock is a courtesy between people, not a security boundary: `If-Match` is what prevents the lost update.

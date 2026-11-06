@@ -30,7 +30,7 @@
 |---|---|
 | Versione | `0.1.3` |
 | Maturità | Funzionale |
-| Test | 328 |
+| Test | 347 |
 | Stack tecnologico | Rust (axum, tokio) |
 | Su hardware reale | No: provato contro il simulatore; finora nulla è stato eseguito su una macchina reale tramite il server |
 
@@ -45,7 +45,7 @@ Ogni riga è una parte di questo repository e il semaforo dice a che punto è og
 | Area | Stato | Cosa significa qui |
 |---|---|---|
 | Software | 🟡 | Un server Rust (axum) tiene utenti, macchine e lavori, pianifica lavori di foratura e fresatura con le librerie di EH3D-DRILLPRO ed EH3D-ROUTEPRO, mostra un'anteprima ed esegue il lavoro con dialoghi dell'operatore e uno stop. |
-| Test | 🟡 | Passano 328 test (`cargo test`): 181 nei moduli e 147 sull'interfaccia end to end, con lavori sul simulatore (41 in `tests/api.rs`, 7 con i programmi reali in `tests/programs.rs`). |
+| Test | 🟡 | Passano 347 test (`cargo test`): 191 nei moduli e 156 sull'interfaccia end to end, con lavori sul simulatore (41 in `tests/api.rs`, 7 con i programmi reali in `tests/programs.rs`). |
 | Interfaccia per i client (API) | 🟡 | Le richieste REST e gli eventi websocket sono descritti in `docs/API.md` (le rotte anche nel contratto OpenAPI `docs/openapi.yaml`) e coperti dai test; finora li usa solo la connessione al server dei programmi stessi. |
 | Servizi comuni | 🟠 | L'archivio di progetti, i cataloghi condivisi, i plugin di macchina con la loro coda e i loro eventi e il login unico girano nei test su un computer; nessuna applicazione li usa ancora, nulla è girato su una macchina reale attraverso la coda e i cataloghi non sono stati caricati con i dati reali dei loro programmi. |
 | Client | 🔴 | EH3D-STUDIO lo usa (mai provato con una macchina reale); l'app Android e il pannello touch accanto alla macchina non esistono ancora. |
@@ -175,7 +175,7 @@ Avvialo con `run.bat` (Windows) o `./run.sh` (Linux); compila prima se serve. Fi
 
 ## 🧪 Test
 
-La suite ha 328 test (`cargo test`, eseguiti su Windows e Linux nella CI con COMMON, DRILLPRO e ROUTEPRO scaricati accanto al server): 181 nei moduli (impostazioni e loro intervalli, utenti, ruoli, token, il rallentamento sulle password sbagliate, i file e il registro dei lavori, la pianificazione), 41 sull'interfaccia end to end attraverso il vero router (`tests/api.rs`), 2 che mantengono gli esempi di risposte letti dai client (`tests/examples.rs`) e 7 con i programmi reali che inviano i loro lavori a un vero server su una vera porta, con la macchina sul simulatore (`tests/programs.rs`). Gli altri file di `tests/` ne aggiungono 97 (i quattro servizi comuni con i loro documenti, artefatti, attività di calcolo, condivisione, eventi, catalogo degli errori, rotte del documento dell'API, un arresto da segnale e un panic). La CI esegue anche `cargo fmt --all --check`, `cargo clippy` con gli avvisi come errori e `python -I tools/ci_validate.py`. Nulla di questo è stato provato contro un nodo o una macchina reali. L'helper che fa gli aggiornamenti ha altri 21 test propri (`python -I tests/test_update_helper.py`, con GitHub e systemd sostituiti da simulazioni). Altri due file di test verificano che un panic che avvelena un lock non fermi il server (`tests/poison.rs`) e che il binario reale si fermi con SIGTERM (`tests/sigterm.rs`, su Linux); la copia di sicurezza e i file della distribuzione hanno 7 e 8 test propri (`tests/test_backup.py`, `tests/test_deploy_files.py`). Altri due file di test verificano il websocket degli eventi su un socket reale (`tests/events.rs`, 3 test) e il catalogo dei codici di errore rispetto al codice del server (`tests/errors.rs`, 3 test). Il contratto delle rotte è verificato rispetto al router da `tests/openapi.rs` (6 test) e da `python -I tools/check_openapi.py`, che la CI esegue anch'essa.
+La suite ha 347 test (`cargo test`, eseguiti su Windows e Linux nella CI con COMMON, DRILLPRO e ROUTEPRO scaricati accanto al server): 191 nei moduli (impostazioni e loro intervalli, utenti, ruoli, token, il rallentamento sulle password sbagliate, i file e il registro dei lavori, la pianificazione), 41 sull'interfaccia end to end attraverso il vero router (`tests/api.rs`), 2 che mantengono gli esempi di risposte letti dai client (`tests/examples.rs`) e 7 con i programmi reali che inviano i loro lavori a un vero server su una vera porta, con la macchina sul simulatore (`tests/programs.rs`). Gli altri file di `tests/` ne aggiungono 106 (i quattro servizi comuni con i loro documenti, artefatti, attività di calcolo, condivisione, eventi, catalogo degli errori, rotte del documento dell'API, un arresto da segnale e un panic). La CI esegue anche `cargo fmt --all --check`, `cargo clippy` con gli avvisi come errori e `python -I tools/ci_validate.py`. Nulla di questo è stato provato contro un nodo o una macchina reali. L'helper che fa gli aggiornamenti ha altri 21 test propri (`python -I tests/test_update_helper.py`, con GitHub e systemd sostituiti da simulazioni). Altri due file di test verificano che un panic che avvelena un lock non fermi il server (`tests/poison.rs`) e che il binario reale si fermi con SIGTERM (`tests/sigterm.rs`, su Linux); la copia di sicurezza e i file della distribuzione hanno 7 e 8 test propri (`tests/test_backup.py`, `tests/test_deploy_files.py`). Altri due file di test verificano il websocket degli eventi su un socket reale (`tests/events.rs`, 3 test) e il catalogo dei codici di errore rispetto al codice del server (`tests/errors.rs`, 3 test). Il contratto delle rotte è verificato rispetto al router da `tests/openapi.rs` (6 test) e da `python -I tools/check_openapi.py`, che la CI esegue anch'essa.
 
 ## 🏗️ Compilazione e rilascio
 
@@ -260,6 +260,7 @@ Il README e i testi esistono in inglese, spagnolo, francese, italiano, tedesco, 
 * [L'API](docs/API.md): ogni richiesta, il lavoro e la vista che disegna un client, gli stati e il websocket.
 * [Le rotte](docs/openapi.yaml): il contratto OpenAPI di ogni rotta (ruolo, ambito, schemi, esempi e codici di errore), con la sua tabella in [docs/ROUTES.md](docs/ROUTES.md).
 * [I servizi comuni](docs/SERVICES.md): l'archivio di progetti, i cataloghi condivisi, i plugin di macchina con la coda e gli eventi e il login unico, ciascuno con la sua pagina ([PROJECT_STORE.md](docs/PROJECT_STORE.md), [CATALOGS.md](docs/CATALOGS.md), [MACHINE_PLUGINS.md](docs/MACHINE_PLUGINS.md), [AUTH.md](docs/AUTH.md)).
+* [L'esecuzione del progetto, l'audit e gli interruttori di sicurezza](docs/DESIGN_RUN.md): eseguire il programma di progettazione installato su una scheda di un progetto, con il rapporto conservato come file del progetto, e ciò che l'amministratore legge e cambia a server in funzione ([AUTH.md](docs/AUTH.md)).
 * [Eseguire il server](docs/DEPLOY.md): la compilazione, il primo avvio, il servizio sulla CM5 e la sicurezza della distribuzione.
 * [Registro delle modifiche](CHANGELOG.md)
 

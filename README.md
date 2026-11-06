@@ -18,7 +18,7 @@
 
 ---
 
-**Honesty check - what actually runs today:** a Rust server (axum) with a REST and websocket interface that keeps users, machines and jobs, plans a drilling or routing job (holes and paths, or an Excellon or HP-GL file with its tool table) with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator, a stop and every change told as it happens. 328 tests run on a computer, the jobs against the simulator. **Nothing has run on a real machine through it yet**, it does not terminate TLS, and of the clients besides the programs, EH3D-STUDIO exists (never tried against a real machine) and the Android app and the panel next to the machine do not exist yet. It is also the server of every EH3D application, with four common services (a store of projects, shared catalogs, machine plugins with a queue of jobs and a stream of events, and one login); they run only in the tests and no application uses them yet.
+**Honesty check - what actually runs today:** a Rust server (axum) with a REST and websocket interface that keeps users, machines and jobs, plans a drilling or routing job (holes and paths, or an Excellon or HP-GL file with its tool table) with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator, a stop and every change told as it happens. 347 tests run on a computer, the jobs against the simulator. **Nothing has run on a real machine through it yet**, it does not terminate TLS, and of the clients besides the programs, EH3D-STUDIO exists (never tried against a real machine) and the Android app and the panel next to the machine do not exist yet. It is also the server of every EH3D application, with four common services (a store of projects, shared catalogs, machine plugins with a queue of jobs and a stream of events, and one login); they run only in the tests and no application uses them yet.
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.1.3` |
 | Maturity | Functional |
-| Tests | 328 |
+| Tests | 347 |
 | Stack | Rust (axum, tokio) |
 | On real hardware | No: tested against the simulator; nothing has run on a real machine through the server yet |
 
@@ -45,7 +45,7 @@ Each line is one part of this repository and the light says how far it is today.
 | Area | State | What it means here |
 |---|---|---|
 | Software | 🟡 | A Rust server (axum) keeps users, machines and jobs, plans drilling and routing jobs with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview and runs the job with operator dialogs and a stop. |
-| Tests | 🟡 | 328 tests pass (`cargo test`): 181 in the modules and 147 on the interface end to end, with jobs running on the simulator (41 in `tests/api.rs`, 7 with the real programs in `tests/programs.rs`). |
+| Tests | 🟡 | 347 tests pass (`cargo test`): 191 in the modules and 156 on the interface end to end, with jobs running on the simulator (41 in `tests/api.rs`, 7 with the real programs in `tests/programs.rs`). |
 | Interface for clients (API) | 🟡 | The REST requests and the websocket events are written down in `docs/API.md` (the routes also in the OpenAPI contract `docs/openapi.yaml`) and covered by the tests; only the programs' own server connection uses them so far. |
 | Common services | 🟠 | The project store, the shared catalogs, the machine plugins with their queue and events, and the single login run in the tests on a computer; no application uses them yet, nothing has run on a real machine through the queue, and the catalogs have not been loaded with the real data of their programs. |
 | Clients | 🔴 | EH3D-STUDIO uses it (never tried against a real machine); the Android app and the touch panel next to the machine do not exist yet. |
@@ -175,7 +175,7 @@ Run it with `run.bat` (Windows) or `./run.sh` (Linux); it builds first if needed
 
 ## 🧪 Testing
 
-The suite has 328 tests (`cargo test`, run on Windows and Linux in the CI with COMMON, DRILLPRO and ROUTEPRO checked out next to the server): 181 in the modules (settings and their ranges, users, roles, tokens, the slowdown on wrong passwords, the files and the job book, planning), 41 on the interface end to end through the real router (`tests/api.rs`), 2 that keep the examples of the answers that the clients read (`tests/examples.rs`), and 7 with the real programs sending their jobs to a real server on a real port, with the machine on the simulator (`tests/programs.rs`). The other files of `tests/` add 97 more (the four common services with their documents, artifacts, computing tasks, sharing, events, the catalog of the errors, the routes of the API document, a stop by signal and a panic). The CI also runs `cargo fmt --all --check`, `cargo clippy` with warnings as errors and `python -I tools/ci_validate.py`. Nothing here has been tested against a real node or machine. The helper that does the updates has 21 more tests of its own (`python -I tests/test_update_helper.py`, with GitHub and systemd replaced by stand-ins). Two more test files check that a panic that poisons a lock does not stop the server (`tests/poison.rs`) and that the real binary stops on SIGTERM (`tests/sigterm.rs`, on Linux); the backup and the files of the deployment have 7 and 8 tests of their own (`tests/test_backup.py`, `tests/test_deploy_files.py`). Two more test files check the websocket of the events on a real socket (`tests/events.rs`, 3 tests) and the catalog of the error codes against the source of the server (`tests/errors.rs`, 3 tests). The contract of the routes is checked against the router by `tests/openapi.rs` (6 tests) and by `python -I tools/check_openapi.py`, which the CI also runs.
+The suite has 347 tests (`cargo test`, run on Windows and Linux in the CI with COMMON, DRILLPRO and ROUTEPRO checked out next to the server): 191 in the modules (settings and their ranges, users, roles, tokens, the slowdown on wrong passwords, the files and the job book, planning), 41 on the interface end to end through the real router (`tests/api.rs`), 2 that keep the examples of the answers that the clients read (`tests/examples.rs`), and 7 with the real programs sending their jobs to a real server on a real port, with the machine on the simulator (`tests/programs.rs`). The other files of `tests/` add 106 more (the four common services with their documents, artifacts, computing tasks, sharing, events, the catalog of the errors, the routes of the API document, a stop by signal and a panic). The CI also runs `cargo fmt --all --check`, `cargo clippy` with warnings as errors and `python -I tools/ci_validate.py`. Nothing here has been tested against a real node or machine. The helper that does the updates has 21 more tests of its own (`python -I tests/test_update_helper.py`, with GitHub and systemd replaced by stand-ins). Two more test files check that a panic that poisons a lock does not stop the server (`tests/poison.rs`) and that the real binary stops on SIGTERM (`tests/sigterm.rs`, on Linux); the backup and the files of the deployment have 7 and 8 tests of their own (`tests/test_backup.py`, `tests/test_deploy_files.py`). Two more test files check the websocket of the events on a real socket (`tests/events.rs`, 3 tests) and the catalog of the error codes against the source of the server (`tests/errors.rs`, 3 tests). The contract of the routes is checked against the router by `tests/openapi.rs` (6 tests) and by `python -I tools/check_openapi.py`, which the CI also runs.
 
 ## 🏗️ Build & Release
 
@@ -260,6 +260,7 @@ README and texts exist in English, Spanish, French, Italian, German, Chinese, Ja
 * [The API](docs/API.md): every request, the job and the view a client draws, the states and the websocket.
 * [The routes](docs/openapi.yaml): the OpenAPI contract of every route (role, scope, schemas, examples and error codes), with its table in [docs/ROUTES.md](docs/ROUTES.md).
 * [The common services](docs/SERVICES.md): the project store, the shared catalogs, the machine plugins with the queue and the events, and the single login, each with its own page ([PROJECT_STORE.md](docs/PROJECT_STORE.md), [CATALOGS.md](docs/CATALOGS.md), [MACHINE_PLUGINS.md](docs/MACHINE_PLUGINS.md), [AUTH.md](docs/AUTH.md)).
+* [The design run, the audit and the security switches](docs/DESIGN_RUN.md): running the installed design program on a board of a project, with the report kept as a file of the project, and what the administrator reads and changes while the server runs ([AUTH.md](docs/AUTH.md)).
 * [Running the server](docs/DEPLOY.md): the build, the first start, the service on the CM5 and the safety of the deployment.
 * [Changelog](CHANGELOG.md)
 

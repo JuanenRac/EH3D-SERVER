@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **Running the design program on a board of a project (`POST /api/v1/apps/pcb/jobs`, `docs/DESIGN_RUN.md`):** `{kind: check|bom|fabpack|panel, project, file, options}` runs the installed program as a job of the generic queue (plugin `phoenix`) and keeps its report as the file `reports/<kind>.json` of the project, with versions, quotas and the editing lock. It is off by default (`design_run`, a switch of the security page) and needs the full path of the program (`design_program`); it runs with no shell, an empty environment, a folder of its own, a time limit (`design_timeout_s`) and an output limit (`design_max_output_kb`). Without the settings it answers `501 design_run_unavailable`.
+- **`GET /api/v1/audit` (administrator):** reads the audit with `since`, `until`, `who`, `event` and `limit`, the newest first, from `audit.jsonl` and the older copy.
+- **`GET /api/v1/auth/keys` (administrator):** the tokens by identifier, role and age, and the SHA-256 fingerprint of the certificate named by the new `tls_cert_file`; never a secret.
+- **`PUT /api/v1/auth/policy` (administrator):** changes one switch of security while the server runs (`url_token`, `audit_denials`, `design_run`, `login_ip_limit`, `auth_max_failures`, `auth_lockout_s`, `auth_refresh_max_hours`, `password_min_len`, `password_classes`, `password_deny_name`). A value looser than recommended is refused with `409 weak_confirm_required` unless the body says `confirm_weak: true`; a change is audited and kept in `policy.json`. `GET /auth/policy` lists the `editable` keys and shows `design_run`.
+- **`GET /api/v1/apps/{app}/quota`:** the limits of the project store next to what the application uses, with the bytes and files left per project.
+- **Settings:** `design_run`, `design_program`, `design_timeout_s`, `design_max_output_kb` and `tls_cert_file`, all with conservative defaults and explained in `server.cfg.example`.
+- **New error codes:** `design_run_unavailable` (501), `bad_design_request` (422), `bad_policy` (422) and `weak_confirm_required` (409). No existing route, answer or code changes.
+- **The contract and the documents:** OpenAPI, the table of routes, `docs/API.md`, `docs/AUTH.md`, `docs/PROJECT_STORE.md`, the READMEs in the eight languages and the count of tests are up to date.
+
 ## [0.1.3] - Services shared by every application: project store, catalogs, machine work and single sign-in, with the chaining of the tool changer
 
 - **The server of every EH3D application, with four common services** (`docs/SERVICES.md`): a store of projects and files, shared catalogs, machine plugins with a generic queue of jobs and a stream of events, and one login. Nothing that existed changes: the routes, the answers and the tests of the first version stay as they were.

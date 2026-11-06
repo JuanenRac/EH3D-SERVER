@@ -259,6 +259,8 @@ A scope the token lacks answers `403 forbidden_scope`; a role that is too low st
 
 **The shared catalogs** (materials, tools, machine profiles, footprints, symbols, components) are read by every application under `/api/v1/catalogs` and written by an administrator; see `docs/CATALOGS.md`.
 
+**The design run, the audit, the keys and the quota.** `POST /apps/pcb/jobs` runs the installed design program on a board of a project and keeps the report as a file of the project (`docs/DESIGN_RUN.md`); `GET /audit` reads the audit (administrator); `GET /auth/keys` lists the tokens by identifier and age and the fingerprint of the certificate of the proxy (administrator); `PUT /auth/policy` changes one switch of security while the server runs (administrator, `docs/AUTH.md`); `GET /apps/{app}/quota` tells the limits of the store and what the application uses (`docs/PROJECT_STORE.md`). The exact shapes are in `docs/openapi.yaml`.
+
 **The single sign-in of every application** (sessions that name the application they were opened for, the list of open sessions, the keys and the policy of the server) is described in `docs/AUTH.md`.
 
 **The project store of every application** is a second way to keep a project: files with versions, `If-Match`, editing locks and the `.eh3dproj` container, under `/api/v1/apps/{app}/projects`. It does not change anything above; it is described in `docs/PROJECT_STORE.md` and in the `store` tag of the contract.
@@ -284,6 +286,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `bad_credentials` | 401 | The name or the password is wrong. |
 | `bad_days` | 422 | The days a token lasts are not a number from 1 to 3650. |
 | `bad_dcf` | 422 | The text of DRILLPRO.DCF or ROUTEPRO.RCF does not read. |
+| `bad_design_request` | 422 | The request to run the design program does not fit: the kind is not one of check, bom, fabpack or panel, the board file is missing, or the options are not accepted for the kind. |
 | `bad_filename` | 422 | The name of a file is not safe: empty, absolute, with .. or a drive, with control characters, a reserved name of Windows, too long, or the same as another in other letter case. |
 | `bad_gcode` | 422 | A line of the G-code program cannot be sent (control characters, a $ line that is not allowed, a line too long). |
 | `bad_hole` | 422 | A hole has a coordinate that is not a number. |
@@ -295,6 +298,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `bad_path` | 422 | A point of a path has a coordinate that is not a number. |
 | `bad_picture` | 502 | The picture the camera of the drill head sent cannot be read. |
 | `bad_plugin_request` | 422 | The request does not fit what the plugin of the machine takes, or the settings of a machine of a plugin are not valid. |
+| `bad_policy` | 422 | The switch of security is not one that can change while the server runs, or its value is not of the right type or is out of range. |
 | `bad_profile` | 422 | The inspection profile is not valid. |
 | `bad_rack` | 422 | The rack of a job request of the second version does not fit: places that repeat, the test pin as a place, more places than rack_max_slots, a carry_slot without carry_in, or a place the machine does not define or reach. |
 | `bad_request` | 400 | The body of the request does not read as the request needs. |
@@ -311,6 +315,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `blob_damaged` | 500 | The bytes of an artifact are missing or are not what their hash says. |
 | `both_sources` | 422 | The job brings the work as data and as files; it must be one of them. |
 | `catalog_readonly` | 409 | The catalog is built in and is not written, not even by an administrator. |
+| `design_run_unavailable` | 501 | The server is not set up to run the design program: design_run is off or design_program is not set. |
 | `engine_missing` | 422 | The kind of task is known but this build has no engine for it. |
 | `file_too_big` | 413 | The file is bigger than project_max_file_mb. |
 | `forbidden` | 403 | The role of the caller is not enough for this request. |
@@ -382,5 +387,6 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `upload_conflict` | 409 | A part carries other bytes than the ones already received at the same place. |
 | `upload_incomplete` | 409 | Parts are still missing: the upload cannot be completed. |
 | `user_exists` | 409 | A user with this name already exists. |
+| `weak_confirm_required` | 409 | The new value of the switch of security is looser than recommended: send confirm_weak: true to apply it. |
 | `weak_password` | 422 | The password is not from 8 to 128 characters. |
 | `wrong_machine` | 422 | The job is of a kind the machine does not take. |
