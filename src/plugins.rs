@@ -435,10 +435,10 @@ impl DemoJob {
     fn done(&self) -> u64 {
         if self.state == WorkState::Queued {
             0
-        } else if self.step_ms == 0 {
-            self.steps
         } else {
-            (self.elapsed_ms() / self.step_ms).min(self.steps)
+            self.elapsed_ms()
+                .checked_div(self.step_ms)
+                .map_or(self.steps, |q| q.min(self.steps))
         }
     }
 }

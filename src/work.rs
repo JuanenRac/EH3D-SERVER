@@ -256,11 +256,9 @@ pub struct WorkJob {
 
 impl WorkJob {
     pub fn percent(&self) -> u64 {
-        if self.total == 0 {
-            0
-        } else {
-            (self.done * 100 / self.total).min(100)
-        }
+        (self.done * 100)
+            .checked_div(self.total)
+            .map_or(0, |p| p.min(100))
     }
 
     pub fn summary(&self) -> Value {
@@ -448,11 +446,9 @@ impl WorkBook {
             let note = status.message.clone();
             job.push(at, status.state, "machine", &note);
         }
-        let decile = if job.total > 0 {
-            (job.done * 10 / job.total).min(10) as u8
-        } else {
-            0
-        };
+        let decile = (job.done * 10)
+            .checked_div(job.total)
+            .map_or(0, |d| d.min(10) as u8);
         let progress_changed = decile != job.decile;
         job.decile = decile;
         let out = job.clone();
@@ -715,7 +711,7 @@ impl AppState {
     fn work_plugin(&self, job: &WorkJob) -> Result<Arc<dyn crate::plugins::MachinePlugin>, Fail> {
         self.plugins
             .get(&job.plugin)
-            .ok_or_else(|| Fail::Plugin(PluginError::UnknownMachine))
+            .ok_or(Fail::Plugin(PluginError::UnknownMachine))
     }
 
     /// The change of state that a person made, as the book keeps it and the stream tells it.

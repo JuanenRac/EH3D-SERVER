@@ -372,7 +372,7 @@ async fn get_job(
     let job = run(move || {
         state
             .work_refresh_one(&wanted)
-            .ok_or_else(|| Fail::Work(WError::UnknownJob))
+            .ok_or(Fail::Work(WError::UnknownJob))
     })
     .await?;
     Ok(Json(job_view(&s, &job, true)))
