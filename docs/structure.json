@@ -172,6 +172,62 @@
           },
           "name": "spindle.rs",
           "tree_name": "spindle.rs"
+        },
+        {
+          "desc": {
+            "en": "the project store: versions, locks, the container",
+            "es": "el almacén de proyectos: versiones, bloqueos, contenedor",
+            "de": "der Projektspeicher: Versionen, Sperren, Container",
+            "fr": "le magasin de projets : versions, verrous, conteneur",
+            "it": "l'archivio dei progetti: versioni, blocchi, contenitore",
+            "ja": "プロジェクトストア：版、ロック、コンテナ",
+            "zh": "项目存储：版本、锁、容器",
+            "pt": "o armazém de projetos: versões, bloqueios, contentor"
+          },
+          "name": "pstore.rs  api_pstore.rs",
+          "tree_name": "pstore.rs api_pstore.rs"
+        },
+        {
+          "desc": {
+            "en": "the shared catalogs: materials, tools, libraries",
+            "es": "los catálogos compartidos: materiales, herramientas, bibliotecas",
+            "de": "die gemeinsamen Kataloge: Materialien, Werkzeuge, Bibliotheken",
+            "fr": "les catalogues partagés : matériaux, outils, bibliothèques",
+            "it": "i cataloghi condivisi: materiali, utensili, librerie",
+            "ja": "共有カタログ：材料、工具、ライブラリ",
+            "zh": "共享目录：材料、刀具、库",
+            "pt": "os catálogos partilhados: materiais, ferramentas, bibliotecas"
+          },
+          "name": "catalogs.rs  api_catalogs.rs",
+          "tree_name": "catalogs.rs api_catalogs.rs"
+        },
+        {
+          "desc": {
+            "en": "machine plugins, job queue, events, notifications",
+            "es": "plugins de máquina, cola de trabajos, eventos, avisos",
+            "de": "Maschinen-Plugins, Auftragsschlange, Ereignisse, Meldungen",
+            "fr": "plugins de machine, file de travaux, événements, notifications",
+            "it": "plugin di macchina, coda dei lavori, eventi, notifiche",
+            "ja": "マシンプラグイン、ジョブキュー、イベント、通知",
+            "zh": "机床插件、作业队列、事件、通知",
+            "pt": "plugins de máquina, fila de trabalhos, eventos, avisos"
+          },
+          "name": "plugins.rs  work.rs  feed.rs",
+          "tree_name": "plugins.rs work.rs feed.rs api_work.rs"
+        },
+        {
+          "desc": {
+            "en": "the applications and the single login for all of them",
+            "es": "las aplicaciones y el login único para todas",
+            "de": "die Anwendungen und die einmalige Anmeldung für alle",
+            "fr": "les applications et la connexion unique pour toutes",
+            "it": "le applicazioni e il login unico per tutte",
+            "ja": "アプリケーションと、全アプリ共通のログイン",
+            "zh": "各个应用以及它们共用的统一登录",
+            "pt": "as aplicações e o início de sessão único para todas"
+          },
+          "name": "apps.rs  api_auth.rs",
+          "tree_name": "apps.rs api_auth.rs"
         }
       ],
       "sub": {
@@ -202,6 +258,20 @@
             "pt": "a interface através do router real"
           },
           "name": "api.rs"
+        },
+        {
+          "desc": {
+            "en": "the common services through the real router",
+            "es": "los servicios comunes a través del router real",
+            "de": "die gemeinsamen Dienste über den echten Router",
+            "fr": "les services communs par le vrai routeur",
+            "it": "i servizi comuni attraverso il vero router",
+            "ja": "実際のルーターを通した共通サービス",
+            "zh": "通过真实路由器测试公共服务",
+            "pt": "os serviços comuns através do router real"
+          },
+          "name": "store.rs  work.rs",
+          "tree_name": "store.rs catalogs.rs work.rs auth_apps.rs"
         },
         {
           "desc": {
@@ -258,6 +328,47 @@
             "pt": "cada pedido, o trabalho e a vista, os estados e o websocket"
           },
           "name": "API.md"
+        },
+        {
+          "desc": {
+            "en": "the common services and how to use them",
+            "es": "los servicios comunes y cómo usarlos",
+            "de": "die gemeinsamen Dienste und ihre Nutzung",
+            "fr": "les services communs et leur usage",
+            "it": "i servizi comuni e come usarli",
+            "ja": "共通サービスとその使い方",
+            "zh": "公共服务及其使用方法",
+            "pt": "os serviços comuns e como os usar"
+          },
+          "name": "SERVICES.md"
+        },
+        {
+          "desc": {
+            "en": "the project store and the shared catalogs",
+            "es": "el almacén de proyectos y los catálogos compartidos",
+            "de": "der Projektspeicher und die gemeinsamen Kataloge",
+            "fr": "le magasin de projets et les catalogues partagés",
+            "it": "l'archivio dei progetti e i cataloghi condivisi",
+            "ja": "プロジェクトストアと共有カタログ",
+            "zh": "项目存储和共享目录",
+            "pt": "o armazém de projetos e os catálogos partilhados"
+          },
+          "name": "PROJECT_STORE.md  CATALOGS.md",
+          "tree_name": "PROJECT_STORE.md CATALOGS.md"
+        },
+        {
+          "desc": {
+            "en": "machine plugins, queue, events; the single login",
+            "es": "plugins de máquina, cola, eventos; login único",
+            "de": "Maschinen-Plugins, Schlange, Ereignisse; Anmeldung",
+            "fr": "plugins de machine, file, événements ; connexion",
+            "it": "plugin di macchina, coda, eventi; login unico",
+            "ja": "マシンプラグイン、キュー、イベント、ログイン",
+            "zh": "机床插件、队列、事件；统一登录",
+            "pt": "plugins de máquina, fila, eventos; início de sessão"
+          },
+          "name": "MACHINE_PLUGINS.md  AUTH.md",
+          "tree_name": "MACHINE_PLUGINS.md AUTH.md"
         },
         {
           "desc": {

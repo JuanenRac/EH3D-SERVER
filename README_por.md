@@ -18,7 +18,7 @@
 
 ---
 
-**Verificação de honestidade - o que funciona hoje:** um servidor em Rust (axum) com interface REST e websocket que guarda utilizadores, máquinas e trabalhos, planeia um trabalho de furação ou de fresagem (furos e trajetórias, ou um ficheiro Excellon ou HP-GL com a sua tabela de ferramentas) com as bibliotecas do EH3D-DRILLPRO e do EH3D-ROUTEPRO, mostra uma pré-visualização e executa-o numa máquina através do seu EH3D-NODE-BUNGARD ou num simulador, com os diálogos do operador, uma paragem e cada alteração comunicada à medida que acontece. 41 testes correm num computador, os trabalhos contra o simulador. **Ainda nada correu numa máquina real através dele**, não termina TLS e dos clientes além dos programas, o EH3D-STUDIO existe (nunca experimentado com uma máquina real) e a app Android e o painel junto à máquina ainda não existem.
+**Verificação de honestidade - o que funciona hoje:** um servidor em Rust (axum) com interface REST e websocket que guarda utilizadores, máquinas e trabalhos, planeia um trabalho de furação ou de fresagem (furos e trajetórias, ou um ficheiro Excellon ou HP-GL com a sua tabela de ferramentas) com as bibliotecas do EH3D-DRILLPRO e do EH3D-ROUTEPRO, mostra uma pré-visualização e executa-o numa máquina através do seu EH3D-NODE-BUNGARD ou num simulador, com os diálogos do operador, uma paragem e cada alteração comunicada à medida que acontece. 41 testes correm num computador, os trabalhos contra o simulador. **Ainda nada correu numa máquina real através dele**, não termina TLS e dos clientes além dos programas, o EH3D-STUDIO existe (nunca experimentado com uma máquina real) e a app Android e o painel junto à máquina ainda não existem. É também o servidor de toda a aplicação do EH3D, com quatro serviços comuns (um armazém de projetos, catálogos partilhados, plugins de máquina com uma fila de trabalhos e um fluxo de eventos, e um início de sessão único); só correm nos testes e nenhuma aplicação os usa ainda.
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|
 | Versão | `0.1.2` |
 | Maturidade | Funcional |
-| Testes | 252 |
+| Testes | 328 |
 | Tecnologias | Rust (axum, tokio) |
 | Em hardware real | Não: testado contra o simulador; ainda nada correu numa máquina real através do servidor |
 
@@ -45,8 +45,9 @@ Cada linha é uma parte deste repositório e a luz diz até onde chega hoje. É 
 | Área | Estado | O que significa aqui |
 |---|---|---|
 | Software | 🟡 | Um servidor em Rust (axum) guarda utilizadores, máquinas e trabalhos, planeia trabalhos de furação e fresagem com as bibliotecas do EH3D-DRILLPRO e do EH3D-ROUTEPRO, mostra uma pré-visualização e executa o trabalho com diálogos de operador e uma paragem. |
-| Testes | 🟡 | Passam 252 testes (`cargo test`): 143 nos módulos e 109 sobre a interface de ponta a ponta, com trabalhos no simulador (41 em `tests/api.rs`, 7 com os programas reais em `tests/programs.rs`). |
+| Testes | 🟡 | Passam 328 testes (`cargo test`): 181 nos módulos e 147 sobre a interface de ponta a ponta, com trabalhos no simulador (41 em `tests/api.rs`, 7 com os programas reais em `tests/programs.rs`). |
 | Interface para clientes (API) | 🟡 | Os pedidos REST e os eventos websocket estão descritos em `docs/API.md` (as rotas também no contrato OpenAPI `docs/openapi.yaml`) e cobertos pelos testes; até agora só a ligação ao servidor dos próprios programas os usa. |
+| Serviços comuns | 🟠 | O armazém de projetos, os catálogos partilhados, os plugins de máquina com a sua fila e os seus eventos e o início de sessão único correm nos testes num computador; nenhuma aplicação os usa ainda, nada correu numa máquina real pela fila e os catálogos não foram carregados com os dados reais dos seus programas. |
 | Clientes | 🔴 | O EH3D-STUDIO usa-o (nunca experimentado com uma máquina real); a app Android e o painel tátil junto à máquina ainda não existem. |
 | Segurança | 🟡 | Cada pedido precisa de um token com um de três papéis, as palavras-passe são hashes Argon2 e as palavras-passe erradas são abrandadas; o servidor não termina TLS (ponha HTTPS à frente) e não teve revisão independente. |
 | Hardware real | 🟠 | Os trabalhos só correram contra o simulador: nada correu numa máquina real através do servidor. |
@@ -67,6 +68,7 @@ Cada linha é uma parte deste repositório e a luz diz até onde chega hoje. É 
 * O **serviço**: um binário e um pequeno ficheiro de texto de definições, na porta 18200 por omissão (não a do ARMOR nem a do HYDRA-UMC), com uma unidade systemd para a CM5.
 * **Previsto, ainda por construir**: os clientes (a app Android, o Studio, o painel tátil junto à máquina), HTTPS no próprio servidor e o uso dos LED do nó e do seu buffer para terminar um trabalho retido quando o servidor desaparece.
 * **Uma simulação em seco do plano exato e verificações de bom senso na vista de cada trabalho:** os passos de um trabalho de furação ou fresagem são seguidos no papel, como a unidade de controlo os lê, e a vista traz `dry_run` (até onde vai cada eixo desde os fins de curso, onde acaba o plano, os passos e os segundos) e `warnings` (uma unidade provavelmente errada, um trabalho maior do que a mesa, uma escala diferente de 1). Um plano que leva um eixo além do curso do ficheiro da máquina é recusado com `outside_course`, ou apenas listado quando o ajuste da máquina diz `dry_run = warn`; `dry_run_margin_mm`, `sanity_tiny_mm` e `sanity_far_mm` são chaves do mesmo ajuste. A medição e o resumo vêm de `eh3d-summary` em EH3D-COMMON, de modo que todos os programas dizem o mesmo.
+* **Os quatro serviços comuns, para toda a aplicação do EH3D:** um **armazém de projetos** (ficheiros com todas as versões guardadas e verificadas, `If-Match` para que duas pessoas nunca se sobrescrevam, um bloqueio de edição, importação e exportação do contentor `.eh3dproj`), **catálogos partilhados** (materiais, ferramentas, perfis de máquina, bibliotecas e a base de componentes, com pesquisa e `ETag`), **plugins de máquina** (qualquer tipo de máquina atrás de uma só interface, uma fila de trabalhos com histórico, um fluxo de eventos do servidor e notificações) e **um único início de sessão** (a aplicação e o papel como dados da sessão, sessões que se podem listar e terminar, uma política de palavras-passe e de bloqueio). Ver [docs/SERVICES.md](docs/SERVICES.md).
 
 ## 🧩 Papel no EH3D
 
@@ -94,6 +96,9 @@ Como as partes deste repositório se encaixam: quem o usa, o que contém e de qu
 * **O nó da cabeça de furação através do servidor:** quando a configuração de uma máquina indica o nó (`head_address`, `head_token`), o servidor reencaminha o seu estado (`GET /api/v1/machines/:id/head/status`), a sua câmara como MJPEG (`.../head/stream`, com o token no endereço para um navegador) e uma medição da mesa (`POST .../head/measure`, operador), para que um programa noutra rede lhe chegue com o mesmo acesso. Testado com um nó simulado, nunca com um real.
 * **A verificação de qualidade com a câmara da cabeça:** o servidor liga o anel de LEDs, tira uma foto ao nó, julga-a com o analisador da oficina (o perfil de cada máquina é guardado pelo servidor), faz o anel dizer como correu (verde, ou vermelho a piscar) e guarda a última verificação para que o ecrã junto à máquina e os telemóveis a mostrem: `GET/POST .../head/light`, `GET .../head/snapshot`, `POST/GET .../head/inspect`, `GET/PUT .../head/inspect/profile` e `POST .../head/inspect/calibrate`.
 * **O fuso da máquina:** `GET` e `PUT /api/v1/machines/:id/spindle` dizem que fuso a máquina leva (`original` ou `vfd`) e os seus limites (rotações, avanço de corte, avanço de penetração, broca mais grossa); um trabalho que pede mais é recusado com `spindle_limit` (o interruptor de segurança `guard` é `reject` por omissão; com `warn` o trabalho passa com as rotações cortadas ao máximo do fuso e cada excesso listado em `spindle_warnings`).
+* **Um armazém de projetos com versões:** um ficheiro nunca é sobrescrito, cada escrita é uma versão nova com o seu SHA-256, uma escrita sobre um ficheiro existente tem de dizer de que versão parte (`If-Match`), os bytes são verificados contra o seu hash em cada leitura e os nomes que poderiam sair da pasta ou que são do Windows são recusados.
+* **Máquinas atrás de plugins:** as máquinas Bungard são o plugin `bungard` (as mesmas máquinas, os mesmos trabalhos, as mesmas rotas antigas) e um plugin `demo` sem hardware serve os testes; uma fila genérica guarda o histórico de cada trabalho e um fluxo de eventos (`GET /api/v1/events/stream`) deixa um cliente voltar a ligar-se com `Last-Event-ID` sem perder nada.
+* **Um início de sessão para toda a aplicação:** o início de sessão diz para que aplicação é, cada pessoa vê e termina as suas sessões abertas e um administrador as de qualquer pessoa, as palavras-passe e o bloqueio seguem as definições, e a auditoria guarda os inícios de sessão, as recusas e os fechos, nunca um segredo; `GET /api/v1/auth/policy` mostra ao Studio os interruptores de segurança.
 
 ## 🔒 Segurança e proteção
 
@@ -127,10 +132,11 @@ Como as partes deste repositório se encaixam: quem o usa, o que contém e de qu
 | Para a máquina | a `connection` de uma máquina é `node` (um EH3D-NODE-BUNGARD num endereço com o seu token) ou `demo` (o simulador) | [docs/API.md](docs/API.md), `src/machines.rs` |
 | Linha de comandos | `eh3d-server [--config FICHEIRO]`; `--help` lista-a | `src/main.rs` |
 | Serviço | um binário, porta 18200 por omissão, uma unidade systemd | [docs/DEPLOY.md](docs/DEPLOY.md), `deploy/eh3d-server.service` |
+| Serviços comuns | `/api/v1/apps/{app}/projects`, `catalogs`, `plugins`, `work`, `notifications`, `auth`; `GET /api/v1/events/stream` envia eventos do servidor | [docs/SERVICES.md](docs/SERVICES.md), [docs/openapi.yaml](docs/openapi.yaml) |
 
 ## ⚙️ Configuração
 
-`server.cfg` (ou o ficheiro dado com `--config`) tem vinte e quatro chaves opcionais; uma chave desconhecida ou um valor fora de gama é um erro ao arrancar. `server.cfg.example` explica-as.
+`server.cfg` (ou o ficheiro dado com `--config`) tem 66 chaves opcionais; uma chave desconhecida ou um valor fora de gama é um erro ao arrancar. `server.cfg.example` explica-as.
 
 | Chave | Por omissão | Gama | O que faz |
 |---|---|---|---|
@@ -148,6 +154,8 @@ Como as partes deste repositório se encaixam: quem o usa, o que contém e de qu
 | `audit_file` | `true` | true ou false | escreve a auditoria (quem fez o quê) em `audit.jsonl` além da consola |
 | `job_log` | `true` | true ou false | escreve uma linha no início e outra no fim de cada trabalho em `eh3d-jobs.log` |
 | `log_max_kb` | 1024 | de 16 a 1048576 | quilobytes a partir dos quais a auditoria e o registo dos trabalhos são postos de parte (fica uma cópia anterior) |
+
+Os limites e os interruptores dos serviços comuns (o armazém, os catálogos, a fila, o fluxo de eventos, os inícios de sessão, as palavras-passe) são chaves do mesmo ficheiro, cada uma explicada em `server.cfg.example`; `GET /api/v1/auth/policy` mostra a um administrador os interruptores de segurança.
 
 Nomes de utilizadores e tokens: letras, dígitos, `.`, `_` e `-`, até 32 carateres; palavras-passe: de 8 a 128 carateres. Os valores afinados em cada máquina não estão aqui: vivem no registo da máquina, no formato do ficheiro de máquina dos programas.
 
@@ -167,7 +175,7 @@ Execute-o com `run.bat` (Windows) ou `./run.sh` (Linux); compila primeiro se for
 
 ## 🧪 Testes
 
-A suite tem 252 testes (`cargo test`, executados em Windows e Linux na CI com o COMMON, DRILLPRO e o ROUTEPRO descarregados junto ao servidor): 143 nos módulos (definições e as suas gamas, utilizadores, papéis, tokens, o abrandamento perante palavras-passe erradas, os ficheiros e o livro de trabalhos, o planeamento), 41 sobre a interface de ponta a ponta através do router real (`tests/api.rs`), 2 que mantêm os exemplos de respostas lidos pelos clientes (`tests/examples.rs`) e 7 com os programas reais a enviar os seus trabalhos a um servidor real numa porta real, com a máquina no simulador (`tests/programs.rs`). Os restantes ficheiros de `tests/` somam mais 59 (artefactos, tarefas de cálculo, partilha, eventos, o catálogo de erros, as rotas do documento da API, uma paragem por sinal e um pânico). A CI executa também `cargo fmt --all --check`, `cargo clippy` com avisos como erros e `python -I tools/ci_validate.py`. Nada disto foi testado contra um nó ou uma máquina reais. O ajudante que faz as atualizações tem mais 21 testes próprios (`python -I tests/test_update_helper.py`, com o GitHub e o systemd substituídos por simulações). Mais dois ficheiros de testes verificam que um pânico que envenena um bloqueio não pára o servidor (`tests/poison.rs`) e que o binário real pára com SIGTERM (`tests/sigterm.rs`, em Linux); a cópia de segurança e os ficheiros da instalação têm 7 e 8 testes próprios (`tests/test_backup.py`, `tests/test_deploy_files.py`). Mais dois ficheiros de testes verificam o websocket de eventos num socket real (`tests/events.rs`, 3 testes) e o catálogo dos códigos de erro contra o código do servidor (`tests/errors.rs`, 3 testes). O contrato das rotas é verificado contra o router por `tests/openapi.rs` (6 testes) e por `python -I tools/check_openapi.py`, que a CI também executa.
+A suite tem 328 testes (`cargo test`, executados em Windows e Linux na CI com o COMMON, DRILLPRO e o ROUTEPRO descarregados junto ao servidor): 181 nos módulos (definições e as suas gamas, utilizadores, papéis, tokens, o abrandamento perante palavras-passe erradas, os ficheiros e o livro de trabalhos, o planeamento), 41 sobre a interface de ponta a ponta através do router real (`tests/api.rs`), 2 que mantêm os exemplos de respostas lidos pelos clientes (`tests/examples.rs`) e 7 com os programas reais a enviar os seus trabalhos a um servidor real numa porta real, com a máquina no simulador (`tests/programs.rs`). Os restantes ficheiros de `tests/` somam mais 97 (os quatro serviços comuns com os seus documentos, artefactos, tarefas de cálculo, partilha, eventos, o catálogo de erros, as rotas do documento da API, uma paragem por sinal e um pânico). A CI executa também `cargo fmt --all --check`, `cargo clippy` com avisos como erros e `python -I tools/ci_validate.py`. Nada disto foi testado contra um nó ou uma máquina reais. O ajudante que faz as atualizações tem mais 21 testes próprios (`python -I tests/test_update_helper.py`, com o GitHub e o systemd substituídos por simulações). Mais dois ficheiros de testes verificam que um pânico que envenena um bloqueio não pára o servidor (`tests/poison.rs`) e que o binário real pára com SIGTERM (`tests/sigterm.rs`, em Linux); a cópia de segurança e os ficheiros da instalação têm 7 e 8 testes próprios (`tests/test_backup.py`, `tests/test_deploy_files.py`). Mais dois ficheiros de testes verificam o websocket de eventos num socket real (`tests/events.rs`, 3 testes) e o catálogo dos códigos de erro contra o código do servidor (`tests/errors.rs`, 3 testes). O contrato das rotas é verificado contra o router por `tests/openapi.rs` (6 testes) e por `python -I tools/check_openapi.py`, que a CI também executa.
 
 ## 🏗️ Compilação e publicação
 
@@ -195,7 +203,11 @@ EH3D-SERVER/
 │   ├── updates.rs  head.rs                      as atualizações dos serviços
 │   ├── inspect.rs                               a verificação de qualidade com a câmara da cabeça
 │   ├── gcode.rs gcode_run.rs                    G-code livre: limpeza, leitura e execução no simulador ou no GRBL
-│   └── spindle.rs                               o fuso de uma máquina, os seus limites e o interruptor de segurança
+│   ├── spindle.rs                               o fuso de uma máquina, os seus limites e o interruptor de segurança
+│   ├── pstore.rs api_pstore.rs                  o armazém de projetos: versões, bloqueios, contentor
+│   ├── catalogs.rs api_catalogs.rs              os catálogos partilhados: materiais, ferramentas, bibliotecas
+│   ├── plugins.rs work.rs feed.rs api_work.rs   plugins de máquina, fila de trabalhos, eventos, avisos
+│   └── apps.rs api_auth.rs                      as aplicações e o início de sessão único para todas
 ├── tests/                                       a interface de ponta a ponta no simulador e os programas reais contra um servidor real
 ├── docs/                                        a API, o seu contrato OpenAPI, o guia para executar o servidor e os dados das duas imagens
 ├── deploy/                                      as unidades systemd e os ajudantes do serviço
@@ -223,6 +235,7 @@ EH3D-SERVER/
 * Dos clientes além dos programas, o EH3D-STUDIO existe; a app Android e o painel tátil ainda não existem.
 * Precisa das pastas do EH3D-DRILLPRO e do EH3D-ROUTEPRO ao lado, porque usa as suas bibliotecas.
 * Um trabalho que corria quando o servidor parou é marcado como falhado e não retoma.
+* Nenhuma aplicação usa ainda os serviços comuns (armazém de projetos, catálogos, fila genérica, início de sessão único): estão descritos e testados num computador, não experimentados com um cliente real nem com uma máquina real.
 
 **A seguir**
 
@@ -246,6 +259,7 @@ O README e os textos existem em inglês, espanhol, francês, italiano, alemão, 
 
 * [A API](docs/API.md): cada pedido, o trabalho e a vista que um cliente desenha, os estados e o websocket.
 * [As rotas](docs/openapi.yaml): o contrato OpenAPI de cada rota (papel, âmbito, esquemas, exemplos e códigos de erro), com a sua tabela em [docs/ROUTES.md](docs/ROUTES.md).
+* [Os serviços comuns](docs/SERVICES.md): o armazém de projetos, os catálogos partilhados, os plugins de máquina com a fila e os eventos e o início de sessão único, cada um com a sua página ([PROJECT_STORE.md](docs/PROJECT_STORE.md), [CATALOGS.md](docs/CATALOGS.md), [MACHINE_PLUGINS.md](docs/MACHINE_PLUGINS.md), [AUTH.md](docs/AUTH.md)).
 * [Executar o servidor](docs/DEPLOY.md): a compilação, o primeiro arranque, o serviço na CM5 e a segurança da instalação.
 * [Registo de alterações](CHANGELOG.md)
 

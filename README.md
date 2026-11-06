@@ -18,7 +18,7 @@
 
 ---
 
-**Honesty check - what actually runs today:** a Rust server (axum) with a REST and websocket interface that keeps users, machines and jobs, plans a drilling or routing job (holes and paths, or an Excellon or HP-GL file with its tool table) with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator, a stop and every change told as it happens. 252 tests run on a computer, the jobs against the simulator. **Nothing has run on a real machine through it yet**, it does not terminate TLS, and of the clients besides the programs, EH3D-STUDIO exists (never tried against a real machine) and the Android app and the panel next to the machine do not exist yet.
+**Honesty check - what actually runs today:** a Rust server (axum) with a REST and websocket interface that keeps users, machines and jobs, plans a drilling or routing job (holes and paths, or an Excellon or HP-GL file with its tool table) with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator, a stop and every change told as it happens. 328 tests run on a computer, the jobs against the simulator. **Nothing has run on a real machine through it yet**, it does not terminate TLS, and of the clients besides the programs, EH3D-STUDIO exists (never tried against a real machine) and the Android app and the panel next to the machine do not exist yet. It is also the server of every EH3D application, with four common services (a store of projects, shared catalogs, machine plugins with a queue of jobs and a stream of events, and one login); they run only in the tests and no application uses them yet.
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.1.2` |
 | Maturity | Functional |
-| Tests | 252 |
+| Tests | 328 |
 | Stack | Rust (axum, tokio) |
 | On real hardware | No: tested against the simulator; nothing has run on a real machine through the server yet |
 
@@ -45,8 +45,9 @@ Each line is one part of this repository and the light says how far it is today.
 | Area | State | What it means here |
 |---|---|---|
 | Software | 🟡 | A Rust server (axum) keeps users, machines and jobs, plans drilling and routing jobs with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview and runs the job with operator dialogs and a stop. |
-| Tests | 🟡 | 252 tests pass (`cargo test`): 143 in the modules and 109 on the interface end to end, with jobs running on the simulator (41 in `tests/api.rs`, 7 with the real programs in `tests/programs.rs`). |
+| Tests | 🟡 | 328 tests pass (`cargo test`): 181 in the modules and 147 on the interface end to end, with jobs running on the simulator (41 in `tests/api.rs`, 7 with the real programs in `tests/programs.rs`). |
 | Interface for clients (API) | 🟡 | The REST requests and the websocket events are written down in `docs/API.md` (the routes also in the OpenAPI contract `docs/openapi.yaml`) and covered by the tests; only the programs' own server connection uses them so far. |
+| Common services | 🟠 | The project store, the shared catalogs, the machine plugins with their queue and events, and the single login run in the tests on a computer; no application uses them yet, nothing has run on a real machine through the queue, and the catalogs have not been loaded with the real data of their programs. |
 | Clients | 🔴 | EH3D-STUDIO uses it (never tried against a real machine); the Android app and the touch panel next to the machine do not exist yet. |
 | Security | 🟡 | Every request needs a token with one of three roles, passwords are Argon2 hashes and wrong passwords are slowed down; the server does not terminate TLS (put HTTPS in front) and has had no independent review. |
 | Real hardware | 🟠 | The jobs have only run against the simulator: nothing has run on a real machine through the server. |
@@ -67,6 +68,7 @@ Each line is one part of this repository and the light says how far it is today.
 * The **service**: one binary and a small text file of settings, on port 18200 by default (not ARMOR's nor HYDRA-UMC's), with a systemd unit for the CM5.
 * **Planned, not built yet**: the clients (the Android app, the Studio, the panel with a touch screen next to the machine), HTTPS in the server itself, and the use of the node's lamps and its buffer to finish a held job when the server goes away.
 * **A dry run of the exact plan and sanity checks in the view of every job:** the steps of a drilling or routing job are followed on paper, the way the control unit reads them, and the view carries `dry_run` (how far each axis goes from its switches, where the plan ends, the steps and the seconds) and `warnings` (a unit that is probably wrong, a work bigger than the table, a scale that is not 1). A plan that takes an axis past the course of the machine file is refused with `outside_course`, or only listed when the tuning of the machine says `dry_run = warn`; `dry_run_margin_mm`, `sanity_tiny_mm` and `sanity_far_mm` are keys of the same tuning. The measure and the summary come from `eh3d-summary` in EH3D-COMMON, so every program says the same.
+* **The four common services, for every EH3D application:** a **project store** (files with every version kept and checked, `If-Match` so two people never overwrite each other, an editing lock, import and export of the `.eh3dproj` container), **shared catalogs** (materials, tools, machine profiles, libraries and the components base, with search and `ETag`), **machine plugins** (any kind of machine behind one interface, a queue of jobs with history, a stream of server-sent events and notifications) and **one login** (the application and the role as claims, sessions that can be listed and closed, a policy for passwords and lockout). See [docs/SERVICES.md](docs/SERVICES.md).
 
 ## 🧩 Role in EH3D
 
@@ -94,6 +96,9 @@ How the parts of this repository fit together: who uses it, what it holds and wh
 * **The node of the drill head through the server:** when the configuration of a machine names the node (`head_address`, `head_token`), the server hands on its status (`GET /api/v1/machines/:id/head/status`), its camera as MJPEG (`.../head/stream`, with the token in the address for a browser) and a measure of the table (`POST .../head/measure`, operator), so a program on another network reaches it with the same login. Tested against a stand-in node, never against a real one.
 * **The quality check through the camera of the head:** the server turns the ring of LEDs on, takes a picture from the node, judges it with the analyser of the shop (the profile of each machine is kept by the server), makes the ring say how it went (green, or red blinking) and keeps the last check so the screen next to the machine and the phones show it: `GET/POST .../head/light`, `GET .../head/snapshot`, `POST/GET .../head/inspect`, `GET/PUT .../head/inspect/profile` and `POST .../head/inspect/calibrate`.
 * **The spindle of the machine:** `GET` and `PUT /api/v1/machines/:id/spindle` say which spindle the machine carries (`original` or `vfd`) and its limits (turns, feed along the cut, plunge feed, thickest bit); a job that asks for more is refused with `spindle_limit` (the safety switch `guard` is `reject` by default; with `warn` the job goes through with the turns cut to the top of the spindle and every excess listed in `spindle_warnings`).
+* **A project store with versions:** a file is never overwritten, every write is a new version with its SHA-256, a write over an existing file must say which version it was made from (`If-Match`), the bytes are checked against their hash at every read, and names that could leave the folder or belong to Windows are refused.
+* **Machines behind plugins:** the Bungard machines are the `bungard` plugin (same machines, same jobs, same old routes) and a `demo` plugin without hardware serves the tests; a generic queue keeps the history of every job, and a stream of events (`GET /api/v1/events/stream`) lets a client reconnect with `Last-Event-ID` without losing anything.
+* **One login for every application:** a login says which application it is for, a person sees and closes their own open sessions and an administrator anybody's, passwords and lockout follow the settings, and the audit has the logins, the refusals and the closings, never a secret; `GET /api/v1/auth/policy` shows Studio the switches of security.
 
 ## 🔒 Security & Safety
 
@@ -127,10 +132,11 @@ How the parts of this repository fit together: who uses it, what it holds and wh
 | To the machine | a machine's `connection` is `node` (an EH3D-NODE-BUNGARD at an address with its token) or `demo` (the simulator) | [docs/API.md](docs/API.md), `src/machines.rs` |
 | Command line | `eh3d-server [--config FILE]`; `--help` lists it | `src/main.rs` |
 | Service | one binary, port 18200 by default, a systemd unit | [docs/DEPLOY.md](docs/DEPLOY.md), `deploy/eh3d-server.service` |
+| Common services | `/api/v1/apps/{app}/projects`, `catalogs`, `plugins`, `work`, `notifications`, `auth`; `GET /api/v1/events/stream` sends server-sent events | [docs/SERVICES.md](docs/SERVICES.md), [docs/openapi.yaml](docs/openapi.yaml) |
 
 ## ⚙️ Configuration
 
-`server.cfg` (or the file given with `--config`) holds twenty-four optional keys; an unknown key or a value out of range is an error at start. `server.cfg.example` explains them.
+`server.cfg` (or the file given with `--config`) holds 66 optional keys; an unknown key or a value out of range is an error at start. `server.cfg.example` explains them.
 
 | Key | Default | Range | What it does |
 |---|---|---|---|
@@ -148,6 +154,8 @@ How the parts of this repository fit together: who uses it, what it holds and wh
 | `audit_file` | `true` | true or false | write the audit (who did what) to `audit.jsonl` besides the console |
 | `job_log` | `true` | true or false | write a line at the start and at the end of every job to `eh3d-jobs.log` |
 | `log_max_kb` | 1024 | 16 to 1048576 | kilobytes at which the audit and the job log are set aside (one older copy is kept) |
+
+The limits and the switches of the common services (the store, the catalogs, the queue, the stream of events, the logins, the passwords) are keys of the same file, each with its explanation in `server.cfg.example`; `GET /api/v1/auth/policy` shows an administrator the switches of security.
 
 Names of users and tokens: letters, digits, `.`, `_` and `-`, up to 32 characters; passwords: 8 to 128 characters. The values tuned on each machine are not here: they live in the machine record, in the format of the machine file of the programs.
 
@@ -167,7 +175,7 @@ Run it with `run.bat` (Windows) or `./run.sh` (Linux); it builds first if needed
 
 ## 🧪 Testing
 
-The suite has 252 tests (`cargo test`, run on Windows and Linux in the CI with COMMON, DRILLPRO and ROUTEPRO checked out next to the server): 143 in the modules (settings and their ranges, users, roles, tokens, the slowdown on wrong passwords, the files and the job book, planning), 41 on the interface end to end through the real router (`tests/api.rs`), 2 that keep the examples of the answers that the clients read (`tests/examples.rs`), and 7 with the real programs sending their jobs to a real server on a real port, with the machine on the simulator (`tests/programs.rs`). The other files of `tests/` add 59 more (artifacts, computing tasks, sharing, events, the catalog of the errors, the routes of the API document, a stop by signal and a panic). The CI also runs `cargo fmt --all --check`, `cargo clippy` with warnings as errors and `python -I tools/ci_validate.py`. Nothing here has been tested against a real node or machine. The helper that does the updates has 21 more tests of its own (`python -I tests/test_update_helper.py`, with GitHub and systemd replaced by stand-ins). Two more test files check that a panic that poisons a lock does not stop the server (`tests/poison.rs`) and that the real binary stops on SIGTERM (`tests/sigterm.rs`, on Linux); the backup and the files of the deployment have 7 and 8 tests of their own (`tests/test_backup.py`, `tests/test_deploy_files.py`). Two more test files check the websocket of the events on a real socket (`tests/events.rs`, 3 tests) and the catalog of the error codes against the source of the server (`tests/errors.rs`, 3 tests). The contract of the routes is checked against the router by `tests/openapi.rs` (6 tests) and by `python -I tools/check_openapi.py`, which the CI also runs.
+The suite has 328 tests (`cargo test`, run on Windows and Linux in the CI with COMMON, DRILLPRO and ROUTEPRO checked out next to the server): 181 in the modules (settings and their ranges, users, roles, tokens, the slowdown on wrong passwords, the files and the job book, planning), 41 on the interface end to end through the real router (`tests/api.rs`), 2 that keep the examples of the answers that the clients read (`tests/examples.rs`), and 7 with the real programs sending their jobs to a real server on a real port, with the machine on the simulator (`tests/programs.rs`). The other files of `tests/` add 97 more (the four common services with their documents, artifacts, computing tasks, sharing, events, the catalog of the errors, the routes of the API document, a stop by signal and a panic). The CI also runs `cargo fmt --all --check`, `cargo clippy` with warnings as errors and `python -I tools/ci_validate.py`. Nothing here has been tested against a real node or machine. The helper that does the updates has 21 more tests of its own (`python -I tests/test_update_helper.py`, with GitHub and systemd replaced by stand-ins). Two more test files check that a panic that poisons a lock does not stop the server (`tests/poison.rs`) and that the real binary stops on SIGTERM (`tests/sigterm.rs`, on Linux); the backup and the files of the deployment have 7 and 8 tests of their own (`tests/test_backup.py`, `tests/test_deploy_files.py`). Two more test files check the websocket of the events on a real socket (`tests/events.rs`, 3 tests) and the catalog of the error codes against the source of the server (`tests/errors.rs`, 3 tests). The contract of the routes is checked against the router by `tests/openapi.rs` (6 tests) and by `python -I tools/check_openapi.py`, which the CI also runs.
 
 ## 🏗️ Build & Release
 
@@ -195,7 +203,11 @@ EH3D-SERVER/
 │   ├── updates.rs  head.rs                      the updates of the services
 │   ├── inspect.rs                               the quality check through the camera of the head
 │   ├── gcode.rs gcode_run.rs                    free G-code: cleaning, reading and the run on the simulator or on GRBL
-│   └── spindle.rs                               the spindle of a machine, its limits and the safety switch
+│   ├── spindle.rs                               the spindle of a machine, its limits and the safety switch
+│   ├── pstore.rs api_pstore.rs                  the project store: versions, locks, the container
+│   ├── catalogs.rs api_catalogs.rs              the shared catalogs: materials, tools, libraries
+│   ├── plugins.rs work.rs feed.rs api_work.rs   machine plugins, job queue, events, notifications
+│   └── apps.rs api_auth.rs                      the applications and the single login for all of them
 ├── tests/                                       the interface end to end on the simulator, and the real programs against a real server
 ├── docs/                                        the API, its OpenAPI contract, the guide to running the server and the data of the two pictures
 ├── deploy/                                      the systemd units and the helpers of the service
@@ -223,6 +235,7 @@ EH3D-SERVER/
 * Of the clients besides the programs, EH3D-STUDIO exists; the Android app and the touch panel do not exist yet.
 * It needs the folders of EH3D-DRILLPRO and EH3D-ROUTEPRO next to it, because it uses their libraries.
 * A job that was running when the server stopped is marked failed and does not resume.
+* No application uses the common services yet (project store, catalogs, generic queue, single login): they are described and tested on a computer, not tried with a real client or a real machine.
 
 **Next**
 
@@ -246,6 +259,7 @@ README and texts exist in English, Spanish, French, Italian, German, Chinese, Ja
 
 * [The API](docs/API.md): every request, the job and the view a client draws, the states and the websocket.
 * [The routes](docs/openapi.yaml): the OpenAPI contract of every route (role, scope, schemas, examples and error codes), with its table in [docs/ROUTES.md](docs/ROUTES.md).
+* [The common services](docs/SERVICES.md): the project store, the shared catalogs, the machine plugins with the queue and the events, and the single login, each with its own page ([PROJECT_STORE.md](docs/PROJECT_STORE.md), [CATALOGS.md](docs/CATALOGS.md), [MACHINE_PLUGINS.md](docs/MACHINE_PLUGINS.md), [AUTH.md](docs/AUTH.md)).
 * [Running the server](docs/DEPLOY.md): the build, the first start, the service on the CM5 and the safety of the deployment.
 * [Changelog](CHANGELOG.md)
 

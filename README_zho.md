@@ -18,7 +18,7 @@
 
 ---
 
-**诚实性核对 - 今天真正能运行的内容：** 一个带有 REST 和 websocket 接口的 Rust 服务器（axum），保存用户、机床和作业，使用 EH3D-DRILLPRO 和 EH3D-ROUTEPRO 的库规划钻孔或铣削作业（孔和路径，或带刀具表的 Excellon 或 HP-GL 文件），显示预览，并通过 EH3D-NODE-BUNGARD 或模拟器在机床上执行，带有操作员对话框、停止功能，并实时通告每个变化。41 个测试在计算机上运行，作业针对模拟器运行。**还没有通过它在真实机床上运行过任何东西**，它不终止 TLS，除程序之外的客户端中，EH3D-STUDIO 已存在（从未对真实机床试过），Android 应用和机床旁的面板还不存在。
+**诚实性核对 - 今天真正能运行的内容：** 一个带有 REST 和 websocket 接口的 Rust 服务器（axum），保存用户、机床和作业，使用 EH3D-DRILLPRO 和 EH3D-ROUTEPRO 的库规划钻孔或铣削作业（孔和路径，或带刀具表的 Excellon 或 HP-GL 文件），显示预览，并通过 EH3D-NODE-BUNGARD 或模拟器在机床上执行，带有操作员对话框、停止功能，并实时通告每个变化。41 个测试在计算机上运行，作业针对模拟器运行。**还没有通过它在真实机床上运行过任何东西**，它不终止 TLS，除程序之外的客户端中，EH3D-STUDIO 已存在（从未对真实机床试过），Android 应用和机床旁的面板还不存在。 它也是 EH3D 每个应用的服务器，带有四个公共服务（项目存储、共享目录、带作业队列和事件流的机床插件、统一登录）；它们只在测试中运行，目前没有任何应用使用它们。
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|
 | 版本 | `0.1.2` |
 | 成熟度 | 可用 |
-| 测试 | 252 |
+| 测试 | 328 |
 | 技术栈 | Rust (axum, tokio) |
 | 真实硬件 | 否：已针对模拟器测试；尚未通过服务器在真实机床上运行过任何东西 |
 
@@ -45,8 +45,9 @@
 | 领域 | 状态 | 在这里的含义 |
 |---|---|---|
 | 软件 | 🟡 | Rust 服务器（axum）保存用户、机床和作业，使用 EH3D-DRILLPRO 和 EH3D-ROUTEPRO 的库规划钻孔和铣削作业，显示预览，并带有操作员对话框和停止功能地运行作业。 |
-| 测试 | 🟡 | 252 个测试通过（`cargo test`）：模块内 143 个，接口端到端 109 个，作业在模拟器上运行（`tests/api.rs` 41 个，使用真实程序的 `tests/programs.rs` 7 个）。 |
+| 测试 | 🟡 | 328 个测试通过（`cargo test`）：模块内 181 个，接口端到端 147 个，作业在模拟器上运行（`tests/api.rs` 41 个，使用真实程序的 `tests/programs.rs` 7 个）。 |
 | 面向客户端的接口（API） | 🟡 | REST 请求和 websocket 事件已写在 `docs/API.md` 和路由的 OpenAPI 契约 `docs/openapi.yaml` 中并被测试覆盖；目前只有程序自带的服务器连接在使用。 |
+| 公共服务 | 🟠 | 项目存储、共享目录、带队列和事件的机床插件以及统一登录，都在计算机上的测试中运行；目前没有任何应用使用它们，没有任何东西通过队列在真实机床上运行过，目录也没有载入各程序的真实数据。 |
 | 客户端 | 🔴 | EH3D-STUDIO 在使用它（从未对真实机床试过）；Android 应用和机床旁的触摸面板尚不存在。 |
 | 安全 | 🟡 | 每个请求都需要带三种角色之一的令牌，密码是 Argon2 哈希，错误密码会被减速；服务器不终止 TLS（请在前面加 HTTPS），也未经独立审查。 |
 | 真实硬件 | 🟠 | 作业只针对模拟器运行过：尚未通过服务器在真实机床上运行任何东西。 |
@@ -67,6 +68,7 @@
 * **服务**：一个可执行文件和一个小的文本设置文件，默认端口 18200（不是 ARMOR 或 HYDRA-UMC 的端口），并带有用于 CM5 的 systemd 单元。
 * **计划中、尚未构建**：客户端（Android 应用、机床旁的触摸屏面板）、服务器自身的 HTTPS，以及在服务器消失时利用节点的指示灯和缓冲区完成被保留的作业。
 * **对精确计划的空跑，以及每个作业视图中的合理性检查：** 钻孔或铣削作业的步进会在纸面上按控制器读取的方式被跟随，视图带有 `dry_run`（各轴离限位开关的行程范围、计划的终点、步数和秒数）和 `warnings`（单位可能有误、作业大于工作台、比例不等于 1）。使某个轴超出机器文件行程的计划会以 `outside_course` 被拒绝；若机器调校中写有 `dry_run = warn`，则只列出。`dry_run_margin_mm`、`sanity_tiny_mm` 和 `sanity_far_mm` 是同一调校中的键。测量和摘要来自 EH3D-COMMON 中的 `eh3d-summary`，因此每个程序给出的说法都一样。
+* **四个公共服务，面向 EH3D 的每个应用：** **项目存储**（保留并校验每个版本的文件、避免两人互相覆盖的 `If-Match`、编辑锁、`.eh3dproj` 容器的导入与导出）、**共享目录**（材料、刀具、机床配置、库和元器件库，带搜索和 `ETag`）、**机床插件**（任何种类的机床都在同一个接口之后、带历史的作业队列、服务器发送事件流和通知）和**统一登录**（应用与角色作为会话的信息、可列出和关闭的会话、密码与锁定策略）。见 [docs/SERVICES.md](docs/SERVICES.md)。
 
 ## 🧩 在 EH3D 中的角色
 
@@ -94,6 +96,9 @@ EH3D-SERVER 是 EH3D 家族的中心：程序把作业发给它，它通过节�
 * **经服务器访问钻头节点：** 当机床配置写明节点（`head_address`、`head_token`）时，服务器转发它的状态（`GET /api/v1/machines/:id/head/status`）、它的 MJPEG 摄像头（`.../head/stream`，浏览器可把令牌放在地址里）和一次工作台测量（`POST .../head/measure`，操作员），这样另一个网络里的程序用同一个登录就能访问。已用替身节点测试，从未对真实节点测试。
 * **通过钻头摄像头进行质量检查：** 服务器打开 LED 环形灯，从节点取一张图像，用工坊的分析器判断（每台机床的配置由服务器保存），让环形灯显示结果（绿色或红色闪烁），并保存最近一次检查，供机床旁的屏幕和手机显示：`GET/POST .../head/light`、`GET .../head/snapshot`、`POST/GET .../head/inspect`、`GET/PUT .../head/inspect/profile` 和 `POST .../head/inspect/calibrate`。
 * **机床的主轴：** `GET` 和 `PUT /api/v1/machines/:id/spindle` 说明机床装的是哪个主轴（`original` 或 `vfd`）及其限值（转速、切削进给、下刀进给、最粗的钻头）；要求超出的作业会被 `spindle_limit` 拒绝（安全开关 `guard` 默认为 `reject`；设为 `warn` 时作业通过，转速被削减到主轴最大值，每项超出列在 `spindle_warnings` 中）。
+* **带版本的项目存储：** 文件从不被覆盖，每次写入都是带 SHA-256 的新版本；对已有文件的写入必须说明它基于哪个版本（`If-Match`）；每次读取都用哈希校验字节；可能跳出文件夹或属于 Windows 的名称会被拒绝。
+* **插件背后的机床：** Bungard 机床就是 `bungard` 插件（同样的机床、同样的作业、同样的旧路由），无硬件的 `demo` 插件供测试使用；通用队列保存每个作业的历史，事件流（`GET /api/v1/events/stream`）让客户端凭 `Last-Event-ID` 重新连接而不丢失任何内容。
+* **每个应用共用的登录：** 登录会说明它属于哪个应用，每个人可以查看并关闭自己已打开的会话，管理员可以处理任何人的会话；密码与锁定遵循设置，审计记录登录、拒绝和关闭，绝不记录秘密；`GET /api/v1/auth/policy` 向 Studio 展示安全开关。
 
 ## 🔒 安全与防护
 
@@ -127,10 +132,11 @@ EH3D-SERVER 是 EH3D 家族的中心：程序把作业发给它，它通过节�
 | 通往机床 | 机床的 `connection` 为 `node`（位于某地址、带令牌的 EH3D-NODE-BUNGARD）或 `demo`（模拟器） | [docs/API.md](docs/API.md)、`src/machines.rs` |
 | 命令行 | `eh3d-server [--config FILE]`；`--help` 会列出 | `src/main.rs` |
 | 服务 | 一个可执行文件，默认端口 18200，一个 systemd 单元 | [docs/DEPLOY.md](docs/DEPLOY.md)、`deploy/eh3d-server.service` |
+| 公共服务 | `/api/v1/apps/{app}/projects`、`catalogs`、`plugins`、`work`、`notifications`、`auth`；`GET /api/v1/events/stream` 发送服务器发送事件 | [docs/SERVICES.md](docs/SERVICES.md)、[docs/openapi.yaml](docs/openapi.yaml) |
 
 ## ⚙️ 配置
 
-`server.cfg`（或用 `--config` 指定的文件）有二十四个可选键；未知的键或超出范围的值在启动时会报错。`server.cfg.example` 有说明。
+`server.cfg`（或用 `--config` 指定的文件）有 66 个可选键；未知的键或超出范围的值在启动时会报错。`server.cfg.example` 有说明。
 
 | 键 | 默认值 | 范围 | 作用 |
 |---|---|---|---|
@@ -148,6 +154,8 @@ EH3D-SERVER 是 EH3D 家族的中心：程序把作业发给它，它通过节�
 | `audit_file` | `true` | true 或 false | 除控制台外，把审计记录（谁做了什么）写入 `audit.jsonl` |
 | `job_log` | `true` | true 或 false | 在每个作业开始和结束时向 `eh3d-jobs.log` 写一行 |
 | `log_max_kb` | 1024 | 16 到 1048576 | 审计与作业记录达到多少 KB 时归档（保留一份旧副本） |
+
+公共服务的上限和开关（存储、目录、队列、事件流、登录、密码）是同一个文件里的键，每个都在 `server.cfg.example` 中有说明；`GET /api/v1/auth/policy` 向管理员展示安全开关。
 
 用户和令牌的名称：字母、数字、`.`、`_` 和 `-`，最多 32 个字符；密码：8 到 128 个字符。各机床上调好的数值不在这里：它们保存在机床记录中，格式与程序的机床文件相同。
 
@@ -167,7 +175,7 @@ python -I tools/ci_validate.py
 
 ## 🧪 测试
 
-测试共 252 个（`cargo test`，CI 中在 Windows 和 Linux 上运行，COMMON, DRILLPRO 和 ROUTEPRO 检出在服务器旁）：模块内 143 个（设置及其范围、用户、角色、令牌、对错误密码的减速、文件和作业簿、规划），通过真实路由器的接口端到端 41 个（`tests/api.rs`），维护客户端所读响应示例的 2 个（`tests/examples.rs`），以及真实程序通过真实端口把作业发给真实服务器、机床使用模拟器的 7 个（`tests/programs.rs`）。`tests/` 中的其他文件另有 59 个（产物、计算任务、共享、事件、错误目录、API 文档中的路由、信号停止与一次 panic）。CI 还运行 `cargo fmt --all --check`、将警告视为错误的 `cargo clippy` 和 `python -I tools/ci_validate.py`。这里没有任何东西针对真实节点或机床测试过。 负责更新的辅助程序另有 21 项自己的测试（`python -I tests/test_update_helper.py`，用替身替代 GitHub 和 systemd）。另有两个测试文件检查：使锁中毒的 panic 不会使服务器停止（`tests/poison.rs`），以及真实的二进制文件在收到 SIGTERM 时停止（`tests/sigterm.rs`，在 Linux 上）；备份和部署文件各有 7 个和 8 个自己的测试（`tests/test_backup.py`、`tests/test_deploy_files.py`）。 另有两个测试文件分别在真实套接字上检查事件 websocket（`tests/events.rs`，3 个测试），并对照服务器源码检查错误代码目录（`tests/errors.rs`，3 个测试）。 路由契约通过 `tests/openapi.rs`（6 个测试）和 `python -I tools/check_openapi.py` 对照路由器检查，后者也在 CI 中运行。
+测试共 328 个（`cargo test`，CI 中在 Windows 和 Linux 上运行，COMMON, DRILLPRO 和 ROUTEPRO 检出在服务器旁）：模块内 181 个（设置及其范围、用户、角色、令牌、对错误密码的减速、文件和作业簿、规划），通过真实路由器的接口端到端 41 个（`tests/api.rs`），维护客户端所读响应示例的 2 个（`tests/examples.rs`），以及真实程序通过真实端口把作业发给真实服务器、机床使用模拟器的 7 个（`tests/programs.rs`）。`tests/` 中的其他文件另有 97 个（四个公共服务及其文档、产物、计算任务、共享、事件、错误目录、API 文档中的路由、信号停止与一次 panic）。CI 还运行 `cargo fmt --all --check`、将警告视为错误的 `cargo clippy` 和 `python -I tools/ci_validate.py`。这里没有任何东西针对真实节点或机床测试过。 负责更新的辅助程序另有 21 项自己的测试（`python -I tests/test_update_helper.py`，用替身替代 GitHub 和 systemd）。另有两个测试文件检查：使锁中毒的 panic 不会使服务器停止（`tests/poison.rs`），以及真实的二进制文件在收到 SIGTERM 时停止（`tests/sigterm.rs`，在 Linux 上）；备份和部署文件各有 7 个和 8 个自己的测试（`tests/test_backup.py`、`tests/test_deploy_files.py`）。 另有两个测试文件分别在真实套接字上检查事件 websocket（`tests/events.rs`，3 个测试），并对照服务器源码检查错误代码目录（`tests/errors.rs`，3 个测试）。 路由契约通过 `tests/openapi.rs`（6 个测试）和 `python -I tools/check_openapi.py` 对照路由器检查，后者也在 CI 中运行。
 
 ## 🏗️ 构建与发布
 
@@ -195,7 +203,11 @@ EH3D-SERVER/
 │   ├── updates.rs  head.rs                      服务的更新
 │   ├── inspect.rs                               通过钻头摄像头进行质量检查
 │   ├── gcode.rs gcode_run.rs                    自由 G 代码：清理、解析，以及在模拟器或 GRBL 上运行
-│   └── spindle.rs                               机床的主轴、其限值和安全开关
+│   ├── spindle.rs                               机床的主轴、其限值和安全开关
+│   ├── pstore.rs api_pstore.rs                  项目存储：版本、锁、容器
+│   ├── catalogs.rs api_catalogs.rs              共享目录：材料、刀具、库
+│   ├── plugins.rs work.rs feed.rs api_work.rs   机床插件、作业队列、事件、通知
+│   └── apps.rs api_auth.rs                      各个应用以及它们共用的统一登录
 ├── tests/                                       模拟器上的接口端到端测试，以及真实程序对真实服务器
 ├── docs/                                        API、其 OpenAPI 契约、运行服务器的指南和两张图的数据
 ├── deploy/                                      systemd 单元和服务的辅助程序
@@ -223,6 +235,7 @@ EH3D-SERVER/
 * 除程序之外的客户端中，EH3D-STUDIO 已存在；Android 应用和触摸面板还不存在。
 * 它需要 EH3D-DRILLPRO 和 EH3D-ROUTEPRO 的文件夹在旁边，因为它使用它们的库。
 * 服务器停止时正在运行的作业会标记为失败，不会恢复。
+* 目前没有任何应用使用公共服务（项目存储、目录、通用队列、统一登录）：它们只在计算机上做了描述和测试，没有用真实客户端或真实机床试过。
 
 **下一步**
 
@@ -246,6 +259,7 @@ README 和文本提供英语、西班牙语、法语、意大利语、德语、�
 
 * [API](docs/API.md)：每个请求、作业以及客户端绘制的视图、状态和 websocket。
 * [路由](docs/openapi.yaml)：每个路由的 OpenAPI 契约（角色、范围、模式、示例和错误代码），其表格在 [docs/ROUTES.md](docs/ROUTES.md)。
+* [公共服务](docs/SERVICES.md)：项目存储、共享目录、带队列和事件的机床插件和统一登录，各有专页（[PROJECT_STORE.md](docs/PROJECT_STORE.md)、[CATALOGS.md](docs/CATALOGS.md)、[MACHINE_PLUGINS.md](docs/MACHINE_PLUGINS.md)、[AUTH.md](docs/AUTH.md)）。
 * [运行服务器](docs/DEPLOY.md)：编译、首次启动、CM5 上的服务以及部署的安全性。
 * [变更日志](CHANGELOG.md)
 

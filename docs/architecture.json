@@ -2,7 +2,7 @@
   "repo": "EH3D-SERVER",
   "ecosystem": "eh3d",
   "tagline": "The center of the EH3D programs: it plans the jobs, runs them on the machine through its node and tells everybody how they go.",
-  "description": "EH3D-SERVER is a Rust service (axum) with a REST interface and a websocket. Every request needs a token with one of three roles. It plans a drilling or routing job with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, keeps it ready until an operator starts it, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator and a stop. Everything is tested on a computer against the simulator; nothing has run on a real machine through it, and it does not terminate TLS.",
+  "description": "EH3D-SERVER is a Rust service (axum) with a REST interface and a websocket. Every request needs a token with one of three roles. Besides the Bungard jobs it gives every application of EH3D four common services: a store of projects and files, shared catalogs, machine plugins with a queue of jobs and a stream of events, and one login. It plans a drilling or routing job with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, keeps it ready until an operator starts it, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator and a stop. Everything is tested on a computer against the simulator; nothing has run on a real machine through it, and it does not terminate TLS.",
   "columns": [
     "WHO USES IT",
     "THIS REPOSITORY",
@@ -52,6 +52,24 @@
       "code": [
         "src/api.rs::/api/v1/events",
         "src/api.rs::/api/v1/jobs"
+      ]
+    },
+    {
+      "id": "services",
+      "column": 1,
+      "level": "tested",
+      "title": "Four common services",
+      "lines": [
+        "project store, catalogs, jobs of",
+        "any machine and one login,",
+        "for every EH3D application"
+      ],
+      "code": [
+        "src/api_pstore.rs::/api/v1/apps/:app/projects",
+        "src/api_catalogs.rs::/api/v1/catalogs",
+        "src/api_work.rs::/api/v1/events/stream",
+        "src/api_auth.rs::/api/v1/auth/login",
+        "src/plugins.rs::trait MachinePlugin"
       ]
     },
     {
@@ -163,6 +181,11 @@
       "from": "plan",
       "to": "node",
       "level": "untested"
+    },
+    {
+      "from": "api",
+      "to": "services",
+      "level": "tested"
     }
   ],
   "legend": {
