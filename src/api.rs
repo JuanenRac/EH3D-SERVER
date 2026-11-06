@@ -316,6 +316,7 @@ pub fn router(state: Shared) -> Router {
         .merge(crate::api_projects::routes())
         .merge(crate::api_pstore::routes(&state.cfg))
         .merge(crate::api_catalogs::routes(&state.cfg))
+        .merge(crate::api_work::routes())
         .layer(DefaultBodyLimit::max(limit))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -1928,9 +1929,9 @@ async fn head_stream(
 }
 
 #[derive(Deserialize)]
-struct TokenQuery {
-    token: Option<String>,
-    ticket: Option<String>,
+pub(crate) struct TokenQuery {
+    pub(crate) token: Option<String>,
+    pub(crate) ticket: Option<String>,
 }
 
 /// A ticket for the camera or the websocket: good for one use within half a minute, so that the address does not carry the token of the session.
@@ -1949,7 +1950,7 @@ async fn make_ticket(State(s): State<Shared>, Authed(_who, token): Authed) -> Ap
 
 /// Who asks, for the endpoints whose caller cannot always send a header: `Authorization`, else a ticket in the address, else (only if the settings allow it)
 /// the token in the address. Returns the identity and the token of the session.
-fn identify_open(
+pub(crate) fn identify_open(
     s: &Shared,
     parts: &Parts,
     q: &TokenQuery,

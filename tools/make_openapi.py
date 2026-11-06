@@ -260,7 +260,7 @@ TAGS = [
     ("artifacts", "Files kept by identity: artifacts, blobs and uploads."),
     ("projects", "Projects with revisions and explicit sharing."),
     ("store", "The project store of every application: projects, files with versions, editing locks and the .eh3dproj container."),
-    ("catalogs", "Shared catalogs the applications read: materials, tools, machine profiles, footprints, symbols and components."),
+    ("catalogs", "Shared catalogs the applications read: materials, tools, machine profiles, footprints, symbols and components."),    ("work", "Plugins and their machines, the generic queue of jobs with its history, the stream of events and the notifications."),
 ]
 SECURITY_BEARER = [{"bearerAuth": []}]
 SECURITY_OPEN = [{"bearerAuth": []}, {"ticketAuth": []}]
@@ -577,6 +577,94 @@ op("PUT", "/catalogs/{catalog}", "catalogs", "admin", "Replace the dataset of a 
    example=[{"id": "d08", "kind": "drill", "dia_mm": 0.8}])
 op("DELETE", "/catalogs/{catalog}", "catalogs", "admin", "Empty a catalog", scope="catalog:write", ok=(200, "CatalogSummary", "application/json"), errors=CAT_ERR + ["catalog_readonly"],
    desc="A new version with no items; the file of the previous one stays beside it.")
+
+# -- the plugins, the generic queue, the stream of events and the notifications (docs/MACHINE_PLUGINS.md)
+WORK_STATE = {"type": "string", "enum": ["queued", "running", "paused", "done", "failed", "cancelled"]}
+SCHEMAS.update({
+    "PluginInfo": obj({"kind": s(), "title": s(), "capabilities": {"type": "object", "additionalProperties": True}, "manages_machines": B},
+                      ["kind", "title", "capabilities", "manages_machines"], description="`manages_machines` is true when the machines of the plugin are made with `POST /work/machines`."),
+    "PluginList": obj({"plugins": arr(ref("PluginInfo"))}, ["plugins"]),
+    "WorkMachineInfo": obj({
+        "id": s(), "name": s(), "plugin": s(), "state": {"type": "string", "enum": ["idle", "busy"]}, "job": nullable(S),
+        "capabilities": {"type": "object", "additionalProperties": True},
+    }, ["id", "name", "plugin", "state"], description="`job` is the job of the generic queue that has the machine, when there is one."),
+    "WorkMachineList": obj({"machines": arr(ref("WorkMachineInfo"))}, ["machines"]),
+    "NewWorkMachine": obj({"id": s("Lowercase letters, digits and hyphens, up to 32."), "name": s(minLength=1, maxLength=80), "plugin": s(),
+                           "settings": {"type": "object", "additionalProperties": True}}, ["id", "name", "plugin"]),
+    "WorkMachineRecord": obj({"id": s(), "name": s(), "plugin": s(), "settings": {"type": "object", "additionalProperties": True}, "created": I},
+                             ["id", "name", "plugin", "settings"]),
+    "WorkMachineChange": obj({"name": s(minLength=1, maxLength=80), "settings": {"type": "object", "additionalProperties": True}}),
+    "NewWorkJob": obj({
+        "machine": s("The id of a machine of any plugin."), "request": {"type": "object", "additionalProperties": True, "description": "What the plugin of the machine takes: for `bungard` a drill, route or gcode request (`JobRequest`), for `demo` `{\"kind\": \"demo\", \"steps\": 10}`."},
+        "name": s(maxLength=80), "app": s("The application that asks; the default is the one of the login."),
+    }, ["machine", "request"]),
+    "WorkState": WORK_STATE,
+    "WorkHistoryEntry": obj({"at": I, "state": ref("WorkState"), "by": s("A person, or `machine`/`server` when the change came from them."), "note": s()}, ["at", "state", "by"]),
+    "WorkJobSummary": obj({
+        "id": s("w-<uuid v7>"), "machine": s(), "plugin": s(), "app": s(), "name": s(), "owner": s(), "by": s(), "state": ref("WorkState"),
+        "created": I, "started": nullable(I), "finished": nullable(I), "done": I, "total": I, "percent": {"type": "integer", "minimum": 0, "maximum": 100},
+        "message": s(), "position": {"type": "integer", "minimum": 0, "description": "The place among the queued jobs of its machine (1 is the next); 0 when it is not queued."},
+    }, ["id", "machine", "plugin", "state"], extra=True),
+    "WorkJob": {"allOf": [ref("WorkJobSummary"), obj({"native": s("The id the plugin knows the job by."), "view": {}, "history": arr(ref("WorkHistoryEntry"))}, extra=True)],
+                "description": "`view` is what the plugin drew when it prepared the job and is kept until the server restarts."},
+    "WorkJobPage": obj({"total": I, "offset": I, "limit": I, "items": arr(ref("WorkJobSummary"))}, ["total", "offset", "limit", "items"]),
+    "Notification": obj({"id": I, "at": I, "kind": s(), "title": s("In English; a client shows its own text for the `kind`."), "data": {"type": "object", "additionalProperties": True}, "read": B},
+                        ["id", "kind", "title", "read"]),
+    "NotificationList": obj({"notifications": arr(ref("Notification"))}, ["notifications"]),
+    "ReadNotifications": obj({"ids": arr(I), "all": B}, description="The ones named, or all of those the caller sees."),
+    "Marked": obj({"marked": I}, ["marked"]),
+})
+
+W_READ = dict(scope="machines:view")
+op("GET", "/plugins", "work", "viewer", "List the machine plugins", ok=(200, "PluginList", "application/json"), **W_READ,
+   desc="`bungard` (the machines of DRILLPRO and ROUTEPRO, the same as `/machines`) and `demo` (a machine with no hardware), with what each can do.")
+op("GET", "/work/machines", "work", "viewer", "List the machines of every plugin", ok=(200, "WorkMachineList", "application/json"), **W_READ,
+   desc="The machines of `/machines` appear here as machines of the `bungard` plugin, with their state; the ones of the other plugins are made with `POST /work/machines`.")
+op("POST", "/work/machines", "work", "admin", "Make a machine of a plugin", scope="machines:manage", body="NewWorkMachine", ok=(201, "WorkMachineRecord", "application/json"),
+   errors=["bad_id", "bad_name", "unknown_plugin", "not_supported", "bad_plugin_request", "machine_exists"],
+   desc="Only for a plugin that keeps its machines here (`demo`); for `bungard` use `POST /machines`. The id cannot be one of any other machine.",
+   example={"id": "demo-1", "name": "Demo machine", "plugin": "demo", "settings": {"step_ms": 20}})
+op("GET", "/work/machines/{id}", "work", "viewer", "Read a machine of a plugin", ok=(200, "WorkMachineInfo", "application/json"), errors=MACHINE_ERR, **W_READ)
+op("PUT", "/work/machines/{id}", "work", "admin", "Change a machine made through the plugins", scope="machines:manage", body="WorkMachineChange", ok=(200, "WorkMachineRecord", "application/json"),
+   errors=MACHINE_ERR + ["bad_name", "bad_plugin_request", "unknown_plugin"], example={"name": "Demo machine 2"})
+op("DELETE", "/work/machines/{id}", "work", "admin", "Remove a machine made through the plugins", scope="machines:manage", errors=MACHINE_ERR + ["machine_busy"],
+   desc="Refused while a job of the queue is open on it.")
+WJOB_ERR = ["unknown_job", "plugin_failed"]
+op("GET", "/work/jobs", "work", "viewer", "List the jobs of the generic queue, newest first", ok=(200, "WorkJobPage", "application/json"), **W_READ,
+   query=[q("machine", S, "Only this machine."), q("state", WORK_STATE, "Only this state."), q("app", S, "Only the jobs asked by this application."),
+          q("mine", B, "Only the caller's."), q("limit", {"type": "integer", "minimum": 1, "maximum": 500}, "Jobs per page (50)."), q("offset", {"type": "integer", "minimum": 0}, "Jobs to skip.")],
+   desc="The jobs that are open are read from their plugins first.")
+op("POST", "/work/jobs", "work", "operator", "Prepare a job on a machine of any plugin", scope="jobs:prepare", body="NewWorkJob", ok=(201, "WorkJob", "application/json"),
+   errors=["unknown_machine", "bad_plugin_request", "bad_app", "queue_full", "plugin_failed"],
+   desc="The plugin of the machine checks the request and makes the job ready (`queued`); nothing moves until a person starts it. At most `work_queue_max` jobs wait.",
+   example={"machine": "demo-1", "request": {"kind": "demo", "steps": 10}, "name": "test run", "app": "studio"})
+op("GET", "/work/jobs/{id}", "work", "viewer", "Read a job with its history", ok=(200, "WorkJob", "application/json"), errors=["unknown_job"], **W_READ,
+   desc="The state is read from the plugin first.")
+op("DELETE", "/work/jobs/{id}", "work", "operator", "Remove a finished job", scope="jobs:cancel", errors=["unknown_job", "job_active"])
+op("POST", "/work/jobs/{id}/start", "work", "operator", "Start a queued job", scope="jobs:start", ok=(200, "WorkJob", "application/json"),
+   errors=WJOB_ERR + ["not_ready", "machine_busy", "unknown_machine", "bad_plugin_request"], desc="One job at a time on a machine.")
+op("POST", "/work/jobs/{id}/pause", "work", "operator", "Hold a running job", scope="jobs:start", ok=(200, "WorkJob", "application/json"),
+   errors=WJOB_ERR + ["not_in_state", "not_supported"], desc="A `bungard` machine holds only free G-code jobs (`not_supported` otherwise).")
+op("POST", "/work/jobs/{id}/resume", "work", "operator", "Let a held job go on", scope="jobs:start", ok=(200, "WorkJob", "application/json"),
+   errors=WJOB_ERR + ["not_in_state", "not_supported"])
+op("POST", "/work/jobs/{id}/cancel", "work", "operator", "Cancel a queued job or stop a running one", scope="jobs:cancel", ok=(200, "WorkJob", "application/json"),
+   errors=WJOB_ERR + ["not_cancellable", "not_in_state"])
+op("GET", "/events/stream", "work", "viewer", "Open the stream of events (server-sent events)", security=SECURITY_OPEN, ok=(200, S, "text/event-stream"),
+   errors=["too_many_clients"],
+   query=[q("machine", S, "Only the events about this machine."), q("project", S, "Only the events about this project."), q("job", S, "Only the events about this job."),
+          q("app", S, "Only the events of this application."), q("kinds", S, "Kinds separated by commas; `job` matches `job.state`, `job.created`..."),
+          q("last_event_id", {"type": "integer", "minimum": 0}, "Where to go on from (the header `Last-Event-ID` does the same; a browser sends it by itself when it reconnects)."),
+          q("ticket", S, "A ticket from `POST /tickets` (an EventSource cannot set a header)."), q("token", S, "The token itself; only when `url_token` is on.")],
+   desc="Every event is `id: <number>`, `event: <kind>` and `data: <JSON>`. First `hello` (`last_id`, `resumed`, `resync`, `clients`), then the events of the kinds `project.*`, `job.created`, `job.state`, `job.progress` "
+        "(every tenth of the work), `machine.*`, `catalog.changed` and `notification`, those the caller may see and its token's scopes allow. With `Last-Event-ID` the events kept after that number "
+        "(the last `events_queue`) come first; `resync: true` in the `hello` says some were lost and the client has to ask for the state again, as does the event `resync` for a client that falls behind. "
+        "A comment line (`: ping`) every `events_ping_s` seconds keeps the connection alive; the stream ends when the login ends. At most `events_clients_max` clients listen at once. "
+        "The websocket `GET /events` is not changed.")
+op("GET", "/notifications", "work", "viewer", "List the notifications of the caller", ok=(200, "NotificationList", "application/json"), **W_READ,
+   query=[q("unread", B, "Only the ones not read."), q("limit", {"type": "integer", "minimum": 1, "maximum": 500}, "Up to this many (50).")],
+   desc="A job that ended, failed, is held or waits for the operator makes a notification for the person who asked for it (the administrators see all). Kept in memory, the last `notifications_keep`.")
+op("POST", "/notifications/read", "work", "viewer", "Mark notifications as read", body="ReadNotifications", ok=(200, "Marked", "application/json"), **W_READ,
+   example={"all": True})
 
 # ---------------------------------------------------------------------------------------------------------------------------------------
 # Building the document

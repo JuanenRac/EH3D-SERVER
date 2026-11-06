@@ -38,6 +38,7 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/catalogs/:catalog` | DELETE | admin + `catalog:write` | Empty a catalog |
 | `/api/v1/catalogs/:catalog/items/:item` | GET | viewer + `catalog:read` | Read one item of a catalog |
 | `/api/v1/events` | GET | viewer | Open the websocket of the events |
+| `/api/v1/events/stream` | GET | viewer | Open the stream of events (server-sent events) |
 | `/api/v1/fleet` | GET | viewer + `machines:view` | Every machine at once, grouped by station |
 | `/api/v1/health` | GET | none | Health check |
 | `/api/v1/jobs` | GET | viewer + `machines:view` | List the jobs, newest first |
@@ -73,6 +74,9 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/machines/:id/spindle` | GET | viewer | Read the spindle and its limits |
 | `/api/v1/machines/:id/spindle` | PUT | admin | Set the spindle, its switch and its limits |
 | `/api/v1/machines/:id/stop` | POST | operator + `jobs:cancel` | Stop the machine now |
+| `/api/v1/notifications` | GET | viewer + `machines:view` | List the notifications of the caller |
+| `/api/v1/notifications/read` | POST | viewer + `machines:view` | Mark notifications as read |
+| `/api/v1/plugins` | GET | viewer + `machines:view` | List the machine plugins |
 | `/api/v1/projects` | GET | viewer + `projects:read` | List the projects the caller sees |
 | `/api/v1/projects` | POST | operator + `projects:write` | Make a project |
 | `/api/v1/projects/:id` | GET | viewer + `projects:read` | Read a project with its revisions |
@@ -108,3 +112,16 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/users` | POST | admin | Create a user |
 | `/api/v1/users/:name` | PUT | admin | Change a user |
 | `/api/v1/users/:name` | DELETE | admin | Delete a user |
+| `/api/v1/work/jobs` | GET | viewer + `machines:view` | List the jobs of the generic queue, newest first |
+| `/api/v1/work/jobs` | POST | operator + `jobs:prepare` | Prepare a job on a machine of any plugin |
+| `/api/v1/work/jobs/:id` | GET | viewer + `machines:view` | Read a job with its history |
+| `/api/v1/work/jobs/:id` | DELETE | operator + `jobs:cancel` | Remove a finished job |
+| `/api/v1/work/jobs/:id/cancel` | POST | operator + `jobs:cancel` | Cancel a queued job or stop a running one |
+| `/api/v1/work/jobs/:id/pause` | POST | operator + `jobs:start` | Hold a running job |
+| `/api/v1/work/jobs/:id/resume` | POST | operator + `jobs:start` | Let a held job go on |
+| `/api/v1/work/jobs/:id/start` | POST | operator + `jobs:start` | Start a queued job |
+| `/api/v1/work/machines` | GET | viewer + `machines:view` | List the machines of every plugin |
+| `/api/v1/work/machines` | POST | admin + `machines:manage` | Make a machine of a plugin |
+| `/api/v1/work/machines/:id` | GET | viewer + `machines:view` | Read a machine of a plugin |
+| `/api/v1/work/machines/:id` | PUT | admin + `machines:manage` | Change a machine made through the plugins |
+| `/api/v1/work/machines/:id` | DELETE | admin + `machines:manage` | Remove a machine made through the plugins |

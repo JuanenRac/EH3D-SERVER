@@ -35,6 +35,8 @@ tags:
     description: "The project store of every application: projects, files with versions, editing locks and the .eh3dproj container."
   - name: catalogs
     description: "Shared catalogs the applications read: materials, tools, machine profiles, footprints, symbols and components."
+  - name: work
+    description: "Plugins and their machines, the generic queue of jobs with its history, the stream of events and the notifications."
 paths:
   "/health":
     get:
@@ -7266,6 +7268,1212 @@ paths:
               example:
                 error: unknown_catalog
                 detail: ""
+  "/plugins":
+    get:
+      operationId: get_plugins
+      tags:
+        - work
+      summary: List the machine plugins
+      description: "`bungard` (the machines of DRILLPRO and ROUTEPRO, the same as `/machines`) and `demo` (a machine with no hardware), with what each can do. Role viewer or higher. Scope `machines:view` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "machines:view"
+      x-error-codes:
+        - forbidden_scope
+        - unauthorized
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/PluginList"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
+  "/work/machines":
+    get:
+      operationId: get_work_machines
+      tags:
+        - work
+      summary: List the machines of every plugin
+      description: "The machines of `/machines` appear here as machines of the `bungard` plugin, with their state; the ones of the other plugins are made with `POST /work/machines`. Role viewer or higher. Scope `machines:view` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "machines:view"
+      x-error-codes:
+        - forbidden_scope
+        - unauthorized
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/WorkMachineList"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
+    post:
+      operationId: post_work_machines
+      tags:
+        - work
+      summary: Make a machine of a plugin
+      description: "Only for a plugin that keeps its machines here (`demo`); for `bungard` use `POST /machines`. The id cannot be one of any other machine. Role admin. Scope `machines:manage` if the token is limited by scopes."
+      x-role: admin
+      x-scope: "machines:manage"
+      x-error-codes:
+        - bad_id
+        - bad_name
+        - bad_plugin_request
+        - bad_request
+        - forbidden
+        - forbidden_scope
+        - machine_exists
+        - not_supported
+        - unauthorized
+        - unknown_plugin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/NewWorkMachine"
+            example:
+              id: demo-1
+              name: Demo machine
+              plugin: demo
+              settings:
+                step_ms: 20
+      responses:
+        "201":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/WorkMachineRecord"
+        "400":
+          description: "Refused with `bad_request`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_request
+                detail: ""
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "409":
+          description: "Refused with `machine_exists`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: machine_exists
+                detail: ""
+        "422":
+          description: "Refused with `bad_id`, `bad_name`, `bad_plugin_request`, `unknown_plugin`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_id
+                detail: ""
+        "501":
+          description: "Refused with `not_supported`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: not_supported
+                detail: ""
+  "/work/machines/{id}":
+    get:
+      operationId: get_work_machines_id
+      tags:
+        - work
+      summary: Read a machine of a plugin
+      description: "Role viewer or higher. Scope `machines:view` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "machines:view"
+      x-error-codes:
+        - forbidden_scope
+        - unauthorized
+        - unknown_machine
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/WorkMachineInfo"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
+        "404":
+          description: "Refused with `unknown_machine`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_machine
+                detail: ""
+    put:
+      operationId: put_work_machines_id
+      tags:
+        - work
+      summary: Change a machine made through the plugins
+      description: "Role admin. Scope `machines:manage` if the token is limited by scopes."
+      x-role: admin
+      x-scope: "machines:manage"
+      x-error-codes:
+        - bad_name
+        - bad_plugin_request
+        - bad_request
+        - forbidden
+        - forbidden_scope
+        - unauthorized
+        - unknown_machine
+        - unknown_plugin
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/WorkMachineChange"
+            example:
+              name: Demo machine 2
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/WorkMachineRecord"
+              example:
+                name: Demo machine 2
+        "400":
+          description: "Refused with `bad_request`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_request
+                detail: ""
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_machine`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_machine
+                detail: ""
+        "422":
+          description: "Refused with `bad_name`, `bad_plugin_request`, `unknown_plugin`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_name
+                detail: ""
+    delete:
+      operationId: delete_work_machines_id
+      tags:
+        - work
+      summary: Remove a machine made through the plugins
+      description: "Refused while a job of the queue is open on it. Role admin. Scope `machines:manage` if the token is limited by scopes."
+      x-role: admin
+      x-scope: "machines:manage"
+      x-error-codes:
+        - forbidden
+        - forbidden_scope
+        - machine_busy
+        - unauthorized
+        - unknown_machine
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Ok"
+              example:
+                ok: true
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_machine`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_machine
+                detail: ""
+        "409":
+          description: "Refused with `machine_busy`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: machine_busy
+                detail: ""
+  "/work/jobs":
+    get:
+      operationId: get_work_jobs
+      tags:
+        - work
+      summary: "List the jobs of the generic queue, newest first"
+      description: "The jobs that are open are read from their plugins first. Role viewer or higher. Scope `machines:view` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "machines:view"
+      x-error-codes:
+        - forbidden_scope
+        - unauthorized
+      parameters:
+        - name: machine
+          in: query
+          required: false
+          description: Only this machine.
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          description: Only this state.
+          schema:
+            type: string
+            enum:
+              - queued
+              - running
+              - paused
+              - done
+              - failed
+              - cancelled
+        - name: app
+          in: query
+          required: false
+          description: Only the jobs asked by this application.
+          schema:
+            type: string
+        - name: mine
+          in: query
+          required: false
+          description: "Only the caller's."
+          schema:
+            type: boolean
+        - name: limit
+          in: query
+          required: false
+          description: "Jobs per page (50)."
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+        - name: offset
+          in: query
+          required: false
+          description: Jobs to skip.
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/WorkJobPage"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
+    post:
+      operationId: post_work_jobs
+      tags:
+        - work
+      summary: Prepare a job on a machine of any plugin
+      description: "The plugin of the machine checks the request and makes the job ready (`queued`); nothing moves until a person starts it. At most `work_queue_max` jobs wait. Role operator or higher. Scope `jobs:prepare` if the token is limited by scopes."
+      x-role: operator
+      x-scope: "jobs:prepare"
+      x-error-codes:
+        - bad_app
+        - bad_plugin_request
+        - bad_request
+        - forbidden
+        - forbidden_scope
+        - plugin_failed
+        - queue_full
+        - unauthorized
+        - unknown_machine
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/NewWorkJob"
+            example:
+              machine: demo-1
+              request:
+                kind: demo
+                steps: 10
+              name: test run
+              app: studio
+      responses:
+        "201":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/WorkJob"
+        "400":
+          description: "Refused with `bad_request`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_request
+                detail: ""
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_machine`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_machine
+                detail: ""
+        "422":
+          description: "Refused with `bad_app`, `bad_plugin_request`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_app
+                detail: ""
+        "429":
+          description: "Refused with `queue_full`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: queue_full
+                detail: ""
+        "502":
+          description: "Refused with `plugin_failed`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: plugin_failed
+                detail: ""
+  "/work/jobs/{id}":
+    get:
+      operationId: get_work_jobs_id
+      tags:
+        - work
+      summary: Read a job with its history
+      description: "The state is read from the plugin first. Role viewer or higher. Scope `machines:view` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "machines:view"
+      x-error-codes:
+        - forbidden_scope
+        - unauthorized
+        - unknown_job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/WorkJob"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
+        "404":
+          description: "Refused with `unknown_job`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_job
+                detail: ""
+    delete:
+      operationId: delete_work_jobs_id
+      tags:
+        - work
+      summary: Remove a finished job
+      description: "Role operator or higher. Scope `jobs:cancel` if the token is limited by scopes."
+      x-role: operator
+      x-scope: "jobs:cancel"
+      x-error-codes:
+        - forbidden
+        - forbidden_scope
+        - job_active
+        - unauthorized
+        - unknown_job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Ok"
+              example:
+                ok: true
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_job`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_job
+                detail: ""
+        "409":
+          description: "Refused with `job_active`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: job_active
+                detail: ""
+  "/work/jobs/{id}/start":
+    post:
+      operationId: post_work_jobs_id_start
+      tags:
+        - work
+      summary: Start a queued job
+      description: "One job at a time on a machine. Role operator or higher. Scope `jobs:start` if the token is limited by scopes."
+      x-role: operator
+      x-scope: "jobs:start"
+      x-error-codes:
+        - bad_plugin_request
+        - forbidden
+        - forbidden_scope
+        - machine_busy
+        - not_ready
+        - plugin_failed
+        - unauthorized
+        - unknown_job
+        - unknown_machine
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/WorkJob"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_job`, `unknown_machine`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_job
+                detail: ""
+        "409":
+          description: "Refused with `machine_busy`, `not_ready`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: machine_busy
+                detail: ""
+        "422":
+          description: "Refused with `bad_plugin_request`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_plugin_request
+                detail: ""
+        "502":
+          description: "Refused with `plugin_failed`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: plugin_failed
+                detail: ""
+  "/work/jobs/{id}/pause":
+    post:
+      operationId: post_work_jobs_id_pause
+      tags:
+        - work
+      summary: Hold a running job
+      description: "A `bungard` machine holds only free G-code jobs (`not_supported` otherwise). Role operator or higher. Scope `jobs:start` if the token is limited by scopes."
+      x-role: operator
+      x-scope: "jobs:start"
+      x-error-codes:
+        - forbidden
+        - forbidden_scope
+        - not_in_state
+        - not_supported
+        - plugin_failed
+        - unauthorized
+        - unknown_job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/WorkJob"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_job`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_job
+                detail: ""
+        "409":
+          description: "Refused with `not_in_state`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: not_in_state
+                detail: ""
+        "501":
+          description: "Refused with `not_supported`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: not_supported
+                detail: ""
+        "502":
+          description: "Refused with `plugin_failed`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: plugin_failed
+                detail: ""
+  "/work/jobs/{id}/resume":
+    post:
+      operationId: post_work_jobs_id_resume
+      tags:
+        - work
+      summary: Let a held job go on
+      description: "Role operator or higher. Scope `jobs:start` if the token is limited by scopes."
+      x-role: operator
+      x-scope: "jobs:start"
+      x-error-codes:
+        - forbidden
+        - forbidden_scope
+        - not_in_state
+        - not_supported
+        - plugin_failed
+        - unauthorized
+        - unknown_job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/WorkJob"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_job`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_job
+                detail: ""
+        "409":
+          description: "Refused with `not_in_state`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: not_in_state
+                detail: ""
+        "501":
+          description: "Refused with `not_supported`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: not_supported
+                detail: ""
+        "502":
+          description: "Refused with `plugin_failed`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: plugin_failed
+                detail: ""
+  "/work/jobs/{id}/cancel":
+    post:
+      operationId: post_work_jobs_id_cancel
+      tags:
+        - work
+      summary: Cancel a queued job or stop a running one
+      description: "Role operator or higher. Scope `jobs:cancel` if the token is limited by scopes."
+      x-role: operator
+      x-scope: "jobs:cancel"
+      x-error-codes:
+        - forbidden
+        - forbidden_scope
+        - not_cancellable
+        - not_in_state
+        - plugin_failed
+        - unauthorized
+        - unknown_job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/WorkJob"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_job`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_job
+                detail: ""
+        "409":
+          description: "Refused with `not_cancellable`, `not_in_state`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: not_cancellable
+                detail: ""
+        "502":
+          description: "Refused with `plugin_failed`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: plugin_failed
+                detail: ""
+  "/events/stream":
+    get:
+      operationId: get_events_stream
+      tags:
+        - work
+      summary: "Open the stream of events (server-sent events)"
+      description: "Every event is `id: <number>`, `event: <kind>` and `data: <JSON>`. First `hello` (`last_id`, `resumed`, `resync`, `clients`), then the events of the kinds `project.*`, `job.created`, `job.state`, `job.progress` (every tenth of the work), `machine.*`, `catalog.changed` and `notification`, those the caller may see and its token's scopes allow. With `Last-Event-ID` the events kept after that number (the last `events_queue`) come first; `resync: true` in the `hello` says some were lost and the client has to ask for the state again, as does the event `resync` for a client that falls behind. A comment line (`: ping`) every `events_ping_s` seconds keeps the connection alive; the stream ends when the login ends. At most `events_clients_max` clients listen at once. The websocket `GET /events` is not changed. Role viewer or higher."
+      x-role: viewer
+      x-error-codes:
+        - too_many_clients
+        - unauthorized
+      parameters:
+        - name: machine
+          in: query
+          required: false
+          description: Only the events about this machine.
+          schema:
+            type: string
+        - name: project
+          in: query
+          required: false
+          description: Only the events about this project.
+          schema:
+            type: string
+        - name: job
+          in: query
+          required: false
+          description: Only the events about this job.
+          schema:
+            type: string
+        - name: app
+          in: query
+          required: false
+          description: Only the events of this application.
+          schema:
+            type: string
+        - name: kinds
+          in: query
+          required: false
+          description: "Kinds separated by commas; `job` matches `job.state`, `job.created`..."
+          schema:
+            type: string
+        - name: last_event_id
+          in: query
+          required: false
+          description: "Where to go on from (the header `Last-Event-ID` does the same; a browser sends it by itself when it reconnects)."
+          schema:
+            type: integer
+            minimum: 0
+        - name: ticket
+          in: query
+          required: false
+          description: "A ticket from `POST /tickets` (an EventSource cannot set a header)."
+          schema:
+            type: string
+        - name: token
+          in: query
+          required: false
+          description: "The token itself; only when `url_token` is on."
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+        - ticketAuth: []
+      responses:
+        "200":
+          description: Done.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "429":
+          description: "Refused with `too_many_clients`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: too_many_clients
+                detail: ""
+  "/notifications":
+    get:
+      operationId: get_notifications
+      tags:
+        - work
+      summary: List the notifications of the caller
+      description: "A job that ended, failed, is held or waits for the operator makes a notification for the person who asked for it (the administrators see all). Kept in memory, the last `notifications_keep`. Role viewer or higher. Scope `machines:view` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "machines:view"
+      x-error-codes:
+        - forbidden_scope
+        - unauthorized
+      parameters:
+        - name: unread
+          in: query
+          required: false
+          description: Only the ones not read.
+          schema:
+            type: boolean
+        - name: limit
+          in: query
+          required: false
+          description: "Up to this many (50)."
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/NotificationList"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
+  "/notifications/read":
+    post:
+      operationId: post_notifications_read
+      tags:
+        - work
+      summary: Mark notifications as read
+      description: "Role viewer or higher. Scope `machines:view` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "machines:view"
+      x-error-codes:
+        - bad_request
+        - forbidden_scope
+        - unauthorized
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ReadNotifications"
+            example:
+              all: true
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Marked"
+        "400":
+          description: "Refused with `bad_request`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_request
+                detail: ""
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
 components:
   securitySchemes:
     bearerAuth:
@@ -9021,5 +10229,303 @@ components:
         - type: object
           additionalProperties: true
       description: "A list of items, or an object with the list under `tools`, `profiles`, `footprints`, `symbols` or `parts` (`items` also works); the components base declares `\"format\": \"phoenix-parts/1\"`. As CSV (`Content-Type: text/csv`): a header line and a row per item, the values as text."
+    PluginInfo:
+      type: object
+      properties:
+        kind:
+          type: string
+        title:
+          type: string
+        capabilities:
+          type: object
+          additionalProperties: true
+        manages_machines:
+          type: boolean
+      required:
+        - kind
+        - title
+        - capabilities
+        - manages_machines
+      additionalProperties: false
+      description: "`manages_machines` is true when the machines of the plugin are made with `POST /work/machines`."
+    PluginList:
+      type: object
+      properties:
+        plugins:
+          type: array
+          items:
+            "$ref": "#/components/schemas/PluginInfo"
+      required:
+        - plugins
+      additionalProperties: false
+    WorkMachineInfo:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        plugin:
+          type: string
+        state:
+          type: string
+          enum:
+            - idle
+            - busy
+        job:
+          oneOf:
+            - type: string
+            - type: "null"
+        capabilities:
+          type: object
+          additionalProperties: true
+      required:
+        - id
+        - name
+        - plugin
+        - state
+      additionalProperties: false
+      description: "`job` is the job of the generic queue that has the machine, when there is one."
+    WorkMachineList:
+      type: object
+      properties:
+        machines:
+          type: array
+          items:
+            "$ref": "#/components/schemas/WorkMachineInfo"
+      required:
+        - machines
+      additionalProperties: false
+    NewWorkMachine:
+      type: object
+      properties:
+        id:
+          type: string
+          description: "Lowercase letters, digits and hyphens, up to 32."
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        plugin:
+          type: string
+        settings:
+          type: object
+          additionalProperties: true
+      required:
+        - id
+        - name
+        - plugin
+      additionalProperties: false
+    WorkMachineRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        plugin:
+          type: string
+        settings:
+          type: object
+          additionalProperties: true
+        created:
+          type: integer
+      required:
+        - id
+        - name
+        - plugin
+        - settings
+      additionalProperties: false
+    WorkMachineChange:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        settings:
+          type: object
+          additionalProperties: true
+      additionalProperties: false
+    NewWorkJob:
+      type: object
+      properties:
+        machine:
+          type: string
+          description: The id of a machine of any plugin.
+        request:
+          type: object
+          additionalProperties: true
+          description: "What the plugin of the machine takes: for `bungard` a drill, route or gcode request (`JobRequest`), for `demo` `{\"kind\": \"demo\", \"steps\": 10}`."
+        name:
+          type: string
+          maxLength: 80
+        app:
+          type: string
+          description: "The application that asks; the default is the one of the login."
+      required:
+        - machine
+        - request
+      additionalProperties: false
+    WorkState:
+      type: string
+      enum:
+        - queued
+        - running
+        - paused
+        - done
+        - failed
+        - cancelled
+    WorkHistoryEntry:
+      type: object
+      properties:
+        at:
+          type: integer
+        state:
+          "$ref": "#/components/schemas/WorkState"
+        by:
+          type: string
+          description: "A person, or `machine`/`server` when the change came from them."
+        note:
+          type: string
+      required:
+        - at
+        - state
+        - by
+      additionalProperties: false
+    WorkJobSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          description: "w-<uuid v7>"
+        machine:
+          type: string
+        plugin:
+          type: string
+        app:
+          type: string
+        name:
+          type: string
+        owner:
+          type: string
+        by:
+          type: string
+        state:
+          "$ref": "#/components/schemas/WorkState"
+        created:
+          type: integer
+        started:
+          oneOf:
+            - type: integer
+            - type: "null"
+        finished:
+          oneOf:
+            - type: integer
+            - type: "null"
+        done:
+          type: integer
+        total:
+          type: integer
+        percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        message:
+          type: string
+        position:
+          type: integer
+          minimum: 0
+          description: "The place among the queued jobs of its machine (1 is the next); 0 when it is not queued."
+      required:
+        - id
+        - machine
+        - plugin
+        - state
+    WorkJob:
+      allOf:
+        - "$ref": "#/components/schemas/WorkJobSummary"
+        - type: object
+          properties:
+            native:
+              type: string
+              description: The id the plugin knows the job by.
+            view: {}
+            history:
+              type: array
+              items:
+                "$ref": "#/components/schemas/WorkHistoryEntry"
+      description: "`view` is what the plugin drew when it prepared the job and is kept until the server restarts."
+    WorkJobPage:
+      type: object
+      properties:
+        total:
+          type: integer
+        offset:
+          type: integer
+        limit:
+          type: integer
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/WorkJobSummary"
+      required:
+        - total
+        - offset
+        - limit
+        - items
+      additionalProperties: false
+    Notification:
+      type: object
+      properties:
+        id:
+          type: integer
+        at:
+          type: integer
+        kind:
+          type: string
+        title:
+          type: string
+          description: "In English; a client shows its own text for the `kind`."
+        data:
+          type: object
+          additionalProperties: true
+        read:
+          type: boolean
+      required:
+        - id
+        - kind
+        - title
+        - read
+      additionalProperties: false
+    NotificationList:
+      type: object
+      properties:
+        notifications:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Notification"
+      required:
+        - notifications
+      additionalProperties: false
+    ReadNotifications:
+      type: object
+      properties:
+        ids:
+          type: array
+          items:
+            type: integer
+        all:
+          type: boolean
+      additionalProperties: false
+      description: "The ones named, or all of those the caller sees."
+    Marked:
+      type: object
+      properties:
+        marked:
+          type: integer
+      required:
+        - marked
+      additionalProperties: false
 security:
   - bearerAuth: []

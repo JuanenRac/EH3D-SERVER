@@ -13,6 +13,8 @@ pub enum Kind {
     Artifact,
     Upload,
     Project,
+    /// A job of the generic queue of the machine plugins.
+    Work,
 }
 
 impl Kind {
@@ -22,6 +24,7 @@ impl Kind {
             Kind::Artifact => "a",
             Kind::Upload => "up",
             Kind::Project => "p",
+            Kind::Work => "w",
         }
     }
 }
@@ -129,6 +132,7 @@ mod tests {
         ));
         assert!(is_valid(Kind::Upload, &new(Kind::Upload)));
         assert!(is_valid(Kind::Project, &new(Kind::Project)));
+        assert!(is_valid(Kind::Work, &new(Kind::Work)));
         let (x, y) = (new(Kind::Task), new(Kind::Task));
         assert_ne!(x, y);
     }

@@ -72,6 +72,17 @@ impl FeedEvent {
         self
     }
 
+    /// The scope a token needs to hear this event (a token without scopes hears all it is allowed to see).
+    pub fn scope(&self) -> Option<&'static str> {
+        let family = self.kind.split('.').next().unwrap_or("");
+        match family {
+            "project" => Some("projects:read"),
+            "job" | "machine" | "notification" => Some("machines:view"),
+            "catalog" => Some("catalog:read"),
+            _ => None,
+        }
+    }
+
     pub fn visible_to(&self, who: &Identity) -> bool {
         match &self.visibility {
             Visibility::Everyone => true,

@@ -72,3 +72,12 @@ project_shared = false
 catalog_max_mb = 16
 catalog_max_items = 100000
 catalog_page_max = 200
+
+# ---- the generic work of the machines and the stream of events (docs/MACHINE_PLUGINS.md)
+# How many jobs of the generic queue may wait, all machines together, and how many finished ones are kept.
+work_queue_max = 200
+work_keep = 500
+# How many clients may listen to the stream of events (GET /api/v1/events/stream) at once, how many events it keeps for a client that reconnects with Last-Event-ID (16 to 65536; also how far a client may fall behind), and how many notifications are kept.
+events_clients_max = 32
+events_queue = 256
+notifications_keep = 200

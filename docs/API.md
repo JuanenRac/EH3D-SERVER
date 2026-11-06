@@ -255,6 +255,8 @@ An upload nobody touched for `upload_ttl_s` is cleaned, and so are the files of 
 
 A scope the token lacks answers `403 forbidden_scope`; a role that is too low still answers `403 forbidden`, whatever the scopes. The `phoenix` and `cam` templates are for the design programs and **can never hold** `jobs:authorize`, `jobs:start`, `jobs:confirm`, `jobs:cancel` or `machines:manage`: asking for one is refused (`403 forbidden_scope`) and nothing is made, and a token of those templates made without scopes gets all the others. Even a file of tokens edited by hand cannot give them the scopes of the machines: they are taken away when the token is recognised. Only a person logged in (or a `client` or `custom` token) carries them. `GET /tokens` lists `template` and `scopes`. `POST /tokens/:id/rotate` (admin) gives the token a new secret, shown this once, and the old one stops working at once; the id, the scopes and the expiry stay. A revoked (`DELETE /tokens/:id`) or expired token is answered `401 unauthorized`.
 
+**The generic work of the machines** (plugins, a queue of jobs with history for any kind of machine, the stream of events and the notifications) is under `/api/v1/work`, `/api/v1/plugins`, `/api/v1/events/stream` and `/api/v1/notifications`; see `docs/MACHINE_PLUGINS.md`. The websocket below is not changed.
+
 **The shared catalogs** (materials, tools, machine profiles, footprints, symbols, components) are read by every application under `/api/v1/catalogs` and written by an administrator; see `docs/CATALOGS.md`.
 
 **The project store of every application** is a second way to keep a project: files with versions, `If-Match`, editing locks and the `.eh3dproj` container, under `/api/v1/apps/{app}/projects`. It does not change anything above; it is described in `docs/PROJECT_STORE.md` and in the `store` tag of the contract.
@@ -290,6 +292,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `bad_params` | 422 | The parameters of a task do not fit its engine, are not an object, or the idempotency key is not valid. |
 | `bad_path` | 422 | A point of a path has a coordinate that is not a number. |
 | `bad_picture` | 502 | The picture the camera of the drill head sent cannot be read. |
+| `bad_plugin_request` | 422 | The request does not fit what the plugin of the machine takes, or the settings of a machine of a plugin are not valid. |
 | `bad_profile` | 422 | The inspection profile is not valid. |
 | `bad_rack` | 422 | The rack of a job request of the second version does not fit: places that repeat, the test pin as a place, more places than rack_max_slots, a carry_slot without carry_in, or a place the machine does not define or reach. |
 | `bad_request` | 400 | The body of the request does not read as the request needs. |
@@ -334,8 +337,10 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `not_ready` | 409 | The job already ran or is running. |
 | `not_running` | 409 | The job is not running. |
 | `not_stopped` | 409 | Only a cancelled or failed job can be gone on from. |
+| `not_supported` | 501 | The plugin of the machine does not support this operation (for example, holding a drilling job), or its machines are made elsewhere. |
 | `out_of_table` | 422 | A hole or a path is outside the table of the machine. |
 | `outside_course` | 422 | The work goes past the course of an axis (the machine's switch is on reject). |
+| `plugin_failed` | 502 | The plugin or the machine behind it failed while doing this. |
 | `precondition_failed` | 412 | The If-Match tag is not the one of the current version: read the file again before writing. |
 | `precondition_required` | 428 | A write over an existing file needs If-Match with the tag (SHA-256) of the version it was made from. |
 | `project_quota` | 507 | The project, the application or the store would pass its limit (project_max_mb, project_max_files, project_max_projects). |
@@ -351,6 +356,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `tasks_off` | 501 | The computing tasks are switched off on this server (tasks_enabled). |
 | `throttled` | 429 | Too many wrong passwords, or too many tickets waiting: try again later. |
 | `too_big` | 422 | The request or the work is bigger than the server accepts (413 for a body over max_body_mb). |
+| `too_many_clients` | 429 | As many clients listen to the stream of events as events_clients_max allows. |
 | `too_many_holes` | 422 | More holes than one inspection takes. |
 | `unauthorized` | 401 | The token is missing, not valid or has expired. |
 | `unknown_artifact` | 404 | There is no artifact with this id, or it belongs to somebody else. |
@@ -360,6 +366,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `unknown_job` | 404 | There is no job with this id. |
 | `unknown_kind` | 422 | There is no such kind of task. |
 | `unknown_machine` | 404 | There is no machine with this id. |
+| `unknown_plugin` | 422 | There is no plugin of this kind. |
 | `unknown_project` | 404 | There is no project with this id, or it belongs to somebody else. |
 | `unknown_task` | 404 | There is no task with this id, or it belongs to somebody else. |
 | `unknown_token` | 404 | There is no token with this id. |

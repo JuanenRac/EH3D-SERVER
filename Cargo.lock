@@ -422,6 +422,7 @@ dependencies = [
  "eh3d-materials",
  "eh3d-routepro",
  "eh3d-summary",
+ "futures-util",
  "hex",
  "http-body-util",
  "jpeg-encoder",

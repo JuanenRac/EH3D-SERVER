@@ -77,6 +77,10 @@ pub struct AppState {
     pub pstore: crate::pstore::ProjectStore,
     /// The shared catalogs (`/api/v1/catalogs`).
     pub catalogs: crate::catalogs::Catalogs,
+    /// The machine plugins (`bungard`, `demo`) the generic queue talks to.
+    pub plugins: crate::plugins::Registry,
+    /// The machines of the plugins, the generic queue of jobs and the notifications.
+    pub work: crate::work::Work,
     /// The events of the common services, with their numbers, for the stream and for the clients that reconnect.
     pub feed: crate::feed::Feed,
     /// The updates of the installed services, when the settings give the folder for them.
@@ -131,6 +135,7 @@ impl AppState {
         };
         let pstore = crate::pstore::ProjectStore::open(&cfg)?;
         let catalogs = crate::catalogs::Catalogs::open(&cfg)?;
+        let work = crate::work::Work::open(&cfg)?;
         let feed = crate::feed::Feed::new(cfg.events_queue, cfg.events_clients_max);
         let audit = crate::audit::Audit::new(&cfg.data_dir, cfg.audit_file, cfg.log_max_kb);
         let job_log = crate::audit::LogFile::new(
@@ -156,6 +161,8 @@ impl AppState {
             projects,
             pstore,
             catalogs,
+            plugins: crate::plugins::Registry::standard(),
+            work,
             feed,
             updates,
             inspections: Mutex::new(HashMap::new()),
@@ -165,6 +172,7 @@ impl AppState {
         });
         // the tasks that were queued when the server stopped go on, and what waited long enough is cleaned
         state.tasks_pump();
+        state.start_work_thread();
         state.artifact_housekeeping();
         Ok(state)
     }

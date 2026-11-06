@@ -21,7 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 METHODS = ("get", "post", "put", "delete", "head")
-ROUTER_FILES = ("api.rs", "api_tasks.rs", "api_artifacts.rs", "api_projects.rs", "api_pstore.rs", "api_catalogs.rs")
+ROUTER_FILES = ("api.rs", "api_tasks.rs", "api_artifacts.rs", "api_projects.rs", "api_pstore.rs", "api_catalogs.rs", "api_work.rs")
 PREFIX = "/api/v1"
 
 

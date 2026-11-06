@@ -8,13 +8,14 @@ use std::path::PathBuf;
 use serde_json::Value;
 
 const METHODS: [&str; 5] = ["get", "post", "put", "delete", "head"];
-const ROUTER_FILES: [&str; 6] = [
+const ROUTER_FILES: [&str; 7] = [
     "api.rs",
     "api_tasks.rs",
     "api_artifacts.rs",
     "api_projects.rs",
     "api_pstore.rs",
     "api_catalogs.rs",
+    "api_work.rs",
 ];
 
 fn read(path: &str) -> String {

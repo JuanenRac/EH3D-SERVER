@@ -753,6 +753,52 @@ catalog_page_max = 10
     }
 
     #[test]
+    fn the_settings_of_the_queue_and_the_stream_are_checked() {
+        let c = parse("").unwrap();
+        assert_eq!(
+            (
+                c.work_queue_max,
+                c.work_keep,
+                c.events_clients_max,
+                c.events_queue,
+                c.notifications_keep
+            ),
+            (200, 500, 32, 256, 200)
+        );
+        let set = parse(
+            "work_queue_max = 3
+events_clients_max = 1
+events_queue = 16
+",
+        )
+        .unwrap();
+        assert_eq!(
+            (set.work_queue_max, set.events_clients_max, set.events_queue),
+            (3, 1, 16)
+        );
+        assert!(parse(
+            "work_queue_max = 0
+"
+        )
+        .is_err());
+        assert!(parse(
+            "events_clients_max = 0
+"
+        )
+        .is_err());
+        assert!(parse(
+            "events_queue = 8
+"
+        )
+        .is_err());
+        assert!(parse(
+            "notifications_keep = many
+"
+        )
+        .is_err());
+    }
+
+    #[test]
     fn mistakes_are_errors_not_silent_defaults() {
         assert!(parse("lisen = 1.2.3.4:5\n")
             .unwrap_err()

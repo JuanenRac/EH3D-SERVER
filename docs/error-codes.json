@@ -105,6 +105,11 @@
     "status": 502
   },
   {
+    "code": "bad_plugin_request",
+    "description": "The request does not fit what the plugin of the machine takes, or the settings of a machine of a plugin are not valid.",
+    "status": 422
+  },
+  {
     "code": "bad_profile",
     "description": "The inspection profile is not valid.",
     "status": 422
@@ -325,6 +330,11 @@
     "status": 409
   },
   {
+    "code": "not_supported",
+    "description": "The plugin of the machine does not support this operation (for example, holding a drilling job), or its machines are made elsewhere.",
+    "status": 501
+  },
+  {
     "code": "out_of_table",
     "description": "A hole or a path is outside the table of the machine.",
     "status": 422
@@ -333,6 +343,11 @@
     "code": "outside_course",
     "description": "The work goes past the course of an axis (the machine's switch is on reject).",
     "status": 422
+  },
+  {
+    "code": "plugin_failed",
+    "description": "The plugin or the machine behind it failed while doing this.",
+    "status": 502
   },
   {
     "code": "precondition_failed",
@@ -410,6 +425,11 @@
     "status": 422
   },
   {
+    "code": "too_many_clients",
+    "description": "As many clients listen to the stream of events as events_clients_max allows.",
+    "status": 429
+  },
+  {
     "code": "too_many_holes",
     "description": "More holes than one inspection takes.",
     "status": 422
@@ -453,6 +473,11 @@
     "code": "unknown_machine",
     "description": "There is no machine with this id.",
     "status": 404
+  },
+  {
+    "code": "unknown_plugin",
+    "description": "There is no plugin of this kind.",
+    "status": 422
   },
   {
     "code": "unknown_project",
