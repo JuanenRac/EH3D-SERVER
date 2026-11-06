@@ -5,6 +5,22 @@ Every route of the router, with the method, who may call it and what it does. Th
 | Route | Method | Auth | Description |
 |---|---|---|---|
 | `/api/v1/account` | PUT | a person | Change the own password |
+| `/api/v1/apps/:app/projects` | GET | viewer + `projects:read` | List the projects of an application |
+| `/api/v1/apps/:app/projects` | POST | operator + `projects:write` | Make a project of an application |
+| `/api/v1/apps/:app/projects/:id` | GET | viewer + `projects:read` | Read a project with its files |
+| `/api/v1/apps/:app/projects/:id` | PUT | operator + `projects:write` | Rename a project |
+| `/api/v1/apps/:app/projects/:id` | DELETE | operator + `projects:write` | Hide a project |
+| `/api/v1/apps/:app/projects/:id/export` | GET | viewer + `projects:read` | Export a project as an .eh3dproj container |
+| `/api/v1/apps/:app/projects/:id/files` | GET | viewer + `projects:read` | List the files of a project |
+| `/api/v1/apps/:app/projects/:id/files/content` | GET | viewer + `projects:read` | Read a file |
+| `/api/v1/apps/:app/projects/:id/files/content` | PUT | operator + `projects:write` | Write a file as a new version |
+| `/api/v1/apps/:app/projects/:id/files/content` | DELETE | operator + `projects:write` | Remove a file from the list |
+| `/api/v1/apps/:app/projects/:id/files/versions` | GET | viewer + `projects:read` | List the versions of a file |
+| `/api/v1/apps/:app/projects/:id/import` | POST | operator + `projects:write` | Import an .eh3dproj container into a project |
+| `/api/v1/apps/:app/projects/:id/lock` | GET | viewer + `projects:read` | See who is editing a project |
+| `/api/v1/apps/:app/projects/:id/lock` | PUT | operator + `projects:write` | Take or renew the editing lock of a project |
+| `/api/v1/apps/:app/projects/:id/lock` | DELETE | operator + `projects:write` | Let the editing lock go |
+| `/api/v1/apps/:app/projects/:id/purge` | POST | admin + `projects:write` | Remove a hidden project for good |
 | `/api/v1/artifacts` | GET | viewer + `artifacts:read` | List the artifacts the caller can see, newest first |
 | `/api/v1/artifacts` | POST | operator + `artifacts:write` | Keep a file as an artifact |
 | `/api/v1/artifacts/:id` | GET | viewer + `artifacts:read` | The bytes of an artifact, streamed |

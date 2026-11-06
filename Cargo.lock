@@ -404,6 +404,7 @@ dependencies = [
  "argon2",
  "axum",
  "base64",
+ "eh3d-container",
  "eh3d-controller",
  "eh3d-diagnostic",
  "eh3d-drillpro",

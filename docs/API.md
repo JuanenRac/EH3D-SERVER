@@ -253,6 +253,8 @@ An upload nobody touched for `upload_ttl_s` is cleaned, and so are the files of 
 
 A scope the token lacks answers `403 forbidden_scope`; a role that is too low still answers `403 forbidden`, whatever the scopes. The `phoenix` and `cam` templates are for the design programs and **can never hold** `jobs:authorize`, `jobs:start`, `jobs:confirm` or `jobs:cancel`: asking for one is refused (`403 forbidden_scope`) and nothing is made, and a token of those templates made without scopes gets all the others. Even a file of tokens edited by hand cannot give them the scopes of the machines: they are taken away when the token is recognised. Only a person logged in (or a `client` or `custom` token) carries them. `GET /tokens` lists `template` and `scopes`. `POST /tokens/:id/rotate` (admin) gives the token a new secret, shown this once, and the old one stops working at once; the id, the scopes and the expiry stay. A revoked (`DELETE /tokens/:id`) or expired token is answered `401 unauthorized`.
 
+**The project store of every application** is a second way to keep a project: files with versions, `If-Match`, editing locks and the `.eh3dproj` container, under `/api/v1/apps/{app}/projects`. It does not change anything above; it is described in `docs/PROJECT_STORE.md` and in the `store` tag of the contract.
+
 ## What happens, as it happens
 
 `GET /events?ticket=<ticket>` upgrades to a websocket (a browser cannot set headers on one, so the address carries a ticket from `POST /tickets`; `Authorization: Bearer` works too, and `?token=` only with `url_token = true`). The server asks every 30 seconds whether the session is still good and closes the websocket when it is not. It also sends a ping every `events_ping_s` seconds (30) and closes a connection that has sent nothing at all, a pong included, for `events_idle_s` seconds (90), so a phone that left the Wi-Fi does not hold a place for ever. A client that read more slowly than the events came (the channel holds 256) is told `{"type":"resync","missed":N}`: it asks for the fleet and the jobs again, because it lost some. The first text is `{"type":"hello","jobs":[...]}` with the summaries of the jobs; after it every change arrives as `{"type":"job","job":{...}}`, `{"type":"job_removed","id":"..."}` or `{"type":"machine","id":"..."}`.
@@ -265,12 +267,15 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 |---|---|---|
 | `artifact_in_use` | 409 | A task still works on this artifact or made it: remove the task first. |
 | `bad_address` | 422 | The address of a machine or of its drill head node is missing or is not host:port. |
+| `bad_app` | 422 | The name of the application is not one this server accepts (lower case letters, digits and hyphens, one of the known applications or of auth_extra_apps). |
 | `bad_artifact` | 422 | The description of an artifact does not fit (name, format, result_type, inputs or params). |
 | `bad_board` | 422 | board_mm is not from 0 to 50. |
 | `bad_cfg` | 422 | The tuning text of the machine does not read. |
+| `bad_container` | 422 | The .eh3dproj container cannot be read or written: structure, names, sizes, integrity record, or the project has no project.json. |
 | `bad_credentials` | 401 | The name or the password is wrong. |
 | `bad_days` | 422 | The days a token lasts are not a number from 1 to 3650. |
 | `bad_dcf` | 422 | The text of DRILLPRO.DCF or ROUTEPRO.RCF does not read. |
+| `bad_filename` | 422 | The name of a file is not safe: empty, absolute, with .. or a drive, with control characters, a reserved name of Windows, too long, or the same as another in other letter case. |
 | `bad_gcode` | 422 | A line of the G-code program cannot be sent (control characters, a $ line that is not allowed, a line too long). |
 | `bad_hole` | 422 | A hole has a coordinate that is not a number. |
 | `bad_id` | 422 | The id of a machine is not made of lowercase letters, digits and hyphens (up to 32). |
@@ -296,6 +301,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `blob_damaged` | 500 | The bytes of an artifact are missing or are not what their hash says. |
 | `both_sources` | 422 | The job brings the work as data and as files; it must be one of them. |
 | `engine_missing` | 422 | The kind of task is known but this build has no engine for it. |
+| `file_too_big` | 413 | The file is bigger than project_max_file_mb. |
 | `forbidden` | 403 | The role of the caller is not enough for this request. |
 | `forbidden_scope` | 403 | The token is limited to scopes that do not include this one, or a token of a design program was asked for a scope of the machines. |
 | `hash_mismatch` | 422 | The bytes of the upload do not have the SHA-256 that was declared; the upload is discarded. |
@@ -306,6 +312,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `job_active` | 409 | The job is running: stop it first. |
 | `last_admin` | 409 | The last administrator cannot be deleted, disabled or demoted. |
 | `local_only` | 403 | While the server has no user, only the computer it runs on may make the first administrator. |
+| `locked` | 423 | Somebody else is editing the project (its lock has not expired). |
 | `machine_busy` | 409 | A job is running on the machine. |
 | `machine_exists` | 409 | A machine with this id already exists. |
 | `machines_busy` | 409 | A job is running: the update would restart the server and stop it. |
@@ -316,12 +323,16 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `no_work` | 422 | The job has no holes, no paths and no lines to run. |
 | `not_cancellable` | 409 | The job is neither ready nor running. |
 | `not_in_state` | 409 | A job is held while it runs and resumed while it is held. |
+| `not_locked` | 409 | The project has no lock to release. |
 | `not_pausable` | 409 | Only a G-code job can be held. |
 | `not_ready` | 409 | The job already ran or is running. |
 | `not_running` | 409 | The job is not running. |
 | `not_stopped` | 409 | Only a cancelled or failed job can be gone on from. |
 | `out_of_table` | 422 | A hole or a path is outside the table of the machine. |
 | `outside_course` | 422 | The work goes past the course of an axis (the machine's switch is on reject). |
+| `precondition_failed` | 412 | The If-Match tag is not the one of the current version: read the file again before writing. |
+| `precondition_required` | 428 | A write over an existing file needs If-Match with the tag (SHA-256) of the version it was made from. |
+| `project_quota` | 507 | The project, the application or the store would pass its limit (project_max_mb, project_max_files, project_max_projects). |
 | `queue_full` | 429 | As many tasks are waiting or running as the server accepts (max_tasks). |
 | `quota` | 429 | The caller already has as many tasks waiting or running as one user may (tasks_per_user). |
 | `shares_off` | 501 | Sharing is switched off on this server (shares_enabled). |
@@ -337,6 +348,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `too_many_holes` | 422 | More holes than one inspection takes. |
 | `unauthorized` | 401 | The token is missing, not valid or has expired. |
 | `unknown_artifact` | 404 | There is no artifact with this id, or it belongs to somebody else. |
+| `unknown_file` | 404 | The project has no such file. |
 | `unknown_job` | 404 | There is no job with this id. |
 | `unknown_kind` | 422 | There is no such kind of task. |
 | `unknown_machine` | 404 | There is no machine with this id. |
@@ -346,6 +358,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `unknown_tool` | 422 | The job uses a tool that it does not describe. |
 | `unknown_upload` | 404 | There is no upload with this id, or it belongs to somebody else. |
 | `unknown_user` | 404 | There is no user with this name. |
+| `unknown_version` | 404 | The file has no such version (or it was dropped past project_versions_kept). |
 | `update_refused` | 409 | The update helper refused the request. |
 | `updates_off` | 501 | The updates are not set up on this server (updates_dir). |
 | `upload_conflict` | 409 | A part carries other bytes than the ones already received at the same place. |

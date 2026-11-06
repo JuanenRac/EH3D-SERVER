@@ -245,6 +245,7 @@ PATH_PARAMS = {
     "name": "The name of the user.",
     "sha": "The SHA-256 of the bytes, 64 lower-case hexadecimal digits.",
     "who": "The name of a user, or `token:<id>`.",
+    "app": "The application that owns the projects (`studio`, `android`, `pcb`...; see docs/AUTH.md).",
 }
 TAGS = [
     ("system", "Health, first set-up and the live session."),
@@ -256,6 +257,7 @@ TAGS = [
     ("tasks", "Work for the computer that never moves a machine."),
     ("artifacts", "Files kept by identity: artifacts, blobs and uploads."),
     ("projects", "Projects with revisions and explicit sharing."),
+    ("store", "The project store of every application: projects, files with versions, editing locks and the .eh3dproj container."),
 ]
 SECURITY_BEARER = [{"bearerAuth": []}]
 SECURITY_OPEN = [{"bearerAuth": []}, {"ticketAuth": []}]
@@ -457,6 +459,82 @@ op("POST", "/artifacts/{id}/shares", "projects", "operator", "Share an artifact 
    errors=ART_ERR + ["unknown_user", "unknown_token", "bad_share", "shares_off"], desc="Allowed to the owner and the administrators; the access is `read`.")
 op("DELETE", "/artifacts/{id}/shares/{who}", "projects", "operator", "Take the sharing of an artifact back", scope="artifacts:write", errors=ART_ERR + ["shares_off"],
    desc="Allowed to the owner and the administrators.")
+
+# -- the project store of every application (docs/PROJECT_STORE.md)
+SCHEMAS.update({
+    "StoreFile": obj({"name": s(), "version": I, "sha256": s(), "size": I, "at": I, "by": s()}, ["name", "version", "sha256", "size"],
+                     description="The current version of a file of a project."),
+    "StoreLock": obj({"holder": s(), "since": I, "expires": I}, ["holder", "expires"], description="Who is editing the project and until when (seconds since 1970)."),
+    "StoreProject": obj({
+        "id": s(), "app": s(), "name": s(), "owner": s(), "created": I, "updated": I, "etag": s("Also the `ETag` header."), "deleted": B, "bytes": I,
+        "lock": nullable(ref("StoreLock")), "files": arr(ref("StoreFile")),
+    }, ["id", "app", "name", "owner", "etag", "files"]),
+    "StoreProjectSummary": obj({
+        "id": s(), "app": s(), "name": s(), "owner": s(), "created": I, "updated": I, "etag": s(), "deleted": B, "files": I, "locked": B,
+    }, ["id", "app", "name", "owner", "etag"]),
+    "StoreProjectPage": obj({"total": I, "offset": I, "limit": I, "items": arr(ref("StoreProjectSummary"))}, ["total", "offset", "limit", "items"]),
+    "StoreFiles": obj({"files": arr(ref("StoreFile"))}, ["files"]),
+    "StoreVersion": obj({"version": I, "sha256": s(), "size": I, "at": I, "by": s(), "comment": s()}, ["version", "sha256", "size"],
+                        description="One version of a file: its number, the SHA-256 of its bytes (also its tag) and who wrote it."),
+    "StoreVersionList": obj({"name": s(), "versions": arr(ref("StoreVersion"))}, ["name", "versions"], description="The newest version first."),
+    "StoreWriteResult": {"allOf": [ref("StoreVersion"), obj({"name": s(), "unchanged": B}, ["name", "unchanged"], extra=True)],
+                         "description": "The version written; `unchanged` is true when the bytes were those of the current version and no version was made."},
+    "StoreLockState": obj({"lock": nullable(ref("StoreLock"))}, ["lock"]),
+    "StoreImportResult": obj({
+        "imported": I, "unchanged": I,
+        "files": arr(obj({"name": s(), "version": I, "unchanged": B}, ["name", "version", "unchanged"])),
+    }, ["imported", "unchanged", "files"]),
+})
+
+BINARY = {"type": "string", "format": "binary"}
+STORE_ERR = ["bad_app", "unknown_project"]
+FILE_Q = q("name", S, "The name of the file in the project, with its folders (`layers/top.gbr`).", True)
+STORE = "/apps/{app}/projects"
+op("GET", STORE, "store", "viewer", "List the projects of an application", scope="projects:read", ok=(200, "StoreProjectPage", "application/json"), errors=["bad_app"],
+   query=[q("q", S, "Keep the projects whose name has this text, in any letter case."), q("limit", {"type": "integer", "minimum": 1, "maximum": 500}, "Projects per page (50)."),
+          q("offset", {"type": "integer", "minimum": 0}, "Projects to skip.")],
+   desc="The projects the caller sees (its own and, for an administrator, all; with `project_shared` every project of the application), the last changed first.")
+op("POST", STORE, "store", "operator", "Make a project of an application", scope="projects:write", body="NewProject", ok=(201, "StoreProject", "application/json"),
+   errors=["bad_app", "bad_name", "project_quota"], desc="The caller is the owner. The answer carries the `ETag` of the project.", example={"name": "front panel"})
+op("GET", STORE + "/{id}", "store", "viewer", "Read a project with its files", scope="projects:read", ok=(200, "StoreProject", "application/json"), errors=STORE_ERR,
+   desc="With the `ETag` of the project in the header.")
+op("PUT", STORE + "/{id}", "store", "operator", "Rename a project", scope="projects:write", body="NewProject", ok=(200, "StoreProject", "application/json"),
+   errors=STORE_ERR + ["bad_name", "locked", "precondition_required", "precondition_failed"],
+   desc="Needs `If-Match` with the `ETag` of the project (unless `project_require_if_match` is off). Refused while somebody else holds the lock.", example={"name": "front panel v2"})
+op("DELETE", STORE + "/{id}", "store", "operator", "Hide a project", scope="projects:write", errors=STORE_ERR + ["forbidden", "locked"],
+   desc="Allowed to the owner and the administrators; the files stay until an administrator purges it.")
+op("POST", STORE + "/{id}/purge", "store", "admin", "Remove a hidden project for good", scope="projects:write", errors=STORE_ERR,
+   desc="Only a project that was hidden; its files go with it. Audited.")
+op("GET", STORE + "/{id}/files", "store", "viewer", "List the files of a project", scope="projects:read", ok=(200, "StoreFiles", "application/json"), errors=STORE_ERR,
+   desc="The current version of each file, by name. With the `ETag` of the project in the header.")
+op("GET", STORE + "/{id}/files/content", "store", "viewer", "Read a file", scope="projects:read", ok=(200, BINARY, "application/octet-stream"),
+   errors=STORE_ERR + ["unknown_file", "unknown_version", "blob_damaged"],
+   query=[FILE_Q, q("version", {"type": "integer", "minimum": 1}, "An older version (the current one without it).")],
+   desc="The bytes are read and checked against their SHA-256 every time (`500 blob_damaged` if they changed on the disk). The header `ETag` is the SHA-256 of the version and `X-Eh3d-Version` its number.")
+op("PUT", STORE + "/{id}/files/content", "store", "operator", "Write a file as a new version", scope="projects:write", body=BINARY, body_media="application/octet-stream",
+   ok=(200, "StoreWriteResult", "application/json"), ok_desc="The bytes were those of the current version: nothing was written. A new version answers 201.",
+   errors=STORE_ERR + ["bad_filename", "file_too_big", "project_quota", "locked", "precondition_required", "precondition_failed", "too_big", "storage"],
+   query=[FILE_Q, q("comment", S, "A note kept with the version (up to 200 characters).")],
+   desc="Never overwrites: every change of the bytes is a new version. A file that exists needs `If-Match` with the SHA-256 of the version the new bytes were made from "
+        "(`428 precondition_required` without it, `412 precondition_failed` if it is not the current one); a new file takes none. Answers `201` for a new version and `200` when nothing changed.")
+op("DELETE", STORE + "/{id}/files/content", "store", "operator", "Remove a file from the list", scope="projects:write", errors=STORE_ERR + ["unknown_file", "locked", "precondition_required", "precondition_failed"],
+   query=[FILE_Q], desc="Needs `If-Match` like a write. The versions stay and a later write brings the file back.")
+op("GET", STORE + "/{id}/files/versions", "store", "viewer", "List the versions of a file", scope="projects:read", ok=(200, "StoreVersionList", "application/json"),
+   errors=STORE_ERR + ["unknown_file"], query=[FILE_Q])
+op("GET", STORE + "/{id}/lock", "store", "viewer", "See who is editing a project", scope="projects:read", ok=(200, "StoreLockState", "application/json"), errors=STORE_ERR)
+op("PUT", STORE + "/{id}/lock", "store", "operator", "Take or renew the editing lock of a project", scope="projects:write", ok=(200, "StoreLockState", "application/json"),
+   errors=STORE_ERR + ["locked"], query=[q("ttl_s", {"type": "integer", "minimum": 1}, "How long, in seconds; at most `project_lock_ttl_s`.")],
+   desc="Refused with `423 locked` while somebody else holds a lock that has not expired. The holder renews it by calling again. While it lasts the others cannot write.")
+op("DELETE", STORE + "/{id}/lock", "store", "operator", "Let the editing lock go", scope="projects:write", errors=STORE_ERR + ["locked", "not_locked"],
+   query=[q("force", B, "An administrator takes the lock away from somebody else.")])
+op("POST", STORE + "/{id}/import", "store", "operator", "Import an .eh3dproj container into a project", scope="projects:write", body=BINARY, body_media="application/octet-stream",
+   ok=(200, "StoreImportResult", "application/json"),
+   errors=STORE_ERR + ["bad_container", "bad_filename", "file_too_big", "project_quota", "locked", "too_big"],
+   desc="The container is opened with the bounds of the container library of EH3D-COMMON (names, sizes, integrity record) as 1.0 or 1.1, and every entry becomes a new version of the file of that name; "
+        "the entries that did not change make none. Everything or nothing.")
+op("GET", STORE + "/{id}/export", "store", "viewer", "Export a project as an .eh3dproj container", scope="projects:read", ok=(200, BINARY, "application/zip"),
+   errors=STORE_ERR + ["bad_container", "blob_damaged"], query=[q("spec", {"type": "string", "enum": ["1.0", "1.1"]}, "The version of the container (1.0 first, then 1.1, without it).")],
+   desc="The current files, each checked against its hash, in a container with its integrity record. The project has to hold the `project.json` of the format.")
 
 # ---------------------------------------------------------------------------------------------------------------------------------------
 # Building the document

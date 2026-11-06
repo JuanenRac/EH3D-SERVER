@@ -31,6 +31,8 @@ tags:
     description: "Files kept by identity: artifacts, blobs and uploads."
   - name: projects
     description: Projects with revisions and explicit sharing.
+  - name: store
+    description: "The project store of every application: projects, files with versions, editing locks and the .eh3dproj container."
 paths:
   "/health":
     get:
@@ -5433,6 +5435,1470 @@ paths:
               example:
                 error: shares_off
                 detail: ""
+  "/apps/{app}/projects":
+    get:
+      operationId: get_apps_app_projects
+      tags:
+        - store
+      summary: List the projects of an application
+      description: "The projects the caller sees (its own and, for an administrator, all; with `project_shared` every project of the application), the last changed first. Role viewer or higher. Scope `projects:read` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "projects:read"
+      x-error-codes:
+        - bad_app
+        - forbidden_scope
+        - unauthorized
+      parameters:
+        - name: app
+          in: path
+          required: true
+          description: "The application that owns the projects (`studio`, `android`, `pcb`...; see docs/AUTH.md)."
+          schema:
+            type: string
+        - name: q
+          in: query
+          required: false
+          description: "Keep the projects whose name has this text, in any letter case."
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: "Projects per page (50)."
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+        - name: offset
+          in: query
+          required: false
+          description: Projects to skip.
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/StoreProjectPage"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
+        "422":
+          description: "Refused with `bad_app`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_app
+                detail: ""
+    post:
+      operationId: post_apps_app_projects
+      tags:
+        - store
+      summary: Make a project of an application
+      description: "The caller is the owner. The answer carries the `ETag` of the project. Role operator or higher. Scope `projects:write` if the token is limited by scopes."
+      x-role: operator
+      x-scope: "projects:write"
+      x-error-codes:
+        - bad_app
+        - bad_name
+        - bad_request
+        - forbidden
+        - forbidden_scope
+        - project_quota
+        - unauthorized
+      parameters:
+        - name: app
+          in: path
+          required: true
+          description: "The application that owns the projects (`studio`, `android`, `pcb`...; see docs/AUTH.md)."
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/NewProject"
+            example:
+              name: front panel
+      responses:
+        "201":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/StoreProject"
+        "400":
+          description: "Refused with `bad_request`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_request
+                detail: ""
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "422":
+          description: "Refused with `bad_app`, `bad_name`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_app
+                detail: ""
+        "507":
+          description: "Refused with `project_quota`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: project_quota
+                detail: ""
+  "/apps/{app}/projects/{id}":
+    get:
+      operationId: get_apps_app_projects_id
+      tags:
+        - store
+      summary: Read a project with its files
+      description: "With the `ETag` of the project in the header. Role viewer or higher. Scope `projects:read` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "projects:read"
+      x-error-codes:
+        - bad_app
+        - forbidden_scope
+        - unauthorized
+        - unknown_project
+      parameters:
+        - name: app
+          in: path
+          required: true
+          description: "The application that owns the projects (`studio`, `android`, `pcb`...; see docs/AUTH.md)."
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/StoreProject"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
+        "404":
+          description: "Refused with `unknown_project`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_project
+                detail: ""
+        "422":
+          description: "Refused with `bad_app`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_app
+                detail: ""
+    put:
+      operationId: put_apps_app_projects_id
+      tags:
+        - store
+      summary: Rename a project
+      description: "Needs `If-Match` with the `ETag` of the project (unless `project_require_if_match` is off). Refused while somebody else holds the lock. Role operator or higher. Scope `projects:write` if the token is limited by scopes."
+      x-role: operator
+      x-scope: "projects:write"
+      x-error-codes:
+        - bad_app
+        - bad_name
+        - bad_request
+        - forbidden
+        - forbidden_scope
+        - locked
+        - precondition_failed
+        - precondition_required
+        - unauthorized
+        - unknown_project
+      parameters:
+        - name: app
+          in: path
+          required: true
+          description: "The application that owns the projects (`studio`, `android`, `pcb`...; see docs/AUTH.md)."
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/NewProject"
+            example:
+              name: front panel v2
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/StoreProject"
+              example:
+                name: front panel v2
+        "400":
+          description: "Refused with `bad_request`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_request
+                detail: ""
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_project`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_project
+                detail: ""
+        "412":
+          description: "Refused with `precondition_failed`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: precondition_failed
+                detail: ""
+        "422":
+          description: "Refused with `bad_app`, `bad_name`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_app
+                detail: ""
+        "423":
+          description: "Refused with `locked`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: locked
+                detail: ""
+        "428":
+          description: "Refused with `precondition_required`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: precondition_required
+                detail: ""
+    delete:
+      operationId: delete_apps_app_projects_id
+      tags:
+        - store
+      summary: Hide a project
+      description: "Allowed to the owner and the administrators; the files stay until an administrator purges it. Role operator or higher. Scope `projects:write` if the token is limited by scopes."
+      x-role: operator
+      x-scope: "projects:write"
+      x-error-codes:
+        - bad_app
+        - forbidden
+        - forbidden_scope
+        - locked
+        - unauthorized
+        - unknown_project
+      parameters:
+        - name: app
+          in: path
+          required: true
+          description: "The application that owns the projects (`studio`, `android`, `pcb`...; see docs/AUTH.md)."
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Ok"
+              example:
+                ok: true
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_project`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_project
+                detail: ""
+        "422":
+          description: "Refused with `bad_app`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_app
+                detail: ""
+        "423":
+          description: "Refused with `locked`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: locked
+                detail: ""
+  "/apps/{app}/projects/{id}/purge":
+    post:
+      operationId: post_apps_app_projects_id_purge
+      tags:
+        - store
+      summary: Remove a hidden project for good
+      description: "Only a project that was hidden; its files go with it. Audited. Role admin. Scope `projects:write` if the token is limited by scopes."
+      x-role: admin
+      x-scope: "projects:write"
+      x-error-codes:
+        - bad_app
+        - forbidden
+        - forbidden_scope
+        - unauthorized
+        - unknown_project
+      parameters:
+        - name: app
+          in: path
+          required: true
+          description: "The application that owns the projects (`studio`, `android`, `pcb`...; see docs/AUTH.md)."
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Ok"
+              example:
+                ok: true
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_project`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_project
+                detail: ""
+        "422":
+          description: "Refused with `bad_app`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_app
+                detail: ""
+  "/apps/{app}/projects/{id}/files":
+    get:
+      operationId: get_apps_app_projects_id_files
+      tags:
+        - store
+      summary: List the files of a project
+      description: "The current version of each file, by name. With the `ETag` of the project in the header. Role viewer or higher. Scope `projects:read` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "projects:read"
+      x-error-codes:
+        - bad_app
+        - forbidden_scope
+        - unauthorized
+        - unknown_project
+      parameters:
+        - name: app
+          in: path
+          required: true
+          description: "The application that owns the projects (`studio`, `android`, `pcb`...; see docs/AUTH.md)."
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/StoreFiles"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
+        "404":
+          description: "Refused with `unknown_project`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_project
+                detail: ""
+        "422":
+          description: "Refused with `bad_app`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_app
+                detail: ""
+  "/apps/{app}/projects/{id}/files/content":
+    get:
+      operationId: get_apps_app_projects_id_files_content
+      tags:
+        - store
+      summary: Read a file
+      description: "The bytes are read and checked against their SHA-256 every time (`500 blob_damaged` if they changed on the disk). The header `ETag` is the SHA-256 of the version and `X-Eh3d-Version` its number. Role viewer or higher. Scope `projects:read` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "projects:read"
+      x-error-codes:
+        - bad_app
+        - blob_damaged
+        - forbidden_scope
+        - unauthorized
+        - unknown_file
+        - unknown_project
+        - unknown_version
+      parameters:
+        - name: app
+          in: path
+          required: true
+          description: "The application that owns the projects (`studio`, `android`, `pcb`...; see docs/AUTH.md)."
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+        - name: name
+          in: query
+          required: true
+          description: "The name of the file in the project, with its folders (`layers/top.gbr`)."
+          schema:
+            type: string
+        - name: version
+          in: query
+          required: false
+          description: "An older version (the current one without it)."
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
+        "404":
+          description: "Refused with `unknown_file`, `unknown_project`, `unknown_version`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_file
+                detail: ""
+        "422":
+          description: "Refused with `bad_app`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_app
+                detail: ""
+        "500":
+          description: "Refused with `blob_damaged`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: blob_damaged
+                detail: ""
+    put:
+      operationId: put_apps_app_projects_id_files_content
+      tags:
+        - store
+      summary: Write a file as a new version
+      description: "Never overwrites: every change of the bytes is a new version. A file that exists needs `If-Match` with the SHA-256 of the version the new bytes were made from (`428 precondition_required` without it, `412 precondition_failed` if it is not the current one); a new file takes none. Answers `201` for a new version and `200` when nothing changed. Role operator or higher. Scope `projects:write` if the token is limited by scopes."
+      x-role: operator
+      x-scope: "projects:write"
+      x-error-codes:
+        - bad_app
+        - bad_filename
+        - file_too_big
+        - forbidden
+        - forbidden_scope
+        - locked
+        - precondition_failed
+        - precondition_required
+        - project_quota
+        - storage
+        - too_big
+        - unauthorized
+        - unknown_project
+      parameters:
+        - name: app
+          in: path
+          required: true
+          description: "The application that owns the projects (`studio`, `android`, `pcb`...; see docs/AUTH.md)."
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+        - name: name
+          in: query
+          required: true
+          description: "The name of the file in the project, with its folders (`layers/top.gbr`)."
+          schema:
+            type: string
+        - name: comment
+          in: query
+          required: false
+          description: "A note kept with the version (up to 200 characters)."
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: "The bytes were those of the current version: nothing was written. A new version answers 201."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/StoreWriteResult"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_project`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_project
+                detail: ""
+        "412":
+          description: "Refused with `precondition_failed`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: precondition_failed
+                detail: ""
+        "413":
+          description: "Refused with `file_too_big`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: file_too_big
+                detail: ""
+        "422":
+          description: "Refused with `bad_app`, `bad_filename`, `too_big`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_app
+                detail: ""
+        "423":
+          description: "Refused with `locked`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: locked
+                detail: ""
+        "428":
+          description: "Refused with `precondition_required`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: precondition_required
+                detail: ""
+        "500":
+          description: "Refused with `storage`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: storage
+                detail: ""
+        "507":
+          description: "Refused with `project_quota`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: project_quota
+                detail: ""
+    delete:
+      operationId: delete_apps_app_projects_id_files_content
+      tags:
+        - store
+      summary: Remove a file from the list
+      description: "Needs `If-Match` like a write. The versions stay and a later write brings the file back. Role operator or higher. Scope `projects:write` if the token is limited by scopes."
+      x-role: operator
+      x-scope: "projects:write"
+      x-error-codes:
+        - bad_app
+        - forbidden
+        - forbidden_scope
+        - locked
+        - precondition_failed
+        - precondition_required
+        - unauthorized
+        - unknown_file
+        - unknown_project
+      parameters:
+        - name: app
+          in: path
+          required: true
+          description: "The application that owns the projects (`studio`, `android`, `pcb`...; see docs/AUTH.md)."
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+        - name: name
+          in: query
+          required: true
+          description: "The name of the file in the project, with its folders (`layers/top.gbr`)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Ok"
+              example:
+                ok: true
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_file`, `unknown_project`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_file
+                detail: ""
+        "412":
+          description: "Refused with `precondition_failed`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: precondition_failed
+                detail: ""
+        "422":
+          description: "Refused with `bad_app`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_app
+                detail: ""
+        "423":
+          description: "Refused with `locked`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: locked
+                detail: ""
+        "428":
+          description: "Refused with `precondition_required`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: precondition_required
+                detail: ""
+  "/apps/{app}/projects/{id}/files/versions":
+    get:
+      operationId: get_apps_app_projects_id_files_versions
+      tags:
+        - store
+      summary: List the versions of a file
+      description: "Role viewer or higher. Scope `projects:read` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "projects:read"
+      x-error-codes:
+        - bad_app
+        - forbidden_scope
+        - unauthorized
+        - unknown_file
+        - unknown_project
+      parameters:
+        - name: app
+          in: path
+          required: true
+          description: "The application that owns the projects (`studio`, `android`, `pcb`...; see docs/AUTH.md)."
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+        - name: name
+          in: query
+          required: true
+          description: "The name of the file in the project, with its folders (`layers/top.gbr`)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/StoreVersionList"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
+        "404":
+          description: "Refused with `unknown_file`, `unknown_project`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_file
+                detail: ""
+        "422":
+          description: "Refused with `bad_app`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_app
+                detail: ""
+  "/apps/{app}/projects/{id}/lock":
+    get:
+      operationId: get_apps_app_projects_id_lock
+      tags:
+        - store
+      summary: See who is editing a project
+      description: "Role viewer or higher. Scope `projects:read` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "projects:read"
+      x-error-codes:
+        - bad_app
+        - forbidden_scope
+        - unauthorized
+        - unknown_project
+      parameters:
+        - name: app
+          in: path
+          required: true
+          description: "The application that owns the projects (`studio`, `android`, `pcb`...; see docs/AUTH.md)."
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/StoreLockState"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
+        "404":
+          description: "Refused with `unknown_project`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_project
+                detail: ""
+        "422":
+          description: "Refused with `bad_app`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_app
+                detail: ""
+    put:
+      operationId: put_apps_app_projects_id_lock
+      tags:
+        - store
+      summary: Take or renew the editing lock of a project
+      description: "Refused with `423 locked` while somebody else holds a lock that has not expired. The holder renews it by calling again. While it lasts the others cannot write. Role operator or higher. Scope `projects:write` if the token is limited by scopes."
+      x-role: operator
+      x-scope: "projects:write"
+      x-error-codes:
+        - bad_app
+        - forbidden
+        - forbidden_scope
+        - locked
+        - unauthorized
+        - unknown_project
+      parameters:
+        - name: app
+          in: path
+          required: true
+          description: "The application that owns the projects (`studio`, `android`, `pcb`...; see docs/AUTH.md)."
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+        - name: ttl_s
+          in: query
+          required: false
+          description: "How long, in seconds; at most `project_lock_ttl_s`."
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/StoreLockState"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_project`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_project
+                detail: ""
+        "422":
+          description: "Refused with `bad_app`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_app
+                detail: ""
+        "423":
+          description: "Refused with `locked`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: locked
+                detail: ""
+    delete:
+      operationId: delete_apps_app_projects_id_lock
+      tags:
+        - store
+      summary: Let the editing lock go
+      description: "Role operator or higher. Scope `projects:write` if the token is limited by scopes."
+      x-role: operator
+      x-scope: "projects:write"
+      x-error-codes:
+        - bad_app
+        - forbidden
+        - forbidden_scope
+        - locked
+        - not_locked
+        - unauthorized
+        - unknown_project
+      parameters:
+        - name: app
+          in: path
+          required: true
+          description: "The application that owns the projects (`studio`, `android`, `pcb`...; see docs/AUTH.md)."
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+        - name: force
+          in: query
+          required: false
+          description: An administrator takes the lock away from somebody else.
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Ok"
+              example:
+                ok: true
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_project`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_project
+                detail: ""
+        "409":
+          description: "Refused with `not_locked`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: not_locked
+                detail: ""
+        "422":
+          description: "Refused with `bad_app`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_app
+                detail: ""
+        "423":
+          description: "Refused with `locked`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: locked
+                detail: ""
+  "/apps/{app}/projects/{id}/import":
+    post:
+      operationId: post_apps_app_projects_id_import
+      tags:
+        - store
+      summary: Import an .eh3dproj container into a project
+      description: "The container is opened with the bounds of the container library of EH3D-COMMON (names, sizes, integrity record) as 1.0 or 1.1, and every entry becomes a new version of the file of that name; the entries that did not change make none. Everything or nothing. Role operator or higher. Scope `projects:write` if the token is limited by scopes."
+      x-role: operator
+      x-scope: "projects:write"
+      x-error-codes:
+        - bad_app
+        - bad_container
+        - bad_filename
+        - file_too_big
+        - forbidden
+        - forbidden_scope
+        - locked
+        - project_quota
+        - too_big
+        - unauthorized
+        - unknown_project
+      parameters:
+        - name: app
+          in: path
+          required: true
+          description: "The application that owns the projects (`studio`, `android`, `pcb`...; see docs/AUTH.md)."
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/StoreImportResult"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_project`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_project
+                detail: ""
+        "413":
+          description: "Refused with `file_too_big`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: file_too_big
+                detail: ""
+        "422":
+          description: "Refused with `bad_app`, `bad_container`, `bad_filename`, `too_big`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_app
+                detail: ""
+        "423":
+          description: "Refused with `locked`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: locked
+                detail: ""
+        "507":
+          description: "Refused with `project_quota`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: project_quota
+                detail: ""
+  "/apps/{app}/projects/{id}/export":
+    get:
+      operationId: get_apps_app_projects_id_export
+      tags:
+        - store
+      summary: Export a project as an .eh3dproj container
+      description: "The current files, each checked against its hash, in a container with its integrity record. The project has to hold the `project.json` of the format. Role viewer or higher. Scope `projects:read` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "projects:read"
+      x-error-codes:
+        - bad_app
+        - bad_container
+        - blob_damaged
+        - forbidden_scope
+        - unauthorized
+        - unknown_project
+      parameters:
+        - name: app
+          in: path
+          required: true
+          description: "The application that owns the projects (`studio`, `android`, `pcb`...; see docs/AUTH.md)."
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+        - name: spec
+          in: query
+          required: false
+          description: "The version of the container (1.0 first, then 1.1, without it)."
+          schema:
+            type: string
+            enum:
+              - "1.0"
+              - "1.1"
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
+        "404":
+          description: "Refused with `unknown_project`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_project
+                detail: ""
+        "422":
+          description: "Refused with `bad_app`, `bad_container`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_app
+                detail: ""
+        "500":
+          description: "Refused with `blob_damaged`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: blob_damaged
+                detail: ""
 components:
   securitySchemes:
     bearerAuth:
@@ -6885,5 +8351,224 @@ components:
             - write
       additionalProperties: false
       description: "A user or a token, not both."
+    StoreFile:
+      type: object
+      properties:
+        name:
+          type: string
+        version:
+          type: integer
+        sha256:
+          type: string
+        size:
+          type: integer
+        at:
+          type: integer
+        by:
+          type: string
+      required:
+        - name
+        - version
+        - sha256
+        - size
+      additionalProperties: false
+      description: The current version of a file of a project.
+    StoreLock:
+      type: object
+      properties:
+        holder:
+          type: string
+        since:
+          type: integer
+        expires:
+          type: integer
+      required:
+        - holder
+        - expires
+      additionalProperties: false
+      description: "Who is editing the project and until when (seconds since 1970)."
+    StoreProject:
+      type: object
+      properties:
+        id:
+          type: string
+        app:
+          type: string
+        name:
+          type: string
+        owner:
+          type: string
+        created:
+          type: integer
+        updated:
+          type: integer
+        etag:
+          type: string
+          description: "Also the `ETag` header."
+        deleted:
+          type: boolean
+        bytes:
+          type: integer
+        lock:
+          oneOf:
+            - "$ref": "#/components/schemas/StoreLock"
+            - type: "null"
+        files:
+          type: array
+          items:
+            "$ref": "#/components/schemas/StoreFile"
+      required:
+        - id
+        - app
+        - name
+        - owner
+        - etag
+        - files
+      additionalProperties: false
+    StoreProjectSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        app:
+          type: string
+        name:
+          type: string
+        owner:
+          type: string
+        created:
+          type: integer
+        updated:
+          type: integer
+        etag:
+          type: string
+        deleted:
+          type: boolean
+        files:
+          type: integer
+        locked:
+          type: boolean
+      required:
+        - id
+        - app
+        - name
+        - owner
+        - etag
+      additionalProperties: false
+    StoreProjectPage:
+      type: object
+      properties:
+        total:
+          type: integer
+        offset:
+          type: integer
+        limit:
+          type: integer
+        items:
+          type: array
+          items:
+            "$ref": "#/components/schemas/StoreProjectSummary"
+      required:
+        - total
+        - offset
+        - limit
+        - items
+      additionalProperties: false
+    StoreFiles:
+      type: object
+      properties:
+        files:
+          type: array
+          items:
+            "$ref": "#/components/schemas/StoreFile"
+      required:
+        - files
+      additionalProperties: false
+    StoreVersion:
+      type: object
+      properties:
+        version:
+          type: integer
+        sha256:
+          type: string
+        size:
+          type: integer
+        at:
+          type: integer
+        by:
+          type: string
+        comment:
+          type: string
+      required:
+        - version
+        - sha256
+        - size
+      additionalProperties: false
+      description: "One version of a file: its number, the SHA-256 of its bytes (also its tag) and who wrote it."
+    StoreVersionList:
+      type: object
+      properties:
+        name:
+          type: string
+        versions:
+          type: array
+          items:
+            "$ref": "#/components/schemas/StoreVersion"
+      required:
+        - name
+        - versions
+      additionalProperties: false
+      description: The newest version first.
+    StoreWriteResult:
+      allOf:
+        - "$ref": "#/components/schemas/StoreVersion"
+        - type: object
+          properties:
+            name:
+              type: string
+            unchanged:
+              type: boolean
+          required:
+            - name
+            - unchanged
+      description: "The version written; `unchanged` is true when the bytes were those of the current version and no version was made."
+    StoreLockState:
+      type: object
+      properties:
+        lock:
+          oneOf:
+            - "$ref": "#/components/schemas/StoreLock"
+            - type: "null"
+      required:
+        - lock
+      additionalProperties: false
+    StoreImportResult:
+      type: object
+      properties:
+        imported:
+          type: integer
+        unchanged:
+          type: integer
+        files:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              version:
+                type: integer
+              unchanged:
+                type: boolean
+            required:
+              - name
+              - version
+              - unchanged
+            additionalProperties: false
+      required:
+        - imported
+        - unchanged
+        - files
+      additionalProperties: false
 security:
   - bearerAuth: []

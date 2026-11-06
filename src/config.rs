@@ -90,6 +90,56 @@ pub struct ServerConfig {
     pub shares_enabled: bool,
     /// The most places a request may name in the `rack` of a drilling or routing job (`rack.first` and the entries of `rack.slots`): the tool changer of the machines has fourteen.
     pub rack_max_slots: usize,
+    /// The largest file of a project of the project store, in megabytes.
+    pub project_max_file_mb: u64,
+    /// The most a project of the store may hold, in megabytes (every distinct version counted once).
+    pub project_max_mb: u64,
+    /// The most files one project of the store may have.
+    pub project_max_files: usize,
+    /// The most projects one application may have in the store.
+    pub project_max_projects: usize,
+    /// How many versions of a file are kept (0: all of them).
+    pub project_versions_kept: usize,
+    /// The longest an editing lock of a project lasts without being renewed, in seconds.
+    pub project_lock_ttl_s: u64,
+    /// A write over an existing file needs `If-Match` (else `428 precondition_required`).
+    pub project_require_if_match: bool,
+    /// Team mode: every person with access to the store sees and writes the projects of the application, not only their owner and the administrators.
+    pub project_shared: bool,
+    /// The largest dataset an administrator may upload to a catalog, in megabytes.
+    pub catalog_max_mb: u64,
+    /// The most items a dataset of a catalog may have.
+    pub catalog_max_items: usize,
+    /// The most items one page of a catalog answers with.
+    pub catalog_page_max: usize,
+    /// How many jobs of the generic queue may be waiting, all machines together.
+    pub work_queue_max: usize,
+    /// How many finished jobs of the generic queue are kept.
+    pub work_keep: usize,
+    /// How many clients may listen to the stream of events (`/api/v1/events/stream`) at once.
+    pub events_clients_max: usize,
+    /// How many events the stream keeps for a client that reconnects with `Last-Event-ID`, and how many a client may fall behind.
+    pub events_queue: usize,
+    /// How many notifications are kept.
+    pub notifications_keep: usize,
+    /// Only the applications named in the table of docs/AUTH.md (and `auth_extra_apps`) may log in or have a store.
+    pub auth_known_apps_only: bool,
+    /// More application names, besides the known ones.
+    pub auth_extra_apps: Vec<String>,
+    /// How many logins of the applications one person may have open at once (0: no limit); the oldest is closed when a new one comes.
+    pub auth_max_sessions: usize,
+    /// How many wrong passwords in a row block a name for a while.
+    pub auth_max_failures: u32,
+    /// The first block after too many wrong passwords, in seconds; it doubles for as long as they go on.
+    pub auth_lockout_s: u64,
+    /// The longest a login can be renewed in all, in hours counted from the moment it was made.
+    pub auth_refresh_max_hours: u64,
+    /// The shortest password, in characters.
+    pub password_min_len: usize,
+    /// How many of the four classes (lower case, upper case, digits, other) a password needs.
+    pub password_classes: usize,
+    /// A password may not contain the name of the person (names of four characters or more).
+    pub password_deny_name: bool,
 }
 
 impl ServerConfig {
@@ -147,6 +197,31 @@ impl Default for ServerConfig {
             artifact_unreferenced_days: 30,
             shares_enabled: true,
             rack_max_slots: 14,
+            project_max_file_mb: 64,
+            project_max_mb: 512,
+            project_max_files: 2000,
+            project_max_projects: 1000,
+            project_versions_kept: 50,
+            project_lock_ttl_s: 300,
+            project_require_if_match: true,
+            project_shared: false,
+            catalog_max_mb: 16,
+            catalog_max_items: 100_000,
+            catalog_page_max: 200,
+            work_queue_max: 200,
+            work_keep: 500,
+            events_clients_max: 32,
+            events_queue: 256,
+            notifications_keep: 200,
+            auth_known_apps_only: true,
+            auth_extra_apps: Vec::new(),
+            auth_max_sessions: 20,
+            auth_max_failures: 5,
+            auth_lockout_s: 30,
+            auth_refresh_max_hours: 168,
+            password_min_len: 8,
+            password_classes: 1,
+            password_deny_name: true,
         }
     }
 }
@@ -293,6 +368,76 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
             "artifact_unreferenced_days" => {
                 c.artifact_unreferenced_days = number(&key, value, 0, 36_500).map_err(at)?
             }
+            "project_max_file_mb" => {
+                c.project_max_file_mb = number(&key, value, 1, 4_096).map_err(at)?
+            }
+            "project_max_mb" => c.project_max_mb = number(&key, value, 1, 65_536).map_err(at)?,
+            "project_max_files" => {
+                c.project_max_files = number(&key, value, 1, 100_000).map_err(at)? as usize
+            }
+            "project_max_projects" => {
+                c.project_max_projects = number(&key, value, 1, 1_000_000).map_err(at)? as usize
+            }
+            "project_versions_kept" => {
+                c.project_versions_kept = number(&key, value, 0, 10_000).map_err(at)? as usize
+            }
+            "project_lock_ttl_s" => {
+                c.project_lock_ttl_s = number(&key, value, 10, 86_400).map_err(at)?
+            }
+            "project_require_if_match" => {
+                c.project_require_if_match = flag(&key, value).map_err(at)?
+            }
+            "project_shared" => c.project_shared = flag(&key, value).map_err(at)?,
+            "catalog_max_mb" => c.catalog_max_mb = number(&key, value, 1, 1_024).map_err(at)?,
+            "catalog_max_items" => {
+                c.catalog_max_items = number(&key, value, 1, 10_000_000).map_err(at)? as usize
+            }
+            "catalog_page_max" => {
+                c.catalog_page_max = number(&key, value, 1, 10_000).map_err(at)? as usize
+            }
+            "work_queue_max" => {
+                c.work_queue_max = number(&key, value, 1, 100_000).map_err(at)? as usize
+            }
+            "work_keep" => c.work_keep = number(&key, value, 0, 1_000_000).map_err(at)? as usize,
+            "events_clients_max" => {
+                c.events_clients_max = number(&key, value, 1, 10_000).map_err(at)? as usize
+            }
+            "events_queue" => {
+                c.events_queue = number(&key, value, 16, 65_536).map_err(at)? as usize
+            }
+            "notifications_keep" => {
+                c.notifications_keep = number(&key, value, 0, 100_000).map_err(at)? as usize
+            }
+            "auth_known_apps_only" => c.auth_known_apps_only = flag(&key, value).map_err(at)?,
+            "auth_extra_apps" => {
+                let mut names = Vec::new();
+                for part in value.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+                    if !crate::apps::valid_app(part) {
+                        return Err(at(format!(
+                            "auth_extra_apps: '{part}' is not the name of an application (lower case letters, digits and hyphens, up to 32)"
+                        )));
+                    }
+                    names.push(part.to_string());
+                }
+                c.auth_extra_apps = names;
+            }
+            "auth_max_sessions" => {
+                c.auth_max_sessions = number(&key, value, 0, 10_000).map_err(at)? as usize
+            }
+            "auth_max_failures" => {
+                c.auth_max_failures = number(&key, value, 1, 100).map_err(at)? as u32
+            }
+            "auth_lockout_s" => c.auth_lockout_s = number(&key, value, 1, 86_400).map_err(at)?,
+            "auth_refresh_max_hours" => {
+                c.auth_refresh_max_hours = number(&key, value, 1, 8_760).map_err(at)?
+            }
+            "password_min_len" => {
+                c.password_min_len = number(&key, value, 8, 128).map_err(at)? as usize
+            }
+            "password_classes" => {
+                c.password_classes = number(&key, value, 1, 4).map_err(at)? as usize
+            }
+            "password_deny_name" => c.password_deny_name = flag(&key, value).map_err(at)?,
             other => return Err(at(format!("unknown key '{other}'"))),
         }
     }
@@ -529,6 +674,39 @@ events_idle_s = 30
         assert!(parse("rack_max_slots = 0\n").is_err());
         assert!(parse("rack_max_slots = 15\n").is_err());
         assert!(parse("rack_max_slots = many\n").is_err());
+    }
+
+    #[test]
+    fn the_settings_of_the_project_store_are_conservative_and_checked() {
+        let c = parse("").unwrap();
+        assert_eq!(c.project_max_file_mb, 64);
+        assert_eq!(c.project_max_mb, 512);
+        assert_eq!(c.project_versions_kept, 50);
+        assert_eq!(c.project_lock_ttl_s, 300);
+        // a write over a file needs its tag, and the projects are their owners' only
+        assert!(c.project_require_if_match);
+        assert!(!c.project_shared);
+        let set = parse(
+            "project_max_file_mb = 8
+project_max_mb = 64
+project_max_files = 10
+project_versions_kept = 0
+project_shared = on
+project_require_if_match = no
+",
+        )
+        .unwrap();
+        assert_eq!(set.project_max_file_mb, 8);
+        assert_eq!(set.project_versions_kept, 0);
+        assert!(set.project_shared && !set.project_require_if_match);
+        assert!(parse("project_max_file_mb = 0
+").is_err());
+        assert!(parse("project_lock_ttl_s = 5
+").is_err());
+        assert!(parse("project_max_files = lots
+").is_err());
+        assert!(parse("project_shared = maybe
+").is_err());
     }
 
     #[test]
