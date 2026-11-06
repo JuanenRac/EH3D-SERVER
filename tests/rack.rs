@@ -361,7 +361,13 @@ async fn a_field_of_a_later_version_is_left_out_and_named_in_the_answer() {
         codes(&job),
         vec!["request_version_newer", "rack_unknown_field"]
     );
-    assert_eq!(job["view"]["warnings"][1]["detail"], "spare_place");
+    let unknown = job["view"]["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|w| w["code"] == "rack_unknown_field")
+        .unwrap();
+    assert_eq!(unknown["detail"], "spare_place");
 }
 
 #[tokio::test]
