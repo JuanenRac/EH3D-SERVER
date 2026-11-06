@@ -1727,7 +1727,7 @@ mod tests {
         );
         let chained = plan(&m, &chained).unwrap();
         assert_eq!(chained.view.rack_applied, Some(true));
-        assert!(chained.view.warnings.is_empty());
+        assert!(rack_warnings(&chained.view).is_empty());
         assert_eq!(
             spindle_asks(&chained.items),
             0,
@@ -1845,7 +1845,7 @@ mod tests {
                 ("rack_unknown_field", "spare_place")
             ]
         );
-        assert_eq!(planned.view.warnings[0].values, vec![3.0]);
+        assert_eq!(rack_warnings(&planned.view)[0].values, vec![3.0]);
     }
 
     #[test]
