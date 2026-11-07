@@ -18,12 +18,17 @@ or {"action": "clear_history"}, which empties history.json.
     eh3d-update.py --dir /var/lib/eh3d-updates [--config /etc/eh3d-update.json]     # does what request.json says, once
 
 Every download is checked against the SHA-256 that the release publishes next to the file before anything is replaced. That proves the file arrived whole, not who made it
-(the hash is published in the same place as the file). When the machine has a file of allowed signers (`--signers`, or `/etc/eh3d-update.signers` if it exists) the release must
-also publish `<file>.sig`, an OpenSSH signature of the file made with `ssh-keygen -Y sign -n eh3d-release`, and it must verify with `ssh-keygen -Y verify`
-against one of those keys: then a stolen account of GitHub, which can replace the file and its hash, still cannot make this machine install what the owner did not sign.
-Without that file the helper works as before, and says in its log that the files are not checked for who made them.
- the files are written beside the old ones and
-moved into place, and the old ones are kept as `.previous` so that a bad update can be put back by hand. Only the standard library is used.
+(the hash is published in the same place as the file). So the helper also demands a signature, by default: the machine needs a file of allowed signers (`--signers`, or
+`/etc/eh3d-update.signers`) and the release must publish `<file>.sig`, an OpenSSH signature of the file made with `ssh-keygen -Y sign -n eh3d-release`, which must verify with
+`ssh-keygen -Y verify` against one of those keys: then a stolen account of GitHub, which can replace the file and its hash, still cannot make this machine install what the
+owner did not sign. Without the file of signers, or without a valid `.sig`, NOTHING is installed.
+
+The installation checked by the hash only has to be allowed on purpose, in any of three places: the option `--allow-unsigned`, the setting `{"settings": {"require_signature": false}}`
+in the file of `--config`, or the switch `update_allow_unsigned` of the security page of Studio, which the server passes in the request as `"allow_unsigned": true`. Even then a
+signature that is published must verify: only a release with no `.sig` falls back to the hash, and the log says that the files are not checked for who made them.
+
+The files are written beside the old ones and moved into place, and the old ones are kept as `.previous` so that a bad update can be put back by hand. Only the standard
+library is used.
 """
 import argparse
 import hashlib
@@ -44,6 +49,9 @@ DEFAULT_SIGNERS = "/etc/eh3d-update.signers"
 SIGNATURE_NAMESPACE = "eh3d-release"
 SIGNATURE_IDENTITY = "eh3d-release"
 SIGNERS = DEFAULT_SIGNERS if os.path.exists(DEFAULT_SIGNERS) else None
+#: Whether a release with no signature may be installed when its hash is right. Off: a signature is required. Turned on by `--allow-unsigned` or by
+#: `{"settings": {"require_signature": false}}` in the file of `--config`; a request can allow it for one installation (`"allow_unsigned": true`).
+ALLOW_UNSIGNED = False
 #: The file the helper leaves in what it installs, so that the version left behind by the next update can be told.
 VERSION_MARK = ".eh3d-version"
 #: This script: the release of the server carries a newer copy of it (`deploy/eh3d-update.py`), which takes its place when the server is installed.
@@ -230,7 +238,7 @@ def refresh_helper(folder: Folder, comp_id: str, comp: dict, tree: Path, own: Pa
     return True
 
 
-def install(folder: Folder, comp_id: str, comp: dict, release: dict, get=http_get, run=subprocess.run) -> None:
+def install(folder: Folder, comp_id: str, comp: dict, release: dict, get=http_get, run=subprocess.run, allow_unsigned: bool = False) -> None:
     version = release["latest"]
     name = comp["asset"].format(version=version, arch=arch())
     url = release["assets"].get(name)
@@ -250,15 +258,22 @@ def install(folder: Folder, comp_id: str, comp: dict, release: dict, get=http_ge
         want = expected_hash(get(hash_url).decode("utf-8", "replace"), name)
         if not want or sha256_of(archive) != want:
             raise RuntimeError(f"{name}: the hash does not match, nothing was installed")
-        if SIGNERS:
-            sig_url = release["assets"].get(name + ".sig")
-            if not sig_url:
-                raise RuntimeError(f"the release has no {name}.sig and this machine only installs what is signed ({SIGNERS})")
+        sig_url = release["assets"].get(name + ".sig")
+        if SIGNERS and sig_url:
+            # a signature that is published must verify, also when the hash alone is allowed
             if not verify_signature(archive, get(sig_url), SIGNERS):
                 raise RuntimeError(f"{name}: the signature is not one of the allowed signers, nothing was installed")
             folder.say("updating", f"{comp_id}: the signature is right")
+        elif ALLOW_UNSIGNED or allow_unsigned:
+            why = "the release has no signature" if SIGNERS else "no file of allowed signers"
+            folder.say("updating", f"{comp_id}: {why}, and the installation by the hash alone is allowed: the hash proves the file arrived whole, not who made it")
+        elif SIGNERS:
+            raise RuntimeError(f"the release has no {name}.sig and this machine only installs what is signed ({SIGNERS}); nothing was installed")
         else:
-            folder.say("updating", f"{comp_id}: no file of allowed signers: the hash proves the file arrived whole, not who made it")
+            raise RuntimeError(
+                f"this machine has no file of allowed signers ({DEFAULT_SIGNERS}) and installs only what is signed: nothing was installed. "
+                "Put the file there, or allow the installation checked by the hash alone (update_allow_unsigned in the security page of Studio, require_signature in the settings of the helper)"
+            )
         folder.say("updating", f"{comp_id}: the hash is right, unpacking")
         folder.step(f"{comp_id}.verify", "done")
         folder.step(f"{comp_id}.install", "running")
@@ -393,7 +408,7 @@ def steps_of(config: dict, ids: list) -> list:
     return out
 
 
-def apply(folder: Folder, config: dict, ids: list, get=http_get, run=subprocess.run) -> None:
+def apply(folder: Folder, config: dict, ids: list, get=http_get, run=subprocess.run, allow_unsigned: bool = False) -> None:
     folder.plan(steps_of(config, ids))
     done = []
     for comp_id in ids:
@@ -401,7 +416,7 @@ def apply(folder: Folder, config: dict, ids: list, get=http_get, run=subprocess.
         if comp is None:
             raise RuntimeError(f"{comp_id} is not a component of this helper")
         release = latest_release(comp["repo"], get)
-        install(folder, comp_id, comp, release, get, run)
+        install(folder, comp_id, comp, release, get, run, allow_unsigned)
         done.append(comp_id)
     folder.say("done", "updated: " + ", ".join(done))
 
@@ -433,7 +448,7 @@ def handle(folder: Folder, config: dict, get=http_get, run=subprocess.run) -> bo
             folder.say("done", f"{len(found)} component(s) checked")
         elif kind == "apply":
             # the server may restart itself: the result is written before that, so the Studio can show it when it comes back
-            apply(folder, config, [c for c in request.get("components", []) if c in config], get, run)
+            apply(folder, config, [c for c in request.get("components", []) if c in config], get, run, request.get("allow_unsigned") is True)
         elif kind == "undo":
             undo(folder, config, [c for c in request.get("components", []) if c in config], run)
         else:
@@ -450,18 +465,28 @@ def handle(folder: Folder, config: dict, get=http_get, run=subprocess.run) -> bo
     return True
 
 
+def split_settings(config: dict):
+    """The components of a configuration and its settings (the key `settings`, which is not a component): `(components, settings)`."""
+    components = {k: v for k, v in config.items() if k != "settings"}
+    settings = config.get("settings")
+    return components, settings if isinstance(settings, dict) else {}
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Updates the EH3D services from the releases of GitHub, as the server asks.")
     p.add_argument("--dir", required=True, help="the shared folder (updates_dir of server.cfg)")
     p.add_argument("--signers", help="the file of allowed signers (ssh-keygen format): when given or present at /etc/eh3d-update.signers, only signed releases are installed")
-    p.add_argument("--config", help="a JSON file that replaces the components (id: repo, asset, install_dir, program, restart)")
+    p.add_argument("--allow-unsigned", action="store_true", help="install a release that has no signature when its hash is right (by default a signature is required)")
+    p.add_argument("--config", help="a JSON file that replaces the components (id: repo, asset, install_dir, program, restart) and may hold {\"settings\": {\"require_signature\": false}}")
     a = p.parse_args(argv)
-    global SIGNERS
+    global SIGNERS, ALLOW_UNSIGNED
     if a.signers:
         SIGNERS = a.signers
     config = DEFAULT_CONFIG
     if a.config:
         config = json.loads(Path(a.config).read_text(encoding="utf-8"))
+    config, settings = split_settings(config)
+    ALLOW_UNSIGNED = a.allow_unsigned or settings.get("require_signature") is False
     folder = Folder(Path(a.dir))
     folder.path.mkdir(parents=True, exist_ok=True)
     handle(folder, config)

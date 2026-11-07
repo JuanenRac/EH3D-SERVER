@@ -92,6 +92,9 @@ class UpdateHelper(unittest.TestCase):
         self.tmp.cleanup()
 
     def ask(self, request: dict):
+        # the helper asks for a signature by default; the tests of the updates themselves allow the hash alone, the tests of the signature say what they want
+        if request.get("action") == "apply":
+            request = {"allow_unsigned": True, **request}
         (self.root / "meet" / "request.json").write_text(json.dumps(request), encoding="utf-8")
         return H.handle(self.folder, config(self.root), self.gh.get, self.run)
 
@@ -196,36 +199,124 @@ class UpdateHelper(unittest.TestCase):
         H.SIGNERS = str(signers)
         try:
             # no signature published: refused
-            self.ask({"action": "apply", "components": ["studio"]})
+            self.ask({"action": "apply", "components": ["studio"], "allow_unsigned": False})
             self.assertEqual(self.folder.read("status.json")["state"], "error")
             self.assertIn(".sig", self.folder.read("status.json")["message"])
             self.assertEqual((studio / "index.html").read_text(encoding="utf-8"), "old")
             # signed by somebody else: refused
             self.gh.files[sig_url] = self._sign(thief, self.gh.files[url])
             self.gh.releases["EH3D-STUDIO"]["assets"].append({"name": name + ".sig", "browser_download_url": sig_url})
-            self.ask({"action": "apply", "components": ["studio"]})
+            self.ask({"action": "apply", "components": ["studio"], "allow_unsigned": False})
             self.assertEqual(self.folder.read("status.json")["state"], "error")
             self.assertEqual((studio / "index.html").read_text(encoding="utf-8"), "old")
             # signed by the owner: installed
             self.gh.files[sig_url] = self._sign(owner, self.gh.files[url])
-            self.ask({"action": "apply", "components": ["studio"]})
+            self.ask({"action": "apply", "components": ["studio"], "allow_unsigned": False})
             self.assertEqual(self.folder.read("status.json")["state"], "done", self.folder.read("status.json"))
             self.assertEqual((studio / "index.html").read_text(encoding="utf-8"), "<html>new</html>")
         finally:
             H.SIGNERS = before
 
-    def test_without_signers_the_hash_is_enough_and_the_log_says_who_is_not_checked(self):
-        before = H.SIGNERS
-        H.SIGNERS = None
+    def _studio_with(self, text: str):
+        studio = self.root / "opt" / "eh3d-studio"
+        studio.mkdir(parents=True, exist_ok=True)
+        (studio / "index.html").write_text(text, encoding="utf-8")
+        return studio
+
+    def test_without_signers_nothing_is_installed_by_default(self):
+        before = (H.SIGNERS, H.ALLOW_UNSIGNED)
+        H.SIGNERS, H.ALLOW_UNSIGNED = None, False
         try:
-            studio = self.root / "opt" / "eh3d-studio"
-            studio.mkdir(parents=True)
-            self.ask({"action": "apply", "components": ["studio"]})
+            studio = self._studio_with("old")
+            for request in (
+                {"action": "apply", "components": ["studio"], "allow_unsigned": False},
+                {"action": "apply", "components": ["studio"], "allow_unsigned": "yes"},
+            ):
+                self.ask(request)
+                status = self.folder.read("status.json")
+                self.assertEqual(status["state"], "error", request)
+                self.assertIn("eh3d-update.signers", status["message"])
+                self.assertIn("nothing was installed", status["message"])
+                self.assertEqual((studio / "index.html").read_text(encoding="utf-8"), "old")
+            # a request that does not say it is a request that does not allow it
+            (self.root / "meet" / "request.json").write_text(json.dumps({"action": "apply", "components": ["studio"]}), encoding="utf-8")
+            H.handle(self.folder, config(self.root), self.gh.get, self.run)
+            self.assertEqual(self.folder.read("status.json")["state"], "error")
+            self.assertEqual((studio / "index.html").read_text(encoding="utf-8"), "old")
+        finally:
+            H.SIGNERS, H.ALLOW_UNSIGNED = before
+
+    def test_with_the_hash_alone_allowed_a_release_without_signers_is_installed_and_the_log_says_who_is_not_checked(self):
+        before = (H.SIGNERS, H.ALLOW_UNSIGNED)
+        H.SIGNERS, H.ALLOW_UNSIGNED = None, False
+        try:
+            studio = self._studio_with("old")
+            self.ask({"action": "apply", "components": ["studio"], "allow_unsigned": True})
             status = self.folder.read("status.json")
             self.assertEqual(status["state"], "done")
-            self.assertTrue(any("not who made it" in line for line in status["log"]))
+            self.assertTrue(any("not who made it" in line and "no file of allowed signers" in line for line in status["log"]))
+            self.assertEqual((studio / "index.html").read_text(encoding="utf-8"), "<html>new</html>")
         finally:
-            H.SIGNERS = before
+            H.SIGNERS, H.ALLOW_UNSIGNED = before
+
+    def test_the_setting_of_the_helper_allows_the_hash_alone_without_the_request_saying_so(self):
+        before = (H.SIGNERS, H.ALLOW_UNSIGNED)
+        H.SIGNERS, H.ALLOW_UNSIGNED = None, True
+        try:
+            self._studio_with("old")
+            self.ask({"action": "apply", "components": ["studio"], "allow_unsigned": False})
+            self.assertEqual(self.folder.read("status.json")["state"], "done")
+        finally:
+            H.SIGNERS, H.ALLOW_UNSIGNED = before
+
+    def test_the_settings_of_the_config_file_and_the_option_turn_the_hash_alone_on(self):
+        components, settings = H.split_settings({"server": {"repo": "A"}, "settings": {"require_signature": False}})
+        self.assertEqual(list(components), ["server"])
+        self.assertEqual(settings, {"require_signature": False})
+        self.assertEqual(H.split_settings({"server": {}})[1], {})
+        self.assertEqual(H.split_settings({"server": {}, "settings": "nonsense"})[1], {})
+        before = (H.SIGNERS, H.ALLOW_UNSIGNED)
+        try:
+            meet = self.root / "meet2"
+            cfg = self.root / "helper.json"
+            for body, argv, expected in (
+                (config(self.root), [], False),
+                ({**config(self.root), "settings": {"require_signature": False}}, [], True),
+                ({**config(self.root), "settings": {"require_signature": True}}, [], False),
+                ({**config(self.root), "settings": {}}, ["--allow-unsigned"], True),
+            ):
+                cfg.write_text(json.dumps(body), encoding="utf-8")
+                H.ALLOW_UNSIGNED = not expected
+                self.assertEqual(H.main(["--dir", str(meet), "--config", str(cfg), *argv]), 0)
+                self.assertEqual(H.ALLOW_UNSIGNED, expected, (body.get("settings"), argv))
+        finally:
+            H.SIGNERS, H.ALLOW_UNSIGNED = before
+
+    @unittest.skipUnless(shutil.which("ssh-keygen"), "ssh-keygen is needed to make the keys of the test")
+    def test_a_signature_that_is_published_must_verify_even_when_the_hash_alone_is_allowed(self):
+        owner, thief = self._keys("owner"), self._keys("thief")
+        signers = self.root / "signers"
+        signers.write_text("eh3d-release " + (self.root / "owner.pub").read_text(encoding="utf-8"), encoding="utf-8")
+        studio = self._studio_with("old")
+        url = next(u for u in self.gh.files if "studio" in u and not u.endswith(".sha256"))
+        name = url.rsplit("/", 1)[1]
+        before = (H.SIGNERS, H.ALLOW_UNSIGNED)
+        H.SIGNERS, H.ALLOW_UNSIGNED = str(signers), False
+        try:
+            # signers but no signature published: the hash alone, only because it was allowed
+            self.ask({"action": "apply", "components": ["studio"], "allow_unsigned": True})
+            status = self.folder.read("status.json")
+            self.assertEqual(status["state"], "done")
+            self.assertTrue(any("the release has no signature" in line for line in status["log"]))
+            (studio / "index.html").write_text("old", encoding="utf-8")
+            # a signature by somebody else is refused although the hash alone is allowed
+            self.gh.files[url + ".sig"] = self._sign(thief, self.gh.files[url])
+            self.gh.releases["EH3D-STUDIO"]["assets"].append({"name": name + ".sig", "browser_download_url": url + ".sig"})
+            self.ask({"action": "apply", "components": ["studio"], "allow_unsigned": True})
+            self.assertEqual(self.folder.read("status.json")["state"], "error")
+            self.assertEqual((studio / "index.html").read_text(encoding="utf-8"), "old")
+        finally:
+            H.SIGNERS, H.ALLOW_UNSIGNED = before
 
     def test_a_name_that_only_starts_like_the_folder_is_outside_it(self):
         with tempfile.TemporaryDirectory() as tmp:
