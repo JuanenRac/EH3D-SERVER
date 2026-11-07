@@ -111,6 +111,21 @@ fn the_new_settings_are_in_the_example_with_the_values_the_server_starts_with() 
         "design_timeout_s",
         "design_max_output_kb",
         "tls_cert_file",
+        "tasks_enabled",
+        "tasks_selftest",
+        "max_tasks",
+        "keep_tasks",
+        "max_concurrent_tasks",
+        "task_timeout_s",
+        "tasks_per_user",
+        "task_params_kb",
+        "idempotency_ttl_s",
+        "artifact_store_gb",
+        "max_upload_mb",
+        "upload_ttl_s",
+        "uploads_per_user",
+        "artifact_unreferenced_days",
+        "shares_enabled",
     ] {
         assert!(
             text.lines()

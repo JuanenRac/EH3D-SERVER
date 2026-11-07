@@ -136,7 +136,7 @@ Como as partes deste repositório se encaixam: quem o usa, o que contém e de qu
 
 ## ⚙️ Configuração
 
-`server.cfg` (ou o ficheiro dado com `--config`) tem 66 chaves opcionais; uma chave desconhecida ou um valor fora de gama é um erro ao arrancar. `server.cfg.example` explica-as.
+`server.cfg` (ou o ficheiro dado com `--config`) tem 71 chaves opcionais; uma chave desconhecida ou um valor fora de gama é um erro ao arrancar. `server.cfg.example` explica-as.
 
 | Chave | Por omissão | Gama | O que faz |
 |---|---|---|---|

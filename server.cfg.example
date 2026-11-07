@@ -52,6 +52,32 @@ log_max_kb = 1024
 # The most places a request may name in the rack of a drilling or routing job, in rack.first and in the entries of rack.slots (1 to 14, the tool changer of the machines has fourteen).
 rack_max_slots = 14
 
+# ---- the computing tasks, the uploads, the artifacts and the sharing (docs/API.md)
+# Whether the server takes computing tasks at all (/api/v1/tasks). The tasks have no effect on any machine. Off: the routes answer 501 tasks_off.
+tasks_enabled = true
+# Whether the engine that exercises the task system (server.selftest) is there. Off: only the engines of the design suite are.
+tasks_selftest = false
+# How many tasks may be waiting or running, all users together (1 to 100000), and how many finished tasks the list keeps (0 to 100000).
+max_tasks = 100
+keep_tasks = 200
+# How many tasks run at the same time (1 to 64), the longest a task may run in seconds (1 to 604800), how many tasks one user may have waiting or running (1 to 10000) and the largest parameters of a task in kilobytes (1 to 65536).
+max_concurrent_tasks = 2
+task_timeout_s = 600
+tasks_per_user = 10
+task_params_kb = 64
+# How long, in seconds (60 to 2592000), a request that carries an idempotency key is remembered.
+idempotency_ttl_s = 86400
+# The most the artifact store holds, in gigabytes (1 to 100000, each blob counted once), and the largest artifact or upload, in megabytes (1 to 65536).
+artifact_store_gb = 4
+max_upload_mb = 512
+# How long, in seconds (60 to 2592000), an upload nobody touches is kept, and how many uploads one person may have open (1 to 1000).
+upload_ttl_s = 86400
+uploads_per_user = 4
+# How many days an artifact that nothing points to is kept (0 to 36500; 0: for ever).
+artifact_unreferenced_days = 30
+# Whether a project or an artifact can be shared with other people at all. Off: only the owner and the administrators see anything.
+shares_enabled = true
+
 # ---- the project store of every application (docs/PROJECT_STORE.md)
 # The largest file of a project, in megabytes (1 to 4096), and the most a project may hold counting every distinct version once (1 to 65536).
 project_max_file_mb = 64

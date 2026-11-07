@@ -136,7 +136,7 @@ How the parts of this repository fit together: who uses it, what it holds and wh
 
 ## ⚙️ Configuration
 
-`server.cfg` (or the file given with `--config`) holds 66 optional keys; an unknown key or a value out of range is an error at start. `server.cfg.example` explains them.
+`server.cfg` (or the file given with `--config`) holds 71 optional keys; an unknown key or a value out of range is an error at start. `server.cfg.example` explains them.
 
 | Key | Default | Range | What it does |
 |---|---|---|---|

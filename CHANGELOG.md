@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **`server.cfg.example` has every setting of the server:** the fifteen settings of the computing tasks, the uploads, the artifact store and the sharing (`tasks_enabled` ... `shares_enabled`) were read by the server but missing from the example; they are there now with their ranges and their defaults, the test that compares the example with the defaults checks them too, and the README says the right number of keys (71).
+
 ## [0.1.4] - Routes for the run of a design program, the audit, the keys, the security policy and the quotas of the projects
 
 - **Running the design program on a board of a project (`POST /api/v1/apps/pcb/jobs`, `docs/DESIGN_RUN.md`):** `{kind: check|bom|fabpack|panel, project, file, options}` runs the installed program as a job of the generic queue (plugin `phoenix`) and keeps its report as the file `reports/<kind>.json` of the project, with versions, quotas and the editing lock. It is off by default (`design_run`, a switch of the security page) and needs the full path of the program (`design_program`); it runs with no shell, an empty environment, a folder of its own, a time limit (`design_timeout_s`) and an output limit (`design_max_output_kb`). Without the settings it answers `501 design_run_unavailable`.

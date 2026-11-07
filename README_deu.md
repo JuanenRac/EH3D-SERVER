@@ -136,7 +136,7 @@ Wie die Teile dieses Repositorys zusammenpassen: wer es nutzt, was es enthält u
 
 ## ⚙️ Konfiguration
 
-`server.cfg` (oder die mit `--config` angegebene Datei) enthält 66 optionale Schlüssel; ein unbekannter Schlüssel oder ein Wert außerhalb des Bereichs ist beim Start ein Fehler. `server.cfg.example` erklärt sie.
+`server.cfg` (oder die mit `--config` angegebene Datei) enthält 71 optionale Schlüssel; ein unbekannter Schlüssel oder ein Wert außerhalb des Bereichs ist beim Start ein Fehler. `server.cfg.example` erklärt sie.
 
 | Schlüssel | Standard | Bereich | Was er bewirkt |
 |---|---|---|---|

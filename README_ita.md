@@ -136,7 +136,7 @@ Come si incastrano le parti di questo repository: chi lo usa, che cosa contiene 
 
 ## ⚙️ Configurazione
 
-`server.cfg` (o il file indicato con `--config`) contiene 66 chiavi facoltative; una chiave sconosciuta o un valore fuori intervallo è un errore all'avvio. `server.cfg.example` le spiega.
+`server.cfg` (o il file indicato con `--config`) contiene 71 chiavi facoltative; una chiave sconosciuta o un valore fuori intervallo è un errore all'avvio. `server.cfg.example` le spiega.
 
 | Chiave | Predefinito | Intervallo | Cosa fa |
 |---|---|---|---|

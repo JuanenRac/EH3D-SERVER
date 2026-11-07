@@ -136,7 +136,7 @@ Comment les parties de ce dépôt s'articulent : qui l'utilise, ce qu'il contien
 
 ## ⚙️ Configuration
 
-`server.cfg` (ou le fichier donné avec `--config`) contient 66 clés facultatives ; une clé inconnue ou une valeur hors plage est une erreur au démarrage. `server.cfg.example` les explique.
+`server.cfg` (ou le fichier donné avec `--config`) contient 71 clés facultatives ; une clé inconnue ou une valeur hors plage est une erreur au démarrage. `server.cfg.example` les explique.
 
 | Clé | Défaut | Plage | Ce qu'elle fait |
 |---|---|---|---|

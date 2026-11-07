@@ -136,7 +136,7 @@ Cómo encajan las partes de este repositorio: quién lo usa, qué contiene y de 
 
 ## ⚙️ Configuración
 
-`server.cfg` (o el fichero dado con `--config`) tiene 66 claves opcionales; una clave desconocida o un valor fuera de rango es un error al arrancar. `server.cfg.example` las explica.
+`server.cfg` (o el fichero dado con `--config`) tiene 71 claves opcionales; una clave desconocida o un valor fuera de rango es un error al arrancar. `server.cfg.example` las explica.
 
 | Clave | Por defecto | Rango | Qué hace |
 |---|---|---|---|
