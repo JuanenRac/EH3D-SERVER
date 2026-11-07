@@ -4,6 +4,7 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **The update helper reads at most 1 GiB from one address:** a bigger answer (from a release file or from the API) is refused without being read to the end, so a wrong or hostile address cannot fill the memory of the machine; the helper has one more test on it (23 in all).
 - **`server.cfg.example` has every setting of the server:** the fifteen settings of the computing tasks, the uploads, the artifact store and the sharing (`tasks_enabled` ... `shares_enabled`) were read by the server but missing from the example; they are there now with their ranges and their defaults, the test that compares the example with the defaults checks them too, and the README says the right number of keys (71).
 
 ## [0.1.4] - Routes for the run of a design program, the audit, the keys, the security policy and the quotas of the projects

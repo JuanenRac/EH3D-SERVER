@@ -135,10 +135,17 @@ class Folder:
         self.write("history.json", history[-15:])
 
 
-def http_get(url: str, timeout: int = 30) -> bytes:
+#: The most bytes the helper reads from one address: a release file is far smaller, and a bigger answer is not read to the end.
+MAX_DOWNLOAD = 1 << 30
+
+
+def http_get(url: str, timeout: int = 30, limit: int = MAX_DOWNLOAD) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": "eh3d-update", "Accept": "application/vnd.github+json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310 - the addresses are the ones of GitHub
-        return r.read()
+        data = r.read(limit + 1)
+    if len(data) > limit:
+        raise RuntimeError(f"{url}: the answer is bigger than {limit} bytes, it was not read")
+    return data
 
 
 def latest_release(repo: str, get=http_get) -> dict:

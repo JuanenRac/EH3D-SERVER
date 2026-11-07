@@ -378,6 +378,23 @@ class UpdateHelper(unittest.TestCase):
         self.ask({"action": "check"})
         self.assertEqual(len(self.folder.read("history.json")), 1)
 
+    def test_an_answer_bigger_than_the_limit_is_refused_and_one_within_it_is_read(self):
+        class Answer(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        real = H.urllib.request.urlopen
+        try:
+            H.urllib.request.urlopen = lambda req, timeout=30: Answer(b"x" * 11)
+            self.assertEqual(H.http_get("https://dl/f", 5, 11), b"x" * 11)
+            with self.assertRaises(RuntimeError):
+                H.http_get("https://dl/f", 5, 10)
+        finally:
+            H.urllib.request.urlopen = real
+
 
 if __name__ == "__main__":
     unittest.main()
