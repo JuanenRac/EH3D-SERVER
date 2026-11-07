@@ -318,6 +318,16 @@ async fn policy(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
         ),
         switch("project_shared", json!(c.project_shared), !c.project_shared),
         switch("design_run", json!(h.design_run), h.is_safe("design_run")),
+        switch(
+            "network_open",
+            json!(h.network_open),
+            h.is_safe("network_open"),
+        ),
+        switch(
+            "update_allow_unsigned",
+            json!(h.update_allow_unsigned),
+            h.is_safe("update_allow_unsigned"),
+        ),
     ];
     let attention: Vec<String> = switches
         .iter()
@@ -329,6 +339,7 @@ async fn policy(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
         "attention": attention,
         "extra_apps": c.auth_extra_apps,
         "editable": crate::policy::KEYS,
+        "restart_required": crate::policy::RESTART_KEYS,
     })))
 }
 

@@ -126,6 +126,8 @@ fn the_new_settings_are_in_the_example_with_the_values_the_server_starts_with() 
         "uploads_per_user",
         "artifact_unreferenced_days",
         "shares_enabled",
+        "network_open",
+        "update_allow_unsigned",
     ] {
         assert!(
             text.lines()

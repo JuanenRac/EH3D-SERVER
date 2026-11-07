@@ -579,7 +579,7 @@ async fn updates_apply(
     need(&who, Role::Admin)?;
     no_job_running(&s)?;
     updates_of(&s)?
-        .request("apply", &b.components)
+        .request_with("apply", &b.components, s.policy.get().update_allow_unsigned)
         .map_err(updates_fail)?;
     note(
         &s,

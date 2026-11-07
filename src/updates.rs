@@ -1,7 +1,7 @@
 //! Updates of the installed EH3D services from the releases of GitHub. The server does not talk to GitHub and does not replace itself: a small helper
 //! (`deploy/eh3d-update.py`), started by systemd with the rights it needs, does that. The two talk through files in one folder (`updates_dir`):
 //!
-//! - `request.json`: what the server asks for, `{"action": "check"}`, `{"action": "apply", "components": ["server", "studio"]}`, `{"action": "undo", "components": [...]}` (puts back the version an update left behind) or `{"action": "clear_history"}`; the helper takes it and removes it.
+//! - `request.json`: what the server asks for, `{"action": "check"}`, `{"action": "apply", "components": ["server", "studio"], "allow_unsigned": false}` (`true` when the switch `update_allow_unsigned` allows an update with no signature), `{"action": "undo", "components": [...]}` (puts back the version an update left behind) or `{"action": "clear_history"}`; the helper takes it and removes it.
 //! - `components.json`: what the last check found, `[{"id", "latest", "url", "published"}]`.
 //! - `previous.json`: what the helper keeps of the version that an update left behind, `{"<id>": {"available": true, "version": "0.0.7"}}` (the version may be null).
 //! - `status.json`: what the helper is doing, `{"state": "idle|checking|updating|done|error", "message": "...", "log": [...]}`.
@@ -149,6 +149,17 @@ impl Updates {
     /// Asks the helper for a check, for the update of some components (only the ones that this server knows), for putting back the version an update left behind
     /// or for emptying its history. Only one request waits at a time.
     pub fn request(&self, action: &str, components: &[String]) -> Result<(), String> {
+        self.request_with(action, components, false)
+    }
+
+    /// `request`, saying whether an update may be installed with no signature when its hash is right (`allow_unsigned`: the switch `update_allow_unsigned` of the security
+    /// page). The helper asks for a signature unless this is true. It is written for an `apply` only.
+    pub fn request_with(
+        &self,
+        action: &str,
+        components: &[String],
+        allow_unsigned: bool,
+    ) -> Result<(), String> {
         if !["check", "apply", "undo", "clear_history"].contains(&action) {
             return Err("the action must be check, apply, undo or clear_history".into());
         }
@@ -178,7 +189,10 @@ impl Updates {
         }
         std::fs::create_dir_all(&self.dir).map_err(|e| e.to_string())?;
         let tmp = self.dir.join("request.json.tmp");
-        let body = json!({ "action": action, "components": components });
+        let mut body = json!({ "action": action, "components": components });
+        if action == "apply" {
+            body["allow_unsigned"] = json!(allow_unsigned);
+        }
         std::fs::write(&tmp, body.to_string()).map_err(|e| e.to_string())?;
         std::fs::rename(&tmp, self.dir.join("request.json")).map_err(|e| e.to_string())
     }
@@ -296,6 +310,22 @@ mod tests {
     }
 
     #[test]
+    fn an_apply_carries_the_switch_that_allows_the_hash_alone_and_the_other_requests_do_not() {
+        let d = dir("unsigned");
+        let u = Updates::new(d.clone(), "0.0.1", None);
+        let read = |d: &Path| -> Value {
+            serde_json::from_str(&std::fs::read_to_string(d.join("request.json")).unwrap()).unwrap()
+        };
+        u.request_with("apply", &["studio".to_string()], true)
+            .unwrap();
+        assert_eq!(read(&d)["allow_unsigned"], json!(true));
+        std::fs::remove_file(d.join("request.json")).unwrap();
+        u.request_with("check", &[], true).unwrap();
+        assert!(read(&d).get("allow_unsigned").is_none());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
     fn a_request_is_written_once_and_only_for_what_can_be_updated() {
         let d = dir("request");
         let u = Updates::new(d.clone(), "0.0.1", None);
@@ -309,6 +339,7 @@ mod tests {
                 .unwrap();
         assert_eq!(written["action"], "apply");
         assert_eq!(written["components"], json!(["server", "studio"]));
+        assert_eq!(written["allow_unsigned"], json!(false));
         assert_eq!(u.view()["pending"], true);
         // one request waits at a time
         assert!(u.request("check", &[]).is_err());

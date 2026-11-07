@@ -14,7 +14,16 @@ EH3D-SERVER/
 
 ## Settings
 
-`server.cfg` (or the file given with `--config`) holds `listen`, `data_dir`, `session_hours`, `max_body_mb`, `keep_jobs` and the settings of G-code jobs (`gcode_finish_wait_s`, `grbl_line_timeout_s`, `grbl_homing_timeout_s`, `grbl_jog_timeout_s`), `resume_margin_lines` (16), `local_until_setup` (off: with it on, a server that has no user yet answers only 127.0.0.1, so the first administrator is made from the computer itself), `url_token` (off) and `login_ip_limit` (10, 0 turns it off; behind a reverse proxy see `trust_forwarded_for` below); the switches `exit_on_panic` (on: a thread that panics stops the machines and the server exits, so that systemd starts it again), `trust_forwarded_for` (off), `persist_sessions` (off), `token_default_days` (0: no expiry), `events_ping_s` (30) and `events_idle_s` (90) for the websocket, and `audit_file` and `job_log` (on) with `log_max_kb` (1024) for the records described under "What the server records"; see `server.cfg.example`. The default port is **18200**, which is not one of ARMOR's (18080 to 18090) nor HYDRA-UMC's, so the three servers can share the CM5.
+`server.cfg` (or the file given with `--config`) holds `listen` (by default `127.0.0.1:18200`: this computer only, see "Reaching the server from the network" below), `network_open`, `data_dir`, `session_hours`, `max_body_mb`, `keep_jobs` and the settings of G-code jobs (`gcode_finish_wait_s`, `grbl_line_timeout_s`, `grbl_homing_timeout_s`, `grbl_jog_timeout_s`), `resume_margin_lines` (16), `local_until_setup` (off: with it on, a server that has no user yet answers only 127.0.0.1, so the first administrator is made from the computer itself), `url_token` (off) and `login_ip_limit` (10, 0 turns it off; behind a reverse proxy see `trust_forwarded_for` below); the switches `exit_on_panic` (on: a thread that panics stops the machines and the server exits, so that systemd starts it again), `trust_forwarded_for` (off), `persist_sessions` (off), `token_default_days` (0: no expiry), `events_ping_s` (30) and `events_idle_s` (90) for the websocket, and `audit_file` and `job_log` (on) with `log_max_kb` (1024) for the records described under "What the server records"; see `server.cfg.example`. The default port is **18200**, which is not one of ARMOR's (18080 to 18090) nor HYDRA-UMC's, so the three servers can share the CM5.
+
+## Reaching the server from the network
+
+By default the server listens on `127.0.0.1:18200`, this computer only: nothing else on the network can reach it, and so a fresh install is not exposed. The nodes, the programs and the apps of other computers, and the browser of another computer need it to listen on the network. Do one of these:
+
+* write `listen = 0.0.0.0:18200` in `server.cfg` (every address of the computer; or the address of one network card, such as `listen = 192.168.0.180:18200`). An address written on purpose is never narrowed. A CM5 that serves the nodes of a workshop needs this line, or the switch below, in its `server.cfg`: a server that had no `listen` line and was reached from the network before must have one now.
+* or turn on the switch `network_open` of the security page of Studio (`PUT /api/v1/auth/policy`, `{"key": "network_open", "value": true, "confirm_weak": true}`; or `network_open = true` in `server.cfg`). While `listen` is an address of this computer, the server then listens on every address of the computer with the same port. The change is kept in `policy.json` and read when the server starts, so restart the service after it (`GET /api/v1/auth/policy` lists it in `restart_required`). Reached from the network without HTTPS the logins travel in clear text: see "HTTPS" below.
+
+Before the first start on a computer that is reached from the network, make the first administrator from that computer itself (`local_until_setup = true` allows only 127.0.0.1 until then).
 
 ## First start
 
@@ -48,7 +57,7 @@ The unit stops the running jobs when the service stops (`systemctl stop` sends S
 
 The server does not terminate TLS: put Caddy in front of it. With its own certificate authority (`tls internal`) it needs no domain and no internet, which fits a machine in a workshop. The file to copy is `deploy/Caddyfile.example`.
 
-1. In `server.cfg` make the server listen only on this computer, so that the only door from the network is the proxy: `listen = 127.0.0.1:18200`.
+1. In `server.cfg` make the server listen only on this computer, so that the only door from the network is the proxy: `listen = 127.0.0.1:18200` (the default; do not write `0.0.0.0` and keep `network_open` off).
 2. Install Caddy (`sudo apt install caddy`), copy `deploy/Caddyfile.example` to `/etc/caddy/Caddyfile`, put the name or the address of the computer where it says `cm5.local`, and `sudo systemctl reload caddy`. Caddy makes its certificate authority the first time.
 3. Make the devices trust it: copy `/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt` to each device that opens the server and install it as a trusted authority (the browser, the phone). Open `https://cm5.local/`; the Studio, the API and the websocket of the events are all there.
 4. Close the old port to the network (the line of step 1 does it) and change the address in the programs and the apps from `http://cm5:18200` to `https://cm5.local`.
@@ -129,4 +138,12 @@ The update helper checks every download against the SHA-256 that the release pub
 2. On the machine, `/etc/eh3d-update.signers` holds one line: `eh3d-release <the contents of eh3d-release.pub>`.
 3. For every file of a release, the owner signs it (`ssh-keygen -Y sign -f eh3d-release -n eh3d-release FILE.tar.gz`) and publishes `FILE.tar.gz.sig` next to it.
 
-From then on the helper installs only a release that has the `.sig` and whose signature verifies with `ssh-keygen -Y verify`; a release without it, or signed by another key, is refused and nothing is replaced. Without the signers file the helper works as before and its log says that the files are not checked for who made them.
+The helper demands the signature by default. It installs only a release that has the `.sig` and whose signature verifies with `ssh-keygen -Y verify`; a release without it, or signed by another key, is refused and nothing is replaced. **A machine without the signers file installs nothing**: the error says so and names the file.
+
+The installation checked by the hash alone has to be allowed on purpose, in one of three places, and then it is said in the log that the files are not checked for who made them:
+
+* the switch `update_allow_unsigned` of the security page of Studio (`PUT /api/v1/auth/policy`, off by default, it needs the confirmation of a looser value; or `update_allow_unsigned = true` in `server.cfg`). The server writes it as `"allow_unsigned"` in each request to apply an update, so it takes effect at once;
+* the setting of the helper: in the file of `--config` (for example `/etc/eh3d-update.json`) the key `{"settings": {"require_signature": false}}` next to the components;
+* the option `--allow-unsigned` in the `ExecStart` of `eh3d-update.service`.
+
+Even with the hash alone allowed, a `.sig` that the release does publish must verify: a signature by another key is refused. Only a release that publishes no `.sig` (or a machine with no signers file) falls back to the hash.

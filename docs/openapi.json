@@ -1495,7 +1495,7 @@
           "admin"
         ],
         "summary": "Ask the helper to update components",
-        "description": "Role admin.",
+        "description": "The helper installs a release only when it is signed by one of the allowed signers of the machine. The request it finds carries `allow_unsigned`, the value of the switch `update_allow_unsigned` of the security page (false by default); when it is true a release that publishes no signature may be installed by its hash alone. Role admin.",
         "x-role": "admin",
         "x-error-codes": [
           "bad_request",
@@ -17179,6 +17179,13 @@
               "type": "string"
             },
             "description": "The keys `PUT /auth/policy` can change while the server runs."
+          },
+          "restart_required": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The `editable` keys whose change is kept at once but is read when the server starts (`network_open`: the address cannot change under a server that is listening)."
           }
         },
         "required": [

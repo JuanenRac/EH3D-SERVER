@@ -48,10 +48,12 @@ async fn main() {
     if let Some(code) = state.auth.locked().setup_code() {
         println!("SETUP: this server has no user yet. Make the administrator with POST /api/v1/setup and the set-up code {code}");
     }
-    let listener = match tokio::net::TcpListener::bind(cfg.listen).await {
+    // this computer only, unless server.cfg names a network address or the switch `network_open` (kept in policy.json) opens the network
+    let address = cfg.bind_address(state.policy.get().network_open);
+    let listener = match tokio::net::TcpListener::bind(address).await {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("eh3d-server: cannot listen on {}: {e}", cfg.listen);
+            eprintln!("eh3d-server: cannot listen on {address}: {e}");
             std::process::exit(1);
         }
     };
@@ -60,7 +62,7 @@ async fn main() {
     println!(
         "eh3d-server {} listening on {}",
         env!("CARGO_PKG_VERSION"),
-        cfg.listen
+        address
     );
     let app = api::router(state.clone());
     let stopper = state.clone();

@@ -30,7 +30,7 @@
 |---|---|
 | 版本 | `0.1.4` |
 | 成熟度 | 可用 |
-| 测试 | 347 |
+| 测试 | 358 |
 | 技术栈 | Rust (axum, tokio) |
 | 真实硬件 | 否：已针对模拟器测试；尚未通过服务器在真实机床上运行过任何东西 |
 
@@ -45,7 +45,7 @@
 | 领域 | 状态 | 在这里的含义 |
 |---|---|---|
 | 软件 | 🟡 | Rust 服务器（axum）保存用户、机床和作业，使用 EH3D-DRILLPRO 和 EH3D-ROUTEPRO 的库规划钻孔和铣削作业，显示预览，并带有操作员对话框和停止功能地运行作业。 |
-| 测试 | 🟡 | 347 个测试通过（`cargo test`）：模块内 191 个，接口端到端 156 个，作业在模拟器上运行（`tests/api.rs` 41 个，使用真实程序的 `tests/programs.rs` 7 个）。 |
+| 测试 | 🟡 | 358 个测试通过（`cargo test`）：模块内 196 个，接口端到端 162 个，作业在模拟器上运行（`tests/api.rs` 41 个，使用真实程序的 `tests/programs.rs` 7 个）。 |
 | 面向客户端的接口（API） | 🟡 | REST 请求和 websocket 事件已写在 `docs/API.md` 和路由的 OpenAPI 契约 `docs/openapi.yaml` 中并被测试覆盖；目前只有程序自带的服务器连接在使用。 |
 | 公共服务 | 🟠 | 项目存储、共享目录、带队列和事件的机床插件以及统一登录，都在计算机上的测试中运行；目前没有任何应用使用它们，没有任何东西通过队列在真实机床上运行过，目录也没有载入各程序的真实数据。 |
 | 客户端 | 🔴 | EH3D-STUDIO 在使用它（从未对真实机床试过）；Android 应用和机床旁的触摸面板尚不存在。 |
@@ -91,7 +91,7 @@ EH3D-SERVER 是 EH3D 家族的中心：程序把作业发给它，它通过节�
 * **标定集中一处：** 每台机床的配置文件和调好的数值保存在服务器上，所以所有客户端都用相同的数字规划。
 * **服务器停止时正在运行的作业会标记为失败：** 没人知道机床当时在哪里，所以不会自动恢复。
 * **可靠写入的文件：** 用户、令牌、机床和作业是 JSON 文件，通过临时文件写入，该文件在取代旧文件之前先刷入磁盘，之后再刷新所在文件夹；被替换的文件会作为 `<名称>.bak` 保留一份。损坏的文件仍然是错误，绝不会悄悄地从零重启，但如果副本完好，错误会指出它并说明如何恢复（把它复制到文件上）；副本绝不会自己被加载。
-* **来自 GitHub 的更新：** 设置 `updates_dir` 后，服务器向管理员提供检查自身和 EH3D-STUDIO 最新版本并更新的功能（`/api/v1/updates`）；由 systemd 启动的小型辅助程序（`deploy/eh3d-update.py`）负责下载、校验每个文件的 SHA-256、拒绝名称超出其文件夹的压缩包、替换已安装的文件夹（旧的保留为 `.previous`）并重启服务。 如果存在文件 `/etc/eh3d-update.signers`，它还会检查每个文件的 OpenSSH 签名（`.sig`），并拒绝没有签名的软件包；它会用发布版本中附带的副本替换自身。因此启用后，它会拒绝未附带 `.sig` 发布的版本。已用替身替代 GitHub 和 systemd 测试过，从未在真实安装上运行。管理员还可以恢复上一次更新留下的版本，并清空更新历史。
+* **来自 GitHub 的更新：** 设置 `updates_dir` 后，服务器向管理员提供检查自身和 EH3D-STUDIO 最新版本并更新的功能（`/api/v1/updates`）；由 systemd 启动的小型辅助程序（`deploy/eh3d-update.py`）负责下载、校验每个文件的 SHA-256、拒绝名称超出其文件夹的压缩包、替换已安装的文件夹（旧的保留为 `.previous`）并重启服务。 它要求签名：机器需要文件 `/etc/eh3d-update.signers`，发布版本必须为每个文件发布可通过验证的 OpenSSH 签名（`.sig`）；没有该文件或没有有效的 `.sig`，就不会安装任何内容。仅凭哈希校验的安装必须有意允许（Studio 安全页面的开关 `update_allow_unsigned`、助手设置中的 `require_signature` 或其选项 `--allow-unsigned`），即便如此，已发布的签名也必须通过验证。它会用发布版本中附带的副本替换自身。已用替身替代 GitHub 和 systemd 测试过，从未在真实安装上运行。管理员还可以恢复上一次更新留下的版本，并清空更新历史。
 * **运行：** SIGTERM（`systemctl stop`）会先停止正在运行的机器，再按顺序停止服务器；systemd 单元已加固（`UMask=0077`、`dialout` 组、无主目录、无新权限）；`GET /api/v1/health` 给出版本、接口修订号以及 `ok` 或 `degraded`（磁盘已满或只读，或某次 panic 毒化了锁，服务器现在可以继续运行），已登录的用户会得到更多信息；夜间定时器备份数据文件夹（`deploy/eh3d-backup.py`）；`deploy/Caddyfile.example` 和 `docs/DEPLOY.md` 给出用 Caddy 实现 HTTPS 的方法。这些文件只作为文件测试过，从未在 CM5 上测试。
 * **经服务器访问钻头节点：** 当机床配置写明节点（`head_address`、`head_token`）时，服务器转发它的状态（`GET /api/v1/machines/:id/head/status`）、它的 MJPEG 摄像头（`.../head/stream`，浏览器可把令牌放在地址里）和一次工作台测量（`POST .../head/measure`，操作员），这样另一个网络里的程序用同一个登录就能访问。已用替身节点测试，从未对真实节点测试。
 * **通过钻头摄像头进行质量检查：** 服务器打开 LED 环形灯，从节点取一张图像，用工坊的分析器判断（每台机床的配置由服务器保存），让环形灯显示结果（绿色或红色闪烁），并保存最近一次检查，供机床旁的屏幕和手机显示：`GET/POST .../head/light`、`GET .../head/snapshot`、`POST/GET .../head/inspect`、`GET/PUT .../head/inspect/profile` 和 `POST .../head/inspect/calibrate`。
@@ -136,11 +136,13 @@ EH3D-SERVER 是 EH3D 家族的中心：程序把作业发给它，它通过节�
 
 ## ⚙️ 配置
 
-`server.cfg`（或用 `--config` 指定的文件）有 71 个可选键；未知的键或超出范围的值在启动时会报错。`server.cfg.example` 有说明。
+`server.cfg`（或用 `--config` 指定的文件）有 73 个可选键；未知的键或超出范围的值在启动时会报错。`server.cfg.example` 有说明。
 
 | 键 | 默认值 | 范围 | 作用 |
 |---|---|---|---|
-| `listen` | `0.0.0.0:18200` | 地址和端口 | 服务器监听的位置（18200 是它自己的端口） |
+| `listen` | `127.0.0.1:18200` | 地址和端口 | 服务器监听的位置；默认只有本机（18200 是它自己的端口） |
+| `network_open` | `false` | true 或 false | 当 `listen` 只是本机时，在计算机的所有地址上监听；安全页面的开关，在服务器启动时读取 |
+| `update_allow_unsigned` | `false` | true 或 false | 当哈希正确时，允许更新助手安装没有签名的发布版本；安全页面的开关（关闭：必须有签名） |
 | `data_dir` | `data` | 文件夹 | 保存用户、令牌、机床和作业的位置；请备份 |
 | `session_hours` | 12 | 1 到 720 | 登录持续多久 |
 | `max_body_mb` | 8 | 1 到 256 | 最大的请求，单位 MB |
@@ -175,7 +177,7 @@ python -I tools/ci_validate.py
 
 ## 🧪 测试
 
-测试共 347 个（`cargo test`，CI 中在 Windows 和 Linux 上运行，COMMON, DRILLPRO 和 ROUTEPRO 检出在服务器旁）：模块内 191 个（设置及其范围、用户、角色、令牌、对错误密码的减速、文件和作业簿、规划），通过真实路由器的接口端到端 41 个（`tests/api.rs`），维护客户端所读响应示例的 2 个（`tests/examples.rs`），以及真实程序通过真实端口把作业发给真实服务器、机床使用模拟器的 7 个（`tests/programs.rs`）。`tests/` 中的其他文件另有 106 个（四个公共服务及其文档、产物、计算任务、共享、事件、错误目录、API 文档中的路由、信号停止与一次 panic）。CI 还运行 `cargo fmt --all --check`、将警告视为错误的 `cargo clippy` 和 `python -I tools/ci_validate.py`。这里没有任何东西针对真实节点或机床测试过。 负责更新的辅助程序另有 23 项自己的测试（`python -I tests/test_update_helper.py`，用替身替代 GitHub 和 systemd）。另有两个测试文件检查：使锁中毒的 panic 不会使服务器停止（`tests/poison.rs`），以及真实的二进制文件在收到 SIGTERM 时停止（`tests/sigterm.rs`，在 Linux 上）；备份和部署文件各有 7 个和 8 个自己的测试（`tests/test_backup.py`、`tests/test_deploy_files.py`）。 另有两个测试文件分别在真实套接字上检查事件 websocket（`tests/events.rs`，3 个测试），并对照服务器源码检查错误代码目录（`tests/errors.rs`，3 个测试）。 路由契约通过 `tests/openapi.rs`（6 个测试）和 `python -I tools/check_openapi.py` 对照路由器检查，后者也在 CI 中运行。
+测试共 358 个（`cargo test`，CI 中在 Windows 和 Linux 上运行，COMMON, DRILLPRO 和 ROUTEPRO 检出在服务器旁）：模块内 196 个（设置及其范围、用户、角色、令牌、对错误密码的减速、文件和作业簿、规划），通过真实路由器的接口端到端 41 个（`tests/api.rs`），维护客户端所读响应示例的 2 个（`tests/examples.rs`），以及真实程序通过真实端口把作业发给真实服务器、机床使用模拟器的 7 个（`tests/programs.rs`）。`tests/` 中的其他文件另有 106 个（四个公共服务及其文档、产物、计算任务、共享、事件、错误目录、API 文档中的路由、信号停止与一次 panic）。CI 还运行 `cargo fmt --all --check`、将警告视为错误的 `cargo clippy` 和 `python -I tools/ci_validate.py`。这里没有任何东西针对真实节点或机床测试过。 负责更新的辅助程序另有 23 项自己的测试（`python -I tests/test_update_helper.py`，用替身替代 GitHub 和 systemd）。另有两个测试文件检查：使锁中毒的 panic 不会使服务器停止（`tests/poison.rs`），以及真实的二进制文件在收到 SIGTERM 时停止（`tests/sigterm.rs`，在 Linux 上）；备份和部署文件各有 7 个和 8 个自己的测试（`tests/test_backup.py`、`tests/test_deploy_files.py`）。 另有两个测试文件分别在真实套接字上检查事件 websocket（`tests/events.rs`，3 个测试），并对照服务器源码检查错误代码目录（`tests/errors.rs`，3 个测试）。 路由契约通过 `tests/openapi.rs`（6 个测试）和 `python -I tools/check_openapi.py` 对照路由器检查，后者也在 CI 中运行。
 
 ## 🏗️ 构建与发布
 

@@ -325,6 +325,8 @@ op("GET", "/updates", "admin", "admin", "See the updates of the services", ok=(2
    desc="Without `updates_dir` in `server.cfg` the answer is `{\"enabled\": false}`.")
 op("POST", "/updates/check", "admin", "admin", "Ask the helper to look for the latest releases", errors=["updates_off", "update_refused"])
 op("POST", "/updates/apply", "admin", "admin", "Ask the helper to update components", body="UpdateComponents", errors=["updates_off", "update_refused", "machines_busy"],
+   desc="The helper installs a release only when it is signed by one of the allowed signers of the machine. The request it finds carries `allow_unsigned`, the value of the switch "
+        "`update_allow_unsigned` of the security page (false by default); when it is true a release that publishes no signature may be installed by its hash alone.",
    example={"components": ["server", "studio"]})
 op("POST", "/updates/undo", "admin", "admin", "Ask the helper to put back the previous version", body="UpdateComponents", errors=["updates_off", "update_refused", "machines_busy"],
    example={"components": ["studio"]})
@@ -686,6 +688,7 @@ SCHEMAS.update({
         "switches": arr(obj({"key": s(), "value": {}, "safe": B}, ["key", "value", "safe"])),
         "attention": arr(S), "extra_apps": arr(S),
         "editable": arr(S, description="The keys `PUT /auth/policy` can change while the server runs."),
+        "restart_required": arr(S, description="The `editable` keys whose change is kept at once but is read when the server starts (`network_open`: the address cannot change under a server that is listening)."),
     }, ["switches", "attention", "extra_apps"], description="The switches of security of `server.cfg` with their values (never a secret) and, in `attention`, those that are looser than the recommended value."),
     "AuthApps": obj({"apps": arr(S), "known_only": B}, ["apps", "known_only"]),
 })

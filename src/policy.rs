@@ -1,8 +1,8 @@
 //! The switches of security that can be changed while the server runs (`PUT /api/v1/auth/policy`).
 //!
 //! Only the settings that the server reads each time they matter are here: whether the address may carry the token (`url_token`), whether refusals go to the audit
-//! (`audit_denials`), whether the server may run the design program (`design_run`) and the limits of the logins and of the passwords. They start from `server.cfg`, a change
-//! is kept in `policy.json` in the data folder and wins over `server.cfg` for that key the next time the server starts (`server.cfg` is never rewritten), and a change takes effect at once.
+//! (`audit_denials`), whether the server may run the design program (`design_run`), whether the server listens on the network (`network_open`, read when the server starts), whether an update may be installed without a signature (`update_allow_unsigned`) and the limits of the logins and of the passwords. They start from `server.cfg`, a change
+//! is kept in `policy.json` in the data folder and wins over `server.cfg` for that key the next time the server starts (`server.cfg` is never rewritten), and a change takes effect at once, except the keys of `RESTART_KEYS`, which are read when the server starts.
 //! The other switches of `GET /auth/policy` are read from `server.cfg` once and need a restart.
 //!
 //! A change to a value that is looser than the recommended one is refused (`409 weak_confirm_required`) unless the request says `confirm_weak: true`.
@@ -22,6 +22,10 @@ pub struct Hot {
     pub url_token: bool,
     pub audit_denials: bool,
     pub design_run: bool,
+    /// Whether the server listens on the network and not only on this computer. It is kept at once and read when the server starts (see `RESTART_KEYS`).
+    pub network_open: bool,
+    /// Whether an update may be installed with no signature when its hash is right (the helper asks for a signature by default).
+    pub update_allow_unsigned: bool,
     pub login_ip_limit: u32,
     pub auth_max_failures: u32,
     pub auth_lockout_s: u64,
@@ -36,6 +40,8 @@ pub const KEYS: &[&str] = &[
     "url_token",
     "audit_denials",
     "design_run",
+    "network_open",
+    "update_allow_unsigned",
     "login_ip_limit",
     "auth_max_failures",
     "auth_lockout_s",
@@ -44,6 +50,9 @@ pub const KEYS: &[&str] = &[
     "password_classes",
     "password_deny_name",
 ];
+
+/// The keys whose change is kept at once but is read when the server starts (the address cannot be changed under a server that is listening).
+pub const RESTART_KEYS: &[&str] = &["network_open"];
 
 /// Why a change was not made.
 #[derive(Debug, PartialEq)]
@@ -80,6 +89,8 @@ impl Hot {
             url_token: c.url_token,
             audit_denials: c.audit_denials,
             design_run: c.design_run,
+            network_open: c.network_open,
+            update_allow_unsigned: c.update_allow_unsigned,
             login_ip_limit: c.login_ip_limit,
             auth_max_failures: c.auth_max_failures,
             auth_lockout_s: c.auth_lockout_s,
@@ -96,6 +107,8 @@ impl Hot {
             "url_token" => json!(self.url_token),
             "audit_denials" => json!(self.audit_denials),
             "design_run" => json!(self.design_run),
+            "network_open" => json!(self.network_open),
+            "update_allow_unsigned" => json!(self.update_allow_unsigned),
             "login_ip_limit" => json!(self.login_ip_limit),
             "auth_max_failures" => json!(self.auth_max_failures),
             "auth_lockout_s" => json!(self.auth_lockout_s),
@@ -113,6 +126,8 @@ impl Hot {
             "url_token" => !self.url_token,
             "audit_denials" => self.audit_denials,
             "design_run" => !self.design_run,
+            "network_open" => !self.network_open,
+            "update_allow_unsigned" => !self.update_allow_unsigned,
             "login_ip_limit" => self.login_ip_limit > 0,
             "auth_max_failures" => self.auth_max_failures <= 10,
             "auth_lockout_s" => self.auth_lockout_s >= 10,
@@ -130,6 +145,8 @@ impl Hot {
             "url_token" => self.url_token = flag(value, key)?,
             "audit_denials" => self.audit_denials = flag(value, key)?,
             "design_run" => self.design_run = flag(value, key)?,
+            "network_open" => self.network_open = flag(value, key)?,
+            "update_allow_unsigned" => self.update_allow_unsigned = flag(value, key)?,
             "login_ip_limit" => self.login_ip_limit = whole(value, key, 0, 1_000)? as u32,
             "auth_max_failures" => self.auth_max_failures = whole(value, key, 1, 100)? as u32,
             "auth_lockout_s" => self.auth_lockout_s = whole(value, key, 1, 86_400)?,
@@ -260,6 +277,39 @@ mod tests {
         let again = Policy::open(&cfg, &d).unwrap();
         assert!(again.get().url_token);
         assert_eq!(again.get().password_min_len, 14);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn opening_the_network_is_a_looser_value_that_needs_the_confirmation_and_survives_a_restart() {
+        let d = dir("network");
+        let cfg = ServerConfig::default();
+        let hot = Hot::from_config(&cfg);
+        assert!(!hot.network_open && hot.is_safe("network_open"));
+        assert_eq!(hot.value("network_open"), Some(json!(false)));
+        assert!(KEYS.contains(&"network_open") && RESTART_KEYS.contains(&"network_open"));
+        assert!(RESTART_KEYS.iter().all(|k| KEYS.contains(k)));
+        let policy = Policy::open(&cfg, &d).unwrap();
+        assert_eq!(
+            policy.change("network_open", &json!(true), false),
+            Err(PolicyError::WeakNeedsConfirm)
+        );
+        assert!(!policy.get().network_open && !d.join("policy.json").exists());
+        assert!(matches!(
+            policy.change("network_open", &json!("yes"), true),
+            Err(PolicyError::Bad(_))
+        ));
+        policy.change("network_open", &json!(true), true).unwrap();
+        // the server reads it when it starts: the address it binds follows the kept value
+        let again = Policy::open(&cfg, &d).unwrap();
+        assert!(again.get().network_open);
+        assert_eq!(
+            cfg.bind_address(again.get().network_open),
+            "0.0.0.0:18200".parse().unwrap()
+        );
+        // closing it again needs no confirmation
+        again.change("network_open", &json!(false), false).unwrap();
+        assert!(!Policy::open(&cfg, &d).unwrap().get().network_open);
         let _ = std::fs::remove_dir_all(&d);
     }
 }

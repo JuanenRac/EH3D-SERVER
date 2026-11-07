@@ -1,8 +1,12 @@
 # EH3D-SERVER settings. Copy to server.cfg (or give another file with --config). Every key is optional; an unknown key is an error.
 #
-# Where the server listens. 18200 is its own port (ARMOR and HYDRA-UMC use others on the same machine).
-# Behind the HTTPS proxy of docs/DEPLOY.md listen only on this computer (127.0.0.1:18200) and set login_ip_limit = 0.
-listen = 0.0.0.0:18200
+# Where the server listens. The default is this computer only (127.0.0.1:18200): 18200 is its own port (ARMOR and HYDRA-UMC use others on the same machine).
+# Nodes, the CM5 programs and other computers can reach the server only when it listens on the network: write listen = 0.0.0.0:18200 here, or turn on the switch
+# network_open below. Behind the HTTPS proxy of docs/DEPLOY.md keep this computer only and set login_ip_limit = 0.
+listen = 127.0.0.1:18200
+# Open the server to the network: when listen is an address of this computer only, listen on every address of the computer (same port). Off by default; a switch of the
+# security page of Studio (PUT /api/v1/auth/policy) that is read when the server starts. An address written in listen on purpose is never narrowed.
+network_open = false
 # Where users, tokens, machines and jobs are kept. Back this folder up.
 data_dir = data
 # How long a login lasts, in hours.
@@ -15,6 +19,9 @@ keep_jobs = 200
 studio_dir =
 # The folder where the server and the update helper (deploy/eh3d-update.py) meet; with it the Studio can check GitHub for newer releases and update. Empty: no updates.
 updates_dir =
+# Whether an update may be installed with no signature when its hash is right. Off by default: the helper of the updates (deploy/eh3d-update.py) installs only what is signed by
+# one of the allowed signers of the machine (/etc/eh3d-update.signers). A switch of the security page of Studio; the server passes it to the helper with each update.
+update_allow_unsigned = false
 # How long, in seconds, a G-code job waits for the machine to finish its last moves (the controller takes lines ahead of the movement) before the job is marked as failed.
 gcode_finish_wait_s = 900
 # How long, in seconds, a GRBL machine may take to answer a line of a G-code job. When a line does not end in time the machine is held (a homing cycle is reset, a jog is cancelled) and the job is marked as failed, with the line.

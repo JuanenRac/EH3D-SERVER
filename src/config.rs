@@ -6,8 +6,15 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ServerConfig {
-    /// Where the server listens. The default port, 18200, is the EH3D server's own (ARMOR and HYDRA-UMC use others on the same machine).
+    /// Where the server listens. The default is this computer only (`127.0.0.1`); a server that nodes or other computers must reach needs `listen = 0.0.0.0:18200` or the
+    /// switch `network_open`. The default port, 18200, is the EH3D server's own (ARMOR and HYDRA-UMC use others on the same machine).
     pub listen: SocketAddr,
+    /// Opens the server to the network: when `listen` is an address of this computer only, the server listens on every address of the computer (same port) instead. It is a
+    /// switch of the security page (`PUT /api/v1/auth/policy`) that is read when the server starts. Off by default.
+    pub network_open: bool,
+    /// Whether the helper that updates the services may install a release that has no signature when its hash is right. Off by default: a signature is required. It is a
+    /// switch of the security page (`PUT /api/v1/auth/policy`) and the server passes it to the helper with each request to apply an update.
+    pub update_allow_unsigned: bool,
     /// Where users, tokens, machines and jobs are kept.
     pub data_dir: PathBuf,
     /// How long a login lasts, in hours.
@@ -155,6 +162,19 @@ pub struct ServerConfig {
 }
 
 impl ServerConfig {
+    /// The address the server binds: `listen`, or the same port on every address of the computer when `network_open` is on and `listen` is an address of this computer only. An
+    /// address that `listen` names on purpose (a network address) is never narrowed.
+    pub fn bind_address(&self, network_open: bool) -> SocketAddr {
+        if !network_open || !self.listen.ip().is_loopback() {
+            return self.listen;
+        }
+        let any: std::net::IpAddr = match self.listen {
+            SocketAddr::V4(_) => std::net::Ipv4Addr::UNSPECIFIED.into(),
+            SocketAddr::V6(_) => std::net::Ipv6Addr::UNSPECIFIED.into(),
+        };
+        SocketAddr::new(any, self.listen.port())
+    }
+
     /// The times a GRBL controller waits, by the kind of line.
     pub fn grbl_timeouts(&self) -> eh3d_controller::grbl::Timeouts {
         use std::time::Duration;
@@ -169,7 +189,9 @@ impl ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            listen: "0.0.0.0:18200".parse().expect("a valid default address"),
+            listen: "127.0.0.1:18200".parse().expect("a valid default address"),
+            network_open: false,
+            update_allow_unsigned: false,
             data_dir: PathBuf::from("data"),
             session_hours: 12,
             max_body_mb: 8,
@@ -278,7 +300,7 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
             "listen" => {
                 c.listen = value.parse().map_err(|_| {
                     at(format!(
-                        "listen must be an address like 0.0.0.0:18200, not '{value}'"
+                        "listen must be an address like 127.0.0.1:18200, not '{value}'"
                     ))
                 })?
             }
@@ -457,6 +479,8 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
                 c.password_classes = number(&key, value, 1, 4).map_err(at)? as usize
             }
             "password_deny_name" => c.password_deny_name = flag(&key, value).map_err(at)?,
+            "network_open" => c.network_open = flag(&key, value).map_err(at)?,
+            "update_allow_unsigned" => c.update_allow_unsigned = flag(&key, value).map_err(at)?,
             "design_run" => c.design_run = flag(&key, value).map_err(at)?,
             "design_program" => {
                 c.design_program = if value.is_empty() {
@@ -537,6 +561,8 @@ mod tests {
     fn the_defaults_are_the_servers_own_port_and_a_data_folder() {
         let c = parse("").unwrap();
         assert_eq!(c.listen.port(), 18200);
+        assert_eq!(c.listen, "127.0.0.1:18200".parse().unwrap());
+        assert!(c.listen.ip().is_loopback() && !c.network_open);
         assert_eq!(c.data_dir, PathBuf::from("data"));
         assert_eq!((c.session_hours, c.max_body_mb, c.keep_jobs), (12, 8, 200));
     }
@@ -945,5 +971,42 @@ design_max_output_kb = 64
         assert!(parse("keep_jobs = 5\n").is_err());
         assert!(parse("just words\n").is_err());
         assert!(parse("data_dir =\n").is_err());
+    }
+
+    #[test]
+    fn the_server_listens_on_this_computer_only_until_the_network_is_opened() {
+        let c = parse("").unwrap();
+        assert_eq!(c.bind_address(false), "127.0.0.1:18200".parse().unwrap());
+        assert_eq!(c.bind_address(true), "0.0.0.0:18200".parse().unwrap());
+        // the port the person chose is kept
+        let other = parse("listen = 127.0.0.1:18300\n").unwrap();
+        assert_eq!(other.bind_address(true), "0.0.0.0:18300".parse().unwrap());
+        let v6 = parse("listen = [::1]:18400\n").unwrap();
+        assert_eq!(v6.bind_address(false), "[::1]:18400".parse().unwrap());
+        assert_eq!(v6.bind_address(true), "[::]:18400".parse().unwrap());
+        // an address of the network that is written on purpose is never narrowed, with the switch or without it
+        let wide = parse("listen = 0.0.0.0:18200\n").unwrap();
+        assert_eq!(wide.bind_address(false), wide.listen);
+        assert_eq!(wide.bind_address(true), wide.listen);
+        let lan = parse("listen = 192.168.0.180:18200\n").unwrap();
+        assert_eq!(lan.bind_address(true), lan.listen);
+    }
+
+    #[test]
+    fn the_switch_to_open_the_network_is_read_and_checked() {
+        assert!(parse("network_open = on\n").unwrap().network_open);
+        assert!(!parse("network_open = no\n").unwrap().network_open);
+        assert!(parse("network_open = maybe\n").is_err());
+    }
+
+    #[test]
+    fn the_updates_ask_for_a_signature_unless_the_switch_allows_the_hash_alone() {
+        assert!(!parse("").unwrap().update_allow_unsigned);
+        assert!(
+            parse("update_allow_unsigned = yes\n")
+                .unwrap()
+                .update_allow_unsigned
+        );
+        assert!(parse("update_allow_unsigned = sometimes\n").is_err());
     }
 }
