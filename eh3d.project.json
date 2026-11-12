@@ -18,6 +18,7 @@
   "parent": null,
   "depends_on": [
     "EH3D-COMMON",
+    "EH3D-CORE-LIBS",
     "EH3D-DRILLPRO",
     "EH3D-ROUTEPRO"
   ],

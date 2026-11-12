@@ -71,30 +71,14 @@ pub fn strip(line: &str) -> String {
     out.trim().to_string()
 }
 
-/// The words of a line of code: a letter and its number.
+/// The words of a line of code: a letter and its number, as the reader of G-code of the suite (EH3D-CORE-LIBS) reads them. A line it cannot make a block of (a `$` line) has none.
 pub fn words(code: &str) -> Vec<(char, f64)> {
-    let mut out = Vec::new();
-    let mut cur: Option<(char, String)> = None;
-    let mut flush = |cur: &mut Option<(char, String)>| {
-        if let Some((l, n)) = cur.take() {
-            if let Ok(v) = n.parse::<f64>() {
-                out.push((l, v));
-            }
-        }
-    };
-    for c in code.chars() {
-        if c.is_whitespace() {
-            continue;
-        }
-        if c.is_ascii_alphabetic() {
-            flush(&mut cur);
-            cur = Some((c.to_ascii_uppercase(), String::new()));
-        } else if let Some((_, n)) = cur.as_mut() {
-            n.push(c);
-        }
-    }
-    flush(&mut cur);
-    out
+    eh3d_parser_gcode::parse(code, eh3d_parser_gcode::Dialect::Grbl)
+        .blocks
+        .into_iter()
+        .next()
+        .map(|b| b.words.into_iter().map(|w| (w.letter, w.value)).collect())
+        .unwrap_or_default()
 }
 
 /// A `$` line of GRBL that a machine with the switch on may take: `$` and then only letters, digits and the signs of a command or a setting.

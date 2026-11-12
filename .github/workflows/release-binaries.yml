@@ -96,6 +96,7 @@ jobs:
           git clone --depth 1 https://github.com/JuanenRac/EH3D-COMMON.git ../EH3D-COMMON
           git clone --depth 1 https://github.com/JuanenRac/EH3D-DRILLPRO.git ../EH3D-DRILLPRO
           git clone --depth 1 https://github.com/JuanenRac/EH3D-ROUTEPRO.git ../EH3D-ROUTEPRO
+          git clone --depth 1 https://github.com/JuanenRac/EH3D-CORE-LIBS.git ../EH3D-CORE-LIBS
       - name: Rust toolchain
         run: rustup toolchain install stable --profile minimal
       - name: Tests

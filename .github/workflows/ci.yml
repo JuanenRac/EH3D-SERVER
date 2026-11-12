@@ -64,6 +64,11 @@ jobs:
           persist-credentials: false
           repository: JuanenRac/EH3D-ROUTEPRO
           path: EH3D-ROUTEPRO
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          repository: JuanenRac/EH3D-CORE-LIBS
+          path: EH3D-CORE-LIBS
       - name: Rust toolchain
         run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
       - name: Format
