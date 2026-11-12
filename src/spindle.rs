@@ -5,19 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The spindles, by the word the API and the settings file use.
-pub const IDS: [&str; 2] = ["original", "vfd"];
-
-/// The limits of one spindle.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
-pub struct Limits {
-    pub min_rpm: u32,
-    pub max_rpm: u32,
-    pub power_w: u32,
-    pub max_xy_mm_min: u32,
-    pub max_z_mm_min: u32,
-    pub max_bit_mm: f64,
-}
+// the table of the spindles (the ids, their limits and the starting values of spindles.cfg) is shared with the interface of the machines
+pub use eh3d_materials::spindle::{defaults, Limits, IDS};
 
 /// What the person changed of a spindle's limits: only the members that are present replace the starting values.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq)]
@@ -36,29 +25,6 @@ pub struct Override {
     pub max_bit_mm: Option<f64>,
 }
 
-/// The starting limits of a spindle: prudent ones, the same the programs of the family start from; the machine's tuning replaces them.
-pub fn defaults(id: &str) -> Option<Limits> {
-    match id {
-        "original" => Some(Limits {
-            min_rpm: 5_000,
-            max_rpm: 63_000,
-            power_w: 150,
-            max_xy_mm_min: 3_000,
-            max_z_mm_min: 4_000,
-            max_bit_mm: 3.2,
-        }),
-        "vfd" => Some(Limits {
-            min_rpm: 6_000,
-            max_rpm: 24_000,
-            power_w: 2_200,
-            max_xy_mm_min: 1_500,
-            max_z_mm_min: 1_200,
-            max_bit_mm: 6.0,
-        }),
-        _ => None,
-    }
-}
-
 impl Override {
     /// The limits of spindle `id` with this change on top of the starting ones.
     pub fn over(&self, id: &str) -> Option<Limits> {
@@ -70,20 +36,6 @@ impl Override {
         l.max_z_mm_min = self.max_z_mm_min.unwrap_or(l.max_z_mm_min);
         l.max_bit_mm = self.max_bit_mm.unwrap_or(l.max_bit_mm);
         Some(l)
-    }
-}
-
-impl Limits {
-    /// Whether the numbers can be used: nothing zero, the slowest not above the fastest, nothing absurd.
-    pub fn valid(&self) -> bool {
-        (1..=200_000).contains(&self.max_rpm)
-            && self.min_rpm <= self.max_rpm
-            && (1..=20_000).contains(&self.max_xy_mm_min)
-            && (1..=20_000).contains(&self.max_z_mm_min)
-            && (1..=20_000).contains(&self.power_w)
-            && self.max_bit_mm.is_finite()
-            && self.max_bit_mm > 0.0
-            && self.max_bit_mm <= 50.0
     }
 }
 
@@ -202,13 +154,6 @@ mod tests {
     }
 
     #[test]
-    fn the_starting_limits_are_those_of_the_two_spindles() {
-        let (o, v) = (defaults("original").unwrap(), defaults("vfd").unwrap());
-        assert_eq!((o.min_rpm, o.max_rpm, v.max_rpm), (5_000, 63_000, 24_000));
-        assert!(o.valid() && v.valid() && defaults("steam").is_none());
-    }
-
-    #[test]
     fn a_change_replaces_only_what_it_names() {
         let o = Override {
             max_xy_mm_min: Some(900),
@@ -220,19 +165,6 @@ mod tests {
             (900, defaults("vfd").unwrap().max_z_mm_min)
         );
         assert!(o.over("steam").is_none());
-    }
-
-    #[test]
-    fn limits_that_cannot_be_used_are_not_valid() {
-        let mut l = defaults("vfd").unwrap();
-        l.min_rpm = l.max_rpm + 1;
-        assert!(!l.valid());
-        let mut l = defaults("vfd").unwrap();
-        l.max_z_mm_min = 0;
-        assert!(!l.valid());
-        let mut l = defaults("vfd").unwrap();
-        l.max_bit_mm = f64::NAN;
-        assert!(!l.valid());
     }
 
     #[test]
