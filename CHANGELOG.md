@@ -4,6 +4,7 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **The codes that a job taken up again gives back are tracked by the reader of the suite:** the modal tracker that the server had (the unit, the distance, the plane, the work system, the feed mode, the feed, the spindle and the coolant) is now `ModalState` of EH3D-CORE-LIBS, so the server has no tokenizer and no modal state of its own for G-code; the lines given back and the tests of resuming a job do not change.
 - **The words of a line of G-code are read by the reader of the suite:** `gcode::words` no longer has a tokenizer of its own; it asks `eh3d-parser-gcode` of EH3D-CORE-LIBS (a new sibling of the build, named in `depends_on`), so the server and the other programs of the suite read a line the same way. The table of lines checked by both repositories does not change.
 - **The catalog of the error codes also goes to the phone apps:** `tools/sync_api_examples.py` copies `docs/error-codes.json` to the file that the tests of the Android and iOS apps read, and `--check` fails when a copy differs, so a code that the server adds reaches the apps' tests.
 - **A table of lines of G-code that the server and the readers of the suite must read the same:** the words of six lines (letters in either case, comments in parentheses and after a semicolon, words stuck together, negative and decimal numbers) are checked here and in EH3D-CORE-LIBS against the same expected words, so while the two readers are not one a change that makes them disagree fails where it was made.

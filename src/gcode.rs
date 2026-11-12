@@ -128,87 +128,6 @@ fn check_line(raw: usize, code: &str, allow_dollar: bool) -> Result<(), GcodeErr
     Ok(())
 }
 
-/// The codes that stay on until another of their group changes them, as far as they can be given again after a stop.
-#[derive(Debug, Default, Clone, PartialEq)]
-struct Modal {
-    units: Option<i32>,
-    distance: Option<i32>,
-    plane: Option<i32>,
-    wcs: Option<i32>,
-    feed_mode: Option<i32>,
-    feed: Option<f64>,
-    spindle: Option<i32>,
-    speed: Option<f64>,
-    coolant: Option<i32>,
-}
-
-impl Modal {
-    fn apply(&mut self, code: &str) {
-        for (letter, v) in words(code) {
-            match letter {
-                'G' => {
-                    let g = (v * 10.0).round() as i32;
-                    match g {
-                        200 | 210 => self.units = Some(g),
-                        900 | 910 => self.distance = Some(g),
-                        170 | 180 | 190 => self.plane = Some(g),
-                        540 | 550 | 560 | 570 | 580 | 590 => self.wcs = Some(g),
-                        940 | 950 => self.feed_mode = Some(g),
-                        _ => {}
-                    }
-                }
-                'M' => match v.round() as i32 {
-                    m @ (3..=5) => self.spindle = Some(m),
-                    m @ (7..=9) => self.coolant = Some(m),
-                    _ => {}
-                },
-                'F' => self.feed = Some(v),
-                'S' => self.speed = Some(v),
-                _ => {}
-            }
-        }
-    }
-
-    /// The lines that give the state back. The spindle and the coolant only when `outputs` says so: starting a spindle is not something to do by itself.
-    fn lines(&self, outputs: bool) -> Vec<String> {
-        let mut out = Vec::new();
-        let groups: Vec<String> = [
-            self.units,
-            self.distance,
-            self.plane,
-            self.wcs,
-            self.feed_mode,
-        ]
-        .iter()
-        .flatten()
-        .map(|g| {
-            if g % 10 == 0 {
-                format!("G{}", g / 10)
-            } else {
-                format!("G{}.{}", g / 10, g % 10)
-            }
-        })
-        .collect();
-        if !groups.is_empty() {
-            out.push(groups.join(" "));
-        }
-        if let Some(f) = self.feed {
-            out.push(format!("F{}", number(f)));
-        }
-        if outputs {
-            match (self.spindle, self.speed) {
-                (Some(m @ (3 | 4)), Some(s)) => out.push(format!("M{m} S{}", number(s))),
-                (Some(m @ (3 | 4)), None) => out.push(format!("M{m}")),
-                _ => {}
-            }
-            if let Some(m @ (7 | 8)) = self.coolant {
-                out.push(format!("M{m}"));
-            }
-        }
-        out
-    }
-}
-
 /// A number as short as it can be written.
 fn number(v: f64) -> String {
     let text = format!("{v:.4}");
@@ -238,7 +157,7 @@ pub fn parse_with(
     if skip > raw.len() {
         return fail("no_work", "skip is beyond the end of the program");
     }
-    let mut modal = Modal::default();
+    let mut modal = eh3d_parser_gcode::ModalState::default();
     let mut entries: Vec<Entry> = Vec::new();
     for (n, line) in raw.iter().enumerate() {
         let code = strip(line);
@@ -247,7 +166,7 @@ pub fn parse_with(
         }
         check_line(n, &code, allow_dollar)?;
         if n < skip {
-            modal.apply(&code);
+            modal.apply_words(words(&code));
         } else {
             entries.push(Entry { raw: n, text: code });
         }
@@ -258,7 +177,7 @@ pub fn parse_with(
     let mut lead: Vec<Entry> = Vec::new();
     if skip > 0 {
         lead = modal
-            .lines(restore_outputs)
+            .restore_lines(restore_outputs)
             .into_iter()
             .map(|text| Entry { raw: skip, text })
             .collect();
