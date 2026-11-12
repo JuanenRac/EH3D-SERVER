@@ -218,4 +218,35 @@ mod tests {
         );
         assert_eq!(level_and_ceiling(b"nope"), None);
     }
+
+    #[test]
+    fn a_profile_that_cannot_be_read_is_the_standard_one_and_a_query_of_the_longest_size_goes_through(
+    ) {
+        let dir = std::env::temp_dir().join(format!("eh3d-inspect-bad-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("inspect")).unwrap();
+        for (machine, text) in [
+            ("empty", ""),
+            ("text", "not json"),
+            ("list", "[1, 2]"),
+            ("other", "{\"px_per_mm\": \"many\"}"),
+        ] {
+            std::fs::write(profile_path(&dir, machine), text).unwrap();
+            assert_eq!(load_profile(&dir, machine), Profile::default(), "{machine}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        // the longest query the ring takes is 200 characters, one more is refused
+        assert!(light_query_ok(&"a".repeat(200)));
+        assert!(!light_query_ok(&"a".repeat(201)));
+    }
+
+    #[test]
+    fn the_ceiling_of_the_light_is_the_default_when_the_node_does_not_say_it() {
+        assert_eq!(
+            level_and_ceiling(br#"{"on":true,"level":5}"#),
+            Some((true, 5, 80))
+        );
+        assert_eq!(level_and_ceiling(b""), None);
+        assert_eq!(level_and_ceiling(b"[]"), None);
+    }
 }
