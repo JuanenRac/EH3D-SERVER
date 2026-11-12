@@ -4,6 +4,7 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **The catalog of the error codes also goes to the phone apps:** `tools/sync_api_examples.py` copies `docs/error-codes.json` to the file that the tests of the Android and iOS apps read, and `--check` fails when a copy differs, so a code that the server adds reaches the apps' tests.
 - **A table of lines of G-code that the server and the readers of the suite must read the same:** the words of six lines (letters in either case, comments in parentheses and after a semicolon, words stuck together, negative and decimal numbers) are checked here and in EH3D-CORE-LIBS against the same expected words, so while the two readers are not one a change that makes them disagree fails where it was made.
 - **The limits of the spindles come from the table shared with the interface of the machines:** the ids, the limits and the starting values of the original spindle and of the one with the drive are read from the shared table (`spindles.cfg` of the shared crate) instead of being written in the server, so the server and the interface judge a job against the same numbers; the answers of the API do not change.
 - **The ZIP library is updated to 9.5.1 in the lock file:** the lock file pinned the `zip` crate at 2.6.1, which has known security advisories (fixed in 9.0.0 and 9.0.5); it now resolves to 9.5.1 through the shared container and archive libraries, which already require 9.0.5 or later.

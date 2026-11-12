@@ -33,6 +33,13 @@ CATALOGS = {
 }
 
 
+#: The catalog of the error codes also goes to the phone apps, to the file their tests read (not to the folder of the examples).
+CATALOG_FILES = {
+    "EH3D-ANDROID-CONTROL": "app/src/test/resources/error-codes.json",
+    "EH3D-IOS-CONTROL": "Tests/Eh3dCoreTests/Catalog/error-codes.json",
+}
+
+
 def lines_of(path: Path) -> bytes:
     return path.read_bytes().replace(b"\r\n", b"\n")
 
@@ -64,6 +71,17 @@ def main(argv: list[str]) -> int:
                     target.mkdir(parents=True, exist_ok=True)
                     copy.write_bytes(lines_of(f))
                     print(f"  copied  {repo}/{folder}/{name}")
+        if repo in CATALOG_FILES:
+            copy = base / CATALOG_FILES[repo]
+            source = ROOT / "docs" / "error-codes.json"
+            if source.is_file() and not (copy.is_file() and lines_of(copy) == lines_of(source)):
+                differ += 1
+                if check:
+                    print(f"  DIFFERS {repo}/{CATALOG_FILES[repo]}")
+                else:
+                    copy.parent.mkdir(parents=True, exist_ok=True)
+                    copy.write_bytes(lines_of(source))
+                    print(f"  copied  {repo}/{CATALOG_FILES[repo]}")
         for extra in sorted(target.glob("*.json")) if target.is_dir() else []:
             if extra.name not in wanted:
                 differ += 1
