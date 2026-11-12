@@ -442,4 +442,92 @@ mod tests {
             assert_eq!(&words(&strip(line)), expected, "{line:?}");
         }
     }
+
+    /// A small generator with a fixed seed: the same programs on every run.
+    struct Rng(u64);
+
+    impl Rng {
+        fn below(&mut self, n: usize) -> usize {
+            self.0 = self
+                .0
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            ((self.0 >> 33) % n as u64) as usize
+        }
+    }
+
+    const PIECES: &[&str] = &[
+        "G0",
+        "G1",
+        "G2",
+        "G20",
+        "G21",
+        "G90",
+        "G91",
+        "G54",
+        "G92",
+        "M3",
+        "M5",
+        "M8",
+        "S12000",
+        "F300",
+        "X10",
+        "Y-5.5",
+        "Z.5",
+        "X",
+        "(note)",
+        "; tail",
+        "%",
+        "$H",
+        "$$",
+        "!",
+        "\t",
+        " ",
+        "é",
+        "9999999999999999999999",
+        "G1X1Y1",
+        "\u{1}",
+    ];
+
+    fn program(rng: &mut Rng) -> String {
+        let lines = 1 + rng.below(12);
+        (0..lines)
+            .map(|_| {
+                (0..1 + rng.below(6))
+                    .map(|_| PIECES[rng.below(PIECES.len())])
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn made_up_programs_never_panic_and_a_resumed_one_keeps_its_lines() {
+        let mut rng = Rng(0x5E57_ED00);
+        let (mut ok, mut refused) = (0, 0);
+        for _ in 0..3_000 {
+            let text = program(&mut rng);
+            let skip = rng.below(14);
+            let _ = words(&strip(&text));
+            match parse_with(&text, skip, rng.below(2) == 0, rng.below(2) == 0) {
+                Ok(p) => {
+                    ok += 1;
+                    // the lines of the program come after the preamble that gives the state back, and none is empty
+                    assert!(p.preamble <= p.entries.len(), "{text:?}");
+                    assert!(p.entries.iter().all(|e| !e.text.is_empty()), "{text:?}");
+                    assert_eq!(p.resume, skip > 0);
+                    // a program that is not resumed has no preamble
+                    if skip == 0 {
+                        assert_eq!(p.preamble, 0, "{text:?}");
+                    }
+                }
+                Err(_) => refused += 1,
+            }
+        }
+        assert!(
+            ok > 100 && refused > 100,
+            "{ok} {refused}: both answers must be reached"
+        );
+    }
 }

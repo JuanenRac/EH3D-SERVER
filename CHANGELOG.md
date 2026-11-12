@@ -4,6 +4,7 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **A seeded test of the G-code that is sent:** three thousand made up programs (words stuck together, comments, `$` lines, control characters, huge numbers, resumed from a line) check that cleaning a program never panics, that a resumed program keeps its lines after the preamble and has none when it starts from the top, and that both the accepted and the refused answers are reached.
 - **The codes that a job taken up again gives back are tracked by the reader of the suite:** the modal tracker that the server had (the unit, the distance, the plane, the work system, the feed mode, the feed, the spindle and the coolant) is now `ModalState` of EH3D-CORE-LIBS, so the server has no tokenizer and no modal state of its own for G-code; the lines given back and the tests of resuming a job do not change.
 - **The words of a line of G-code are read by the reader of the suite:** `gcode::words` no longer has a tokenizer of its own; it asks `eh3d-parser-gcode` of EH3D-CORE-LIBS (a new sibling of the build, named in `depends_on`), so the server and the other programs of the suite read a line the same way. The table of lines checked by both repositories does not change.
 - **The catalog of the error codes also goes to the phone apps:** `tools/sync_api_examples.py` copies `docs/error-codes.json` to the file that the tests of the Android and iOS apps read, and `--check` fails when a copy differs, so a code that the server adds reaches the apps' tests.
