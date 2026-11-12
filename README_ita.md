@@ -221,6 +221,7 @@ EH3D-SERVER/
 ├── run.sh run.bat                               avvia il server (compila prima se serve)
 ├── eh3d.project.json                            manifesto: versione, ruolo, maturità e comando di compilazione
 ├── Cargo.toml Cargo.lock                        il pacchetto Rust, le sue dipendenze e le librerie dei due programmi
+├── rust-toolchain.toml                          la toolchain Rust fissata
 ├── CHANGELOG.md                                 cosa è cambiato in ogni versione
 ├── SECURITY.md SUPPORT.md                       come segnalare una vulnerabilità e dove chiedere
 └── CONTRIBUTING.md CODE_OF_CONDUCT.md LICENSE   come contribuire, codice di condotta e licenza

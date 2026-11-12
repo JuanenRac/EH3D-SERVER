@@ -1,34 +1,34 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1696" width="100%" role="img" aria-labelledby="t d">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1723" width="100%" role="img" aria-labelledby="t d">
 <title id="t">Repository structure of EH3D-SERVER</title>
 <desc id="d">The root of EH3D-SERVER and its main folders and files: src/, tests/, docs/, Other folders and the files at the root.</desc>
 <defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0A0C10"/><stop offset="0.5" stop-color="#0D1117"/><stop offset="1" stop-color="#05070A"/></linearGradient><linearGradient id="card" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#121821"/><stop offset="1" stop-color="#0B0F15"/></linearGradient><linearGradient id="line" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#00E5FF"/><stop offset="1" stop-color="#FF0055"/></linearGradient><filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#00E5FF" stroke-opacity="0.035"/><circle cx="40" cy="40" r="1" fill="#00E5FF" fill-opacity="0.09"/></pattern></defs>
-<rect width="1200" height="1696" rx="14" fill="url(#bg)"/><rect width="1200" height="1696" rx="14" fill="url(#grid)"/>
-<rect x="0.5" y="0.5" width="1199" height="1695" rx="14" fill="none" stroke="#1B2530"/>
+<rect width="1200" height="1723" rx="14" fill="url(#bg)"/><rect width="1200" height="1723" rx="14" fill="url(#grid)"/>
+<rect x="0.5" y="0.5" width="1199" height="1722" rx="14" fill="none" stroke="#1B2530"/>
 <text x="60" y="62" font-family="'Segoe UI','Noto Sans','Noto Sans CJK SC','Microsoft YaHei','Yu Gothic','Helvetica Neue',Helvetica,Arial,sans-serif" font-size="12.5" font-weight="600" fill="#4DA3FF" text-anchor="start" letter-spacing="4.5">REPOSITORY STRUCTURE</text>
 <text x="60" y="106" font-family="'Segoe UI','Noto Sans','Noto Sans CJK SC','Microsoft YaHei','Yu Gothic','Helvetica Neue',Helvetica,Arial,sans-serif" font-size="36" font-weight="700" fill="#FFFFFF" text-anchor="start" letter-spacing="0.5">EH3D-SERVER</text>
 <rect x="60" y="122" width="150" height="2.5" rx="1.25" fill="url(#line)"><animate attributeName="width" values="40;150;150" keyTimes="0;0.4;1" dur="3s" repeatCount="indefinite"/></rect>
 <text x="60" y="152" font-family="'Segoe UI','Noto Sans','Noto Sans CJK SC','Microsoft YaHei','Yu Gothic','Helvetica Neue',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="400" fill="#8A97A6" text-anchor="start">Two levels: the folders, and the files that carry the logic.</text>
-<path id="c0" d="M300,926 C335,926 330,444.5 360,444.5" fill="none" stroke="#243140" stroke-width="2"/>
-<path d="M300,926 C335,926 330,444.5 360,444.5" fill="none" stroke="url(#line)" stroke-width="2" stroke-linecap="round" stroke-dasharray="6 9" opacity="0.9"><animate attributeName="stroke-dashoffset" from="0" to="-30" dur="1.6s" repeatCount="indefinite"/></path>
+<path id="c0" d="M300,939.5 C335,939.5 330,444.5 360,444.5" fill="none" stroke="#243140" stroke-width="2"/>
+<path d="M300,939.5 C335,939.5 330,444.5 360,444.5" fill="none" stroke="url(#line)" stroke-width="2" stroke-linecap="round" stroke-dasharray="6 9" opacity="0.9"><animate attributeName="stroke-dashoffset" from="0" to="-30" dur="1.6s" repeatCount="indefinite"/></path>
 <circle cx="360" cy="444.5" r="4.5" fill="#0D1117" stroke="#00E5FF" stroke-width="1.5"/>
-<path id="c1" d="M300,926 C335,926 330,815 360,815" fill="none" stroke="#243140" stroke-width="2"/>
-<path d="M300,926 C335,926 330,815 360,815" fill="none" stroke="url(#line)" stroke-width="2" stroke-linecap="round" stroke-dasharray="6 9" opacity="0.9"><animate attributeName="stroke-dashoffset" from="0" to="-30" dur="1.6s" repeatCount="indefinite"/></path>
+<path id="c1" d="M300,939.5 C335,939.5 330,815 360,815" fill="none" stroke="#243140" stroke-width="2"/>
+<path d="M300,939.5 C335,939.5 330,815 360,815" fill="none" stroke="url(#line)" stroke-width="2" stroke-linecap="round" stroke-dasharray="6 9" opacity="0.9"><animate attributeName="stroke-dashoffset" from="0" to="-30" dur="1.6s" repeatCount="indefinite"/></path>
 <circle cx="360" cy="815" r="4.5" fill="#0D1117" stroke="#00E5FF" stroke-width="1.5"/>
-<path id="c2" d="M300,926 C335,926 330,1077.5 360,1077.5" fill="none" stroke="#243140" stroke-width="2"/>
-<path d="M300,926 C335,926 330,1077.5 360,1077.5" fill="none" stroke="url(#line)" stroke-width="2" stroke-linecap="round" stroke-dasharray="6 9" opacity="0.9"><animate attributeName="stroke-dashoffset" from="0" to="-30" dur="1.6s" repeatCount="indefinite"/></path>
+<path id="c2" d="M300,939.5 C335,939.5 330,1077.5 360,1077.5" fill="none" stroke="#243140" stroke-width="2"/>
+<path d="M300,939.5 C335,939.5 330,1077.5 360,1077.5" fill="none" stroke="url(#line)" stroke-width="2" stroke-linecap="round" stroke-dasharray="6 9" opacity="0.9"><animate attributeName="stroke-dashoffset" from="0" to="-30" dur="1.6s" repeatCount="indefinite"/></path>
 <circle cx="360" cy="1077.5" r="4.5" fill="#0D1117" stroke="#00E5FF" stroke-width="1.5"/>
-<path id="c3" d="M300,926 C335,926 330,1448 360,1448" fill="none" stroke="#243140" stroke-width="2"/>
-<path d="M300,926 C335,926 330,1448 360,1448" fill="none" stroke="url(#line)" stroke-width="2" stroke-linecap="round" stroke-dasharray="6 9" opacity="0.9"><animate attributeName="stroke-dashoffset" from="0" to="-30" dur="1.6s" repeatCount="indefinite"/></path>
-<circle cx="360" cy="1448" r="4.5" fill="#0D1117" stroke="#00E5FF" stroke-width="1.5"/>
+<path id="c3" d="M300,939.5 C335,939.5 330,1461.5 360,1461.5" fill="none" stroke="#243140" stroke-width="2"/>
+<path d="M300,939.5 C335,939.5 330,1461.5 360,1461.5" fill="none" stroke="url(#line)" stroke-width="2" stroke-linecap="round" stroke-dasharray="6 9" opacity="0.9"><animate attributeName="stroke-dashoffset" from="0" to="-30" dur="1.6s" repeatCount="indefinite"/></path>
+<circle cx="360" cy="1461.5" r="4.5" fill="#0D1117" stroke="#00E5FF" stroke-width="1.5"/>
 <circle r="3.5" fill="#00E5FF" filter="url(#glow)"><animateMotion dur="3.4s" repeatCount="indefinite"><mpath href="#c0"/></animateMotion></circle>
 <circle r="3.5" fill="#4DA3FF" filter="url(#glow)"><animateMotion dur="4.2s" repeatCount="indefinite"><mpath href="#c1"/></animateMotion></circle>
 <circle r="3.5" fill="#FFB300" filter="url(#glow)"><animateMotion dur="5.0s" repeatCount="indefinite"><mpath href="#c2"/></animateMotion></circle>
 <circle r="3.5" fill="#00E5FF" filter="url(#glow)"><animateMotion dur="5.8s" repeatCount="indefinite"><mpath href="#c3"/></animateMotion></circle>
-<rect x="60" y="891" width="240" height="70" rx="12" fill="#0F1620" stroke="#2A3A4C" stroke-width="1.2"/>
-<rect x="60" y="891" width="240" height="70" rx="12" fill="none" stroke="#00E5FF" stroke-opacity="0.5" stroke-width="1.2" filter="url(#glow)"><animate attributeName="stroke-opacity" values="0.15;0.6;0.15" dur="3.6s" repeatCount="indefinite"/></rect>
-<text x="80" y="922" font-family="'JetBrains Mono','Cascadia Code','SFMono-Regular',Consolas,'Liberation Mono',monospace" font-size="18.5" font-weight="700" fill="#FFFFFF" text-anchor="start">EH3D-SERVER/</text>
-<text x="80" y="944" font-family="'Segoe UI','Noto Sans','Noto Sans CJK SC','Microsoft YaHei','Yu Gothic','Helvetica Neue',Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#7D8A99" text-anchor="start" letter-spacing="1">repository root</text>
-<circle cx="300" cy="926" r="5" fill="#00E5FF" filter="url(#glow)"/>
+<rect x="60" y="904.5" width="240" height="70" rx="12" fill="#0F1620" stroke="#2A3A4C" stroke-width="1.2"/>
+<rect x="60" y="904.5" width="240" height="70" rx="12" fill="none" stroke="#00E5FF" stroke-opacity="0.5" stroke-width="1.2" filter="url(#glow)"><animate attributeName="stroke-opacity" values="0.15;0.6;0.15" dur="3.6s" repeatCount="indefinite"/></rect>
+<text x="80" y="935.5" font-family="'JetBrains Mono','Cascadia Code','SFMono-Regular',Consolas,'Liberation Mono',monospace" font-size="18.5" font-weight="700" fill="#FFFFFF" text-anchor="start">EH3D-SERVER/</text>
+<text x="80" y="957.5" font-family="'Segoe UI','Noto Sans','Noto Sans CJK SC','Microsoft YaHei','Yu Gothic','Helvetica Neue',Helvetica,Arial,sans-serif" font-size="12" font-weight="400" fill="#7D8A99" text-anchor="start" letter-spacing="1">repository root</text>
+<circle cx="300" cy="939.5" r="5" fill="#00E5FF" filter="url(#glow)"/>
 <rect x="360" y="200" width="780" height="489" rx="10" fill="url(#card)" stroke="#1E2A36" stroke-width="1"/>
 <rect x="360" y="214" width="3" height="461" rx="1.5" fill="#00E5FF"><animate attributeName="opacity" values="0.55;1;0.55" dur="4s" begin="0s" repeatCount="indefinite"/></rect>
 <text x="382" y="234" font-family="'JetBrains Mono','Cascadia Code','SFMono-Regular',Consolas,'Liberation Mono',monospace" font-size="19" font-weight="700" fill="#F2F6FA" text-anchor="start">src/</text>
@@ -120,8 +120,8 @@
 <text x="392" y="1183" font-family="'JetBrains Mono','Cascadia Code','SFMono-Regular',Consolas,'Liberation Mono',monospace" font-size="14.5" font-weight="600" fill="#E6EDF3" text-anchor="start">architecture.json  structure.json</text>
 <text x="712.67" y="1183" font-family="'Segoe UI','Noto Sans','Noto Sans CJK SC','Microsoft YaHei','Yu Gothic','Helvetica Neue',Helvetica,Arial,sans-serif" font-size="12.8" font-weight="400" fill="#8A97A6" text-anchor="start">the data of the Architecture and Repository Structure pictures</text>
 <line x1="392" y1="1191" x2="1118" y2="1191" stroke="#1A2430" stroke-width="1"/>
-<rect x="360" y="1244" width="780" height="408" rx="10" fill="url(#card)" stroke="#1E2A36" stroke-width="1"/>
-<rect x="360" y="1258" width="3" height="380" rx="1.5" fill="#00E5FF"><animate attributeName="opacity" values="0.55;1;0.55" dur="4s" begin="1.8s" repeatCount="indefinite"/></rect>
+<rect x="360" y="1244" width="780" height="435" rx="10" fill="url(#card)" stroke="#1E2A36" stroke-width="1"/>
+<rect x="360" y="1258" width="3" height="407" rx="1.5" fill="#00E5FF"><animate attributeName="opacity" values="0.55;1;0.55" dur="4s" begin="1.8s" repeatCount="indefinite"/></rect>
 <text x="382" y="1278" font-family="'Segoe UI','Noto Sans','Noto Sans CJK SC','Microsoft YaHei','Yu Gothic','Helvetica Neue',Helvetica,Arial,sans-serif" font-size="17" font-weight="700" fill="#F2F6FA" text-anchor="start">Other folders and the files at the root</text>
 <line x1="382" y1="1292" x2="1122" y2="1292" stroke="#00E5FF" stroke-opacity="0.35" stroke-width="1"/>
 <text x="392" y="1324" font-family="'JetBrains Mono','Cascadia Code','SFMono-Regular',Consolas,'Liberation Mono',monospace" font-size="14.5" font-weight="600" fill="#E6EDF3" text-anchor="start">deploy/</text>
@@ -151,13 +151,16 @@
 <text x="392" y="1540" font-family="'JetBrains Mono','Cascadia Code','SFMono-Regular',Consolas,'Liberation Mono',monospace" font-size="14.5" font-weight="600" fill="#E6EDF3" text-anchor="start">Cargo.toml  Cargo.lock</text>
 <text x="631.76" y="1540" font-family="'Segoe UI','Noto Sans','Noto Sans CJK SC','Microsoft YaHei','Yu Gothic','Helvetica Neue',Helvetica,Arial,sans-serif" font-size="12.8" font-weight="400" fill="#8A97A6" text-anchor="start">the Rust package, its dependencies and the libraries of the two programs</text>
 <line x1="392" y1="1548" x2="1118" y2="1548" stroke="#1A2430" stroke-width="1"/>
-<text x="392" y="1567" font-family="'JetBrains Mono','Cascadia Code','SFMono-Regular',Consolas,'Liberation Mono',monospace" font-size="14.5" font-weight="600" fill="#E6EDF3" text-anchor="start">CHANGELOG.md</text>
-<text x="631.76" y="1567" font-family="'Segoe UI','Noto Sans','Noto Sans CJK SC','Microsoft YaHei','Yu Gothic','Helvetica Neue',Helvetica,Arial,sans-serif" font-size="12.8" font-weight="400" fill="#8A97A6" text-anchor="start">what changed in each version</text>
+<text x="392" y="1567" font-family="'JetBrains Mono','Cascadia Code','SFMono-Regular',Consolas,'Liberation Mono',monospace" font-size="14.5" font-weight="600" fill="#E6EDF3" text-anchor="start">rust-toolchain.toml</text>
+<text x="631.76" y="1567" font-family="'Segoe UI','Noto Sans','Noto Sans CJK SC','Microsoft YaHei','Yu Gothic','Helvetica Neue',Helvetica,Arial,sans-serif" font-size="12.8" font-weight="400" fill="#8A97A6" text-anchor="start">the pinned Rust toolchain</text>
 <line x1="392" y1="1575" x2="1118" y2="1575" stroke="#1A2430" stroke-width="1"/>
-<text x="392" y="1594" font-family="'JetBrains Mono','Cascadia Code','SFMono-Regular',Consolas,'Liberation Mono',monospace" font-size="14.5" font-weight="600" fill="#E6EDF3" text-anchor="start">SECURITY.md  SUPPORT.md</text>
-<text x="631.76" y="1594" font-family="'Segoe UI','Noto Sans','Noto Sans CJK SC','Microsoft YaHei','Yu Gothic','Helvetica Neue',Helvetica,Arial,sans-serif" font-size="12.8" font-weight="400" fill="#8A97A6" text-anchor="start">how to report a vulnerability and where to ask</text>
+<text x="392" y="1594" font-family="'JetBrains Mono','Cascadia Code','SFMono-Regular',Consolas,'Liberation Mono',monospace" font-size="14.5" font-weight="600" fill="#E6EDF3" text-anchor="start">CHANGELOG.md</text>
+<text x="631.76" y="1594" font-family="'Segoe UI','Noto Sans','Noto Sans CJK SC','Microsoft YaHei','Yu Gothic','Helvetica Neue',Helvetica,Arial,sans-serif" font-size="12.8" font-weight="400" fill="#8A97A6" text-anchor="start">what changed in each version</text>
 <line x1="392" y1="1602" x2="1118" y2="1602" stroke="#1A2430" stroke-width="1"/>
-<text x="392" y="1621" font-family="'JetBrains Mono','Cascadia Code','SFMono-Regular',Consolas,'Liberation Mono',monospace" font-size="14.5" font-weight="600" fill="#E6EDF3" text-anchor="start">CONTRIBUTING.md  LICENSE</text>
-<text x="631.76" y="1621" font-family="'Segoe UI','Noto Sans','Noto Sans CJK SC','Microsoft YaHei','Yu Gothic','Helvetica Neue',Helvetica,Arial,sans-serif" font-size="12.8" font-weight="400" fill="#8A97A6" text-anchor="start">how to contribute, the code of conduct and the licence</text>
+<text x="392" y="1621" font-family="'JetBrains Mono','Cascadia Code','SFMono-Regular',Consolas,'Liberation Mono',monospace" font-size="14.5" font-weight="600" fill="#E6EDF3" text-anchor="start">SECURITY.md  SUPPORT.md</text>
+<text x="631.76" y="1621" font-family="'Segoe UI','Noto Sans','Noto Sans CJK SC','Microsoft YaHei','Yu Gothic','Helvetica Neue',Helvetica,Arial,sans-serif" font-size="12.8" font-weight="400" fill="#8A97A6" text-anchor="start">how to report a vulnerability and where to ask</text>
 <line x1="392" y1="1629" x2="1118" y2="1629" stroke="#1A2430" stroke-width="1"/>
+<text x="392" y="1648" font-family="'JetBrains Mono','Cascadia Code','SFMono-Regular',Consolas,'Liberation Mono',monospace" font-size="14.5" font-weight="600" fill="#E6EDF3" text-anchor="start">CONTRIBUTING.md  LICENSE</text>
+<text x="631.76" y="1648" font-family="'Segoe UI','Noto Sans','Noto Sans CJK SC','Microsoft YaHei','Yu Gothic','Helvetica Neue',Helvetica,Arial,sans-serif" font-size="12.8" font-weight="400" fill="#8A97A6" text-anchor="start">how to contribute, the code of conduct and the licence</text>
+<line x1="392" y1="1656" x2="1118" y2="1656" stroke="#1A2430" stroke-width="1"/>
 </svg>

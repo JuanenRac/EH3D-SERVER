@@ -221,6 +221,7 @@ EH3D-SERVER/
 ├── run.sh run.bat                               サーバーを起動（必要なら先にビルド）
 ├── eh3d.project.json                            マニフェスト：バージョン、役割、成熟度、ビルドコマンド
 ├── Cargo.toml Cargo.lock                        Rust パッケージ、依存関係、2 つのプログラムのライブラリ
+├── rust-toolchain.toml                          固定されたRustツールチェーン
 ├── CHANGELOG.md                                 各バージョンの変更点
 ├── SECURITY.md SUPPORT.md                       脆弱性の報告方法と問い合わせ先
 └── CONTRIBUTING.md CODE_OF_CONDUCT.md LICENSE   貢献方法、行動規範、ライセンス

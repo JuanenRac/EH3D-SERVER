@@ -4,6 +4,7 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **The Rust toolchain is pinned:** `rust-toolchain.toml` fixes the version of Rust (the same one in every repository of the suite) with `rustfmt` and `clippy`, the workflows install that version and not `stable`, so a new release of Rust cannot turn the CI red by itself.
 - **More tests of the check through the camera:** a profile of a machine that cannot be read (empty, not JSON, a list, a wrong type) is the standard one, the longest query the ring takes (200 characters) goes through and one more does not, and the ceiling of the light is the default when the node does not say it. Found by the coverage measured in the CI, where this module was the least covered after the entry point (74 %); the total is 92 %.
 - **The CI keeps its actions up to date and does not pile up runs:** a `dependabot.yml` groups the updates of the GitHub Actions in one monthly request, a new push to a branch cancels the run of the older one that is still going, and the Rust jobs have a time limit, so a stuck job cannot hold a runner for hours.
 - **A seeded test of the G-code that is sent:** three thousand made up programs (words stuck together, comments, `$` lines, control characters, huge numbers, resumed from a line) check that cleaning a program never panics, that a resumed program keeps its lines after the preamble and has none when it starts from the top, and that both the accepted and the refused answers are reached.

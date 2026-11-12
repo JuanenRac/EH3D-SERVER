@@ -559,6 +559,19 @@
           "tree_name": "Cargo.toml Cargo.lock"
         },
         {
+          "name": "rust-toolchain.toml",
+          "desc": {
+            "en": "the pinned Rust toolchain",
+            "es": "la toolchain de Rust fijada",
+            "de": "die festgelegte Rust-Toolchain",
+            "fr": "la toolchain Rust épinglée",
+            "it": "la toolchain Rust fissata",
+            "ja": "固定されたRustツールチェーン",
+            "zh": "固定的 Rust 工具链",
+            "pt": "a toolchain de Rust fixada"
+          }
+        },
+        {
           "name": "CHANGELOG.md",
           "desc": {
             "en": "what changed in each version",
