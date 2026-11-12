@@ -4,7 +4,7 @@
 # Copyright (C) 2026 JuanenRac (Electro Hobby 3D)
 # GPL-3.0-or-later - see LICENSE
 # =============================================================================
-# canonical: EH3D-DOCS tools 1
+# canonical: EH3D-DOCS tools 3
 """Draws the Repository Structure of a repository from `docs/structure.json`.
 
     python tools/make_structure.py                  # writes images/repository-structure.svg (and the other languages when "svg": "all")
@@ -106,9 +106,13 @@ def validate_spec(spec: dict) -> None:
     K.palette(spec["ecosystem"])
     if spec.get("svg", "en") not in ("en", "all"):
         raise SpecError("'svg' is 'en' or 'all'")
+    if not isinstance(spec["cards"], list):
+        raise SpecError("'cards' is a list")
     for card in spec["cards"]:
-        if "name" not in card or not card.get("rows"):
-            raise SpecError(f"every card needs a name and rows: {card.get('name')}")
+        if not isinstance(card, dict):
+            raise SpecError(f"a card has to be an object, got {card!r}")
+        if "name" not in card or not card.get("rows") or not isinstance(card["rows"], list) or not all(isinstance(row, dict) for row in card["rows"]):
+            raise SpecError(f"every card needs a name and a list of rows (objects): {card.get('name')}")
         if card.get("span", 1) not in (1, 2, 3):
             raise SpecError(f"card '{card['name']}': span is 1, 2 or 3")
         if card.get("accent", "a") not in ("a", "b", "c", "d"):
@@ -409,6 +413,38 @@ def check_readmes(spec: dict, root: Path, langs: list[str]) -> list[str]:
     return problems
 
 
+def check_problems(spec: dict, root: Path, svgs: dict[str, str], readmes: bool) -> list[str]:
+    """Everything `--check` looks at: the tree against the disk, the pictures against the spec and, when asked, the tree inside each README."""
+    problems = check_disk(spec, root)
+    for lang, svg in svgs.items():
+        target = svg_path(root, lang)
+        if not target.is_file():
+            problems.append(f"{target.relative_to(root)} does not exist (run tools/make_structure.py)")
+        elif K.normalise(target.read_text(encoding="utf-8")) != svg:
+            problems.append(f"{target.relative_to(root)} does not match docs/structure.json (run tools/make_structure.py)")
+    if readmes:
+        problems += check_readmes(spec, root, list(K.LANGUAGES))
+    return problems
+
+
+def run_in_ci(root: Path) -> list[str]:
+    """The check that `tools/ci_validate.py` runs: `--check --readmes` as a list of reasons (empty when it passes).
+    A repository without docs/structure.json has no tree to keep and passes."""
+    spec_path = root / "docs" / "structure.json"
+    if not spec_path.is_file():
+        return []
+    try:
+        spec = load_spec(spec_path)
+        svgs = {lang: build_svg(spec, lang) for lang in picture_languages(spec, None)}
+        for svg in svgs.values():
+            K.validate_xml(svg)
+        for lang in K.LANGUAGES:
+            render_tree(spec, lang)  # raises when a language lacks a description
+    except (SpecError, ValueError, KeyError, IndexError, TypeError, AttributeError) as error:
+        return [f"docs/structure.json is malformed ({error.__class__.__name__}: {error})"]
+    return check_problems(spec, root, svgs, readmes=True)
+
+
 def run(root: Path, check: bool, readmes: bool, tree: str | None, langs: list[str] | None, png: Path | None) -> int:
     try:
         spec = load_spec(root / "docs" / "structure.json")
@@ -424,15 +460,7 @@ def run(root: Path, check: bool, readmes: bool, tree: str | None, langs: list[st
         print(f"STRUCTURE=FAIL the spec is malformed ({error.__class__.__name__}: {error})")
         return 1
     if check:
-        problems = check_disk(spec, root)
-        for lang, svg in svgs.items():
-            target = svg_path(root, lang)
-            if not target.is_file():
-                problems.append(f"{target.relative_to(root)} does not exist (run tools/make_structure.py)")
-            elif K.normalise(target.read_text(encoding="utf-8")) != svg:
-                problems.append(f"{target.relative_to(root)} does not match docs/structure.json (run tools/make_structure.py)")
-        if readmes:
-            problems += check_readmes(spec, root, list(K.LANGUAGES))
+        problems = check_problems(spec, root, svgs, readmes)
         if problems:
             print("STRUCTURE=FAIL " + "; ".join(problems))
             return 1
