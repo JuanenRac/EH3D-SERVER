@@ -515,4 +515,28 @@ mod tests {
         assert_eq!(cut_speed("G1 X5 F300", 24_000.0), "G1 X5 F300");
         assert_eq!(cut_speed("S99999.5 M3", 24_000.0), "S24000 M3");
     }
+
+    /// The lines and the words that the reader of EH3D-CORE-LIBS also gives for them (its test `shared_words` holds the same table): while the two readers are not one,
+    /// a change that makes them disagree fails in the repository that made it.
+    const SHARED_WORDS: &[(&str, &[(char, f64)])] = &[
+        (
+            "G1 X10 Y-5.5 F300",
+            &[('G', 1.0), ('X', 10.0), ('Y', -5.5), ('F', 300.0)],
+        ),
+        ("g0x1y2", &[('G', 0.0), ('X', 1.0), ('Y', 2.0)]),
+        (
+            "G1 X1 (a note) Y2 ; the rest",
+            &[('G', 1.0), ('X', 1.0), ('Y', 2.0)],
+        ),
+        ("M3 S12000", &[('M', 3.0), ('S', 12000.0)]),
+        ("G21G90", &[('G', 21.0), ('G', 90.0)]),
+        ("G1 X-0.25 Z-1", &[('G', 1.0), ('X', -0.25), ('Z', -1.0)]),
+    ];
+
+    #[test]
+    fn the_lines_of_the_shared_table_give_the_words_the_core_reader_gives() {
+        for (line, expected) in SHARED_WORDS {
+            assert_eq!(&words(&strip(line)), expected, "{line:?}");
+        }
+    }
 }
