@@ -4,6 +4,7 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **The CI is split in two workflows:** the validation of the repository (manifest, documentation, pictures, tools) stays in `ci.yml` and the Rust jobs move to `rust.yml`, which does not run for a change that only touches the READMEs, the CHANGELOG or pictures, so a change of the documentation no longer builds the code on two systems, and they keep a cache of the build. The names of the jobs are the same.
 - **The CI and the release build take the sibling repositories at their released tags:** `EH3D-COMMON` at `v0.2.1`, `EH3D-CORE-LIBS` at `v0.0.9`, and the other siblings at the version they were released in, instead of at `main`; the manifest asks for `min_common` 0.2.1.
 
 ## [0.1.5] - Safer defaults, one spindle table, shared G-code reader and the catalog of errors for the phones
