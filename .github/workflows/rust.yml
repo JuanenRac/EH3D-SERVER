@@ -1,0 +1,91 @@
+name: EH3D Rust CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "README*.md"
+      - "CHANGELOG.md"
+      - "CONTRIBUTING.md"
+      - "SECURITY.md"
+      - "SUPPORT.md"
+      - "CODE_OF_CONDUCT.md"
+      - "images/**"
+  pull_request:
+    paths-ignore:
+      - "README*.md"
+      - "CHANGELOG.md"
+      - "CONTRIBUTING.md"
+      - "SECURITY.md"
+      - "SUPPORT.md"
+      - "CODE_OF_CONDUCT.md"
+      - "images/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      # the server uses the libraries of the programs, which have to be next to it
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          path: EH3D-SERVER
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          repository: JuanenRac/EH3D-COMMON
+          ref: v0.2.1
+          path: EH3D-COMMON
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          repository: JuanenRac/EH3D-DRILLPRO
+          ref: v0.1.7
+          path: EH3D-DRILLPRO
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          repository: JuanenRac/EH3D-ROUTEPRO
+          ref: v0.1.6
+          path: EH3D-ROUTEPRO
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          repository: JuanenRac/EH3D-CORE-LIBS
+          ref: v0.0.9
+          path: EH3D-CORE-LIBS
+      - name: Rust toolchain
+        shell: bash
+        working-directory: EH3D-SERVER
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal --component rustfmt,clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: EH3D-SERVER
+      - name: Format
+        working-directory: EH3D-SERVER
+        run: cargo fmt --all --check
+      - name: Lints
+        working-directory: EH3D-SERVER
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Tests
+        working-directory: EH3D-SERVER
+        run: cargo test --all-targets
+      - name: Lints and tests with the serial port support
+        working-directory: EH3D-SERVER
+        run: |
+          cargo clippy --all-targets --features serial -- -D warnings
+          cargo test --all-targets --features serial
