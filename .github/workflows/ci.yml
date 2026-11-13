@@ -21,6 +21,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
@@ -39,6 +40,11 @@ jobs:
         run: |
           python -I tools/make_architecture.py --check
           python -I tools/make_structure.py --check --readmes
+      - name: The change has a line in the CHANGELOG
+        if: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'no-changelog') }}
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: python -I tools/changelog_pr_check.py --base "origin/$BASE_REF"
 
   rust:
     name: Rust (${{ matrix.os }})
