@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **The CI and the release build take the sibling repositories at their released tags:** `EH3D-COMMON` at `v0.2.1`, `EH3D-CORE-LIBS` at `v0.0.9`, and the other siblings at the version they were released in, instead of at `main`; the manifest asks for `min_common` 0.2.1.
+
 ## [0.1.5] - Safer defaults, one spindle table, shared G-code reader and the catalog of errors for the phones
 
 - **A pull request must say what it changes:** the validation runs `tools/changelog_pr_check.py` on a pull request (it fails when the CHANGELOG has no new line under [Unreleased]; the label `no-changelog` skips it), the same check as the other repositories of the suite.
