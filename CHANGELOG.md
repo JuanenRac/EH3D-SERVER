@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.1.5] - Safer defaults, one spindle table, shared G-code reader and the catalog of errors for the phones
+
 - **A pull request must say what it changes:** the validation runs `tools/changelog_pr_check.py` on a pull request (it fails when the CHANGELOG has no new line under [Unreleased]; the label `no-changelog` skips it), the same check as the other repositories of the suite.
 - **The Rust toolchain is pinned:** `rust-toolchain.toml` fixes the version of Rust (the same one in every repository of the suite) with `rustfmt` and `clippy`, the workflows install that version and not `stable`, so a new release of Rust cannot turn the CI red by itself.
 - **More tests of the check through the camera:** a profile of a machine that cannot be read (empty, not JSON, a list, a wrong type) is the standard one, the longest query the ring takes (200 characters) goes through and one more does not, and the ceiling of the light is the default when the node does not say it. Found by the coverage measured in the CI, where this module was the least covered after the entry point (74 %); the total is 92 %.
