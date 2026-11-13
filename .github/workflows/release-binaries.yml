@@ -93,10 +93,10 @@ jobs:
       - name: Check out the siblings (path dependencies)
         shell: bash
         run: |
-          git clone --depth 1 https://github.com/JuanenRac/EH3D-COMMON.git ../EH3D-COMMON
-          git clone --depth 1 https://github.com/JuanenRac/EH3D-DRILLPRO.git ../EH3D-DRILLPRO
-          git clone --depth 1 https://github.com/JuanenRac/EH3D-ROUTEPRO.git ../EH3D-ROUTEPRO
-          git clone --depth 1 https://github.com/JuanenRac/EH3D-CORE-LIBS.git ../EH3D-CORE-LIBS
+          git clone --depth 1 --branch v0.2.1 https://github.com/JuanenRac/EH3D-COMMON.git ../EH3D-COMMON
+          git clone --depth 1 --branch v0.1.7 https://github.com/JuanenRac/EH3D-DRILLPRO.git ../EH3D-DRILLPRO
+          git clone --depth 1 --branch v0.1.6 https://github.com/JuanenRac/EH3D-ROUTEPRO.git ../EH3D-ROUTEPRO
+          git clone --depth 1 --branch v0.0.9 https://github.com/JuanenRac/EH3D-CORE-LIBS.git ../EH3D-CORE-LIBS
       - name: Rust toolchain
         shell: bash
         run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal
