@@ -1,0 +1,9 @@
+{
+ "_comment": "Known findings of lessons_lint.py; only findings not listed here fail the check. Regenerate with lessons_lint.py --write-baseline.",
+ "findings": {
+  "subprocess-timeout|tests/test_update_helper.py|": 2,
+  "subprocess-timeout|tools/changelog_pr_check.py|": 1,
+  "subprocess-timeout|tools/ci_validate.py|": 3,
+  "subprocess-timeout|tools/make_structure.py|": 1
+ }
+}

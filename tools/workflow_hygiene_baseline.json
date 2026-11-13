@@ -1,0 +1,7 @@
+{
+ "_comment": "Known workflow findings; only findings not listed here fail the check. Regenerate with workflow_hygiene.py --write-baseline.",
+ "findings": {
+  "ci.yml|no-timeout|job 'helpers' without timeout-minutes": 1,
+  "dashboard-dispatch.yml|no-timeout|job 'notify' without timeout-minutes": 1
+ }
+}
