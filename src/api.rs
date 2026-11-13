@@ -571,6 +571,16 @@ fn no_job_running(s: &Shared) -> Result<(), ApiError> {
     Ok(())
 }
 
+/// The update (or its undoing) of the server restarts it, and a restart ends the logins unless `persist_sessions` is on: with the switch `update_keep_logins` the logins are kept
+/// for the restart, for the few minutes of `update_keep_logins_s`, so the pages can follow the update to the end.
+fn keep_logins_for_restart(s: &Shared, components: &[String]) {
+    if s.policy.get().update_keep_logins && components.iter().any(|c| c == "server") {
+        s.auth
+            .locked()
+            .keep_for_restart(s.cfg.update_keep_logins_s, crate::jobs::now());
+    }
+}
+
 async fn updates_apply(
     State(s): State<Shared>,
     Authed(who, _): Authed,
@@ -581,6 +591,7 @@ async fn updates_apply(
     updates_of(&s)?
         .request_with("apply", &b.components, s.policy.get().update_allow_unsigned)
         .map_err(updates_fail)?;
+    keep_logins_for_restart(&s, &b.components);
     note(
         &s,
         "update_apply",
@@ -601,6 +612,7 @@ async fn updates_undo(
     updates_of(&s)?
         .request("undo", &b.components)
         .map_err(updates_fail)?;
+    keep_logins_for_restart(&s, &b.components);
     note(
         &s,
         "update_undo",

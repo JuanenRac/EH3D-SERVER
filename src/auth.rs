@@ -136,6 +136,16 @@ struct SavedSession {
     created: u64,
 }
 
+/// The logins kept for the restart that an update of the server makes: only the SHA-256 of each token, and until when they may be taken up.
+#[derive(Serialize, Deserialize, Debug)]
+struct RestartKeep {
+    valid_until: u64,
+    sessions: Vec<SavedSession>,
+}
+
+/// The file of the logins kept for an update, in the data folder. It is used once and removed whatever happens.
+const RESTART_KEEP_FILE: &str = "sessions-update.json";
+
 /// How long the disk may be behind the memory about when a token was last used, in seconds.
 pub const LAST_USED_SAVE_SECS: u64 = 3600;
 /// The longest life a token can be given, in days.
@@ -315,6 +325,8 @@ pub struct Auth {
     session_secs: u64,
     /// Whether the logins are kept in `sessions.json` (their hashes), so that they outlive a restart of the server.
     persist_sessions: bool,
+    /// Until when (seconds since the epoch) the logins are also written to the file for the restart of an update; 0 when no update of the server was asked for.
+    restart_keep_until: u64,
     /// When the tokens were last written because of a use (see [`ApiToken::last_used`]).
     tokens_saved_at: u64,
     tokens_dirty: bool,
@@ -404,6 +416,7 @@ impl Auth {
             ip_limit: 10,
             session_secs: u64::from(session_hours) * 3600,
             persist_sessions: false,
+            restart_keep_until: 0,
             tokens_saved_at: 0,
             tokens_dirty: false,
             max_failures: MAX_FAILURES,
@@ -435,6 +448,11 @@ impl Auth {
                 return;
             }
         };
+        self.adopt_saved(saved, now);
+    }
+
+    /// Takes up the saved logins that are still good and belong to a user that still counts.
+    fn adopt_saved(&mut self, saved: Vec<SavedSession>, now: u64) {
         for s in saved {
             let Some(user) = self.users.iter().find(|u| u.name == s.name && !u.disabled) else {
                 continue;
@@ -468,11 +486,25 @@ impl Auth {
     /// Writes the logins that are still good (nothing happens when the keeping is off). A failure to write is told on the console and costs nothing else: the logins
     /// are still good in memory.
     fn save_sessions(&self, now: u64) {
+        // a login that ends (or is closed) while an update waits to restart the server must not come back with it
+        if self.restart_keep_until > now {
+            self.write_restart_keep(now);
+        } else if self.restart_keep_until != 0 {
+            // the time is up and the server did not restart: the hashes do not stay on the disk
+            let _ = std::fs::remove_file(self.dir.join(RESTART_KEEP_FILE));
+        }
         if !self.persist_sessions {
             return;
         }
-        let list: Vec<SavedSession> = self
-            .sessions
+        let list = self.saved_list(now);
+        if let Err(e) = store::write_json(&self.dir.join("sessions.json"), &list) {
+            eprintln!("eh3d-server: the logins could not be saved: {e}");
+        }
+    }
+
+    /// The logins that are still good, as they are kept on the disk (never the token).
+    fn saved_list(&self, now: u64) -> Vec<SavedSession> {
+        self.sessions
             .iter()
             .filter(|(_, s)| s.expires > now)
             .map(|(hash, s)| SavedSession {
@@ -483,10 +515,48 @@ impl Auth {
                 app: s.app.clone(),
                 created: s.created,
             })
-            .collect();
-        if let Err(e) = store::write_json(&self.dir.join("sessions.json"), &list) {
-            eprintln!("eh3d-server: the logins could not be saved: {e}");
+            .collect()
+    }
+
+    fn write_restart_keep(&self, now: u64) {
+        let keep = RestartKeep {
+            valid_until: self.restart_keep_until,
+            sessions: self.saved_list(now),
+        };
+        let path = self.dir.join(RESTART_KEEP_FILE);
+        // no `.bak`: a copy of the hashes must not stay behind when the file is removed
+        let written = serde_json::to_vec(&keep)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
+            .and_then(|bytes| store::write_durable(&path, &bytes, false));
+        if let Err(e) = written {
+            eprintln!("eh3d-server: the logins could not be kept for the update: {e}");
         }
+    }
+
+    /// An update of the server was asked for: the logins are kept in a file of the data folder for `secs` seconds, so that the server that starts after the update takes them
+    /// up (see [`Auth::restore_after_restart`]). Only the SHA-256 of each token is written. Every change of the logins until then rewrites the file.
+    pub fn keep_for_restart(&mut self, secs: u64, now: u64) {
+        self.restart_keep_until = now + secs;
+        self.write_restart_keep(now);
+    }
+
+    /// At start: takes up the logins kept for an update, when `allowed` (the switch `update_keep_logins`) and the file was written no longer ago than it said. The file is
+    /// removed in every case, so a login is never taken up twice. How many logins came back.
+    pub fn restore_after_restart(&mut self, allowed: bool, now: u64) -> usize {
+        let path = self.dir.join(RESTART_KEEP_FILE);
+        let found: io::Result<Option<RestartKeep>> = store::read_json(&path);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("tmp"));
+        if !allowed {
+            return 0;
+        }
+        let keep = match found {
+            Ok(Some(keep)) if now <= keep.valid_until => keep,
+            _ => return 0,
+        };
+        let before = self.sessions.len();
+        self.adopt_saved(keep.sessions, now);
+        self.sessions.len().saturating_sub(before)
     }
 
     pub fn needs_setup(&self) -> bool {
@@ -1367,6 +1437,57 @@ mod tests {
         c.set_persist_sessions(true);
         assert!(c.identify(&token, now + 2).is_none());
         assert!(c.identify(&ana, now + 2).is_none());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_logins_kept_for_an_update_come_back_once_only_within_the_time_and_only_if_allowed() {
+        let (mut a, d) = set_up("auth-keep-update");
+        let now = crate::jobs::now();
+        let (token, _, _) = a.login("juan", "una-clave-larga", now).unwrap();
+        // nothing is written before an update asks for it
+        assert!(!d.join(RESTART_KEEP_FILE).exists());
+        a.keep_for_restart(300, now);
+        let on_disk = std::fs::read_to_string(d.join(RESTART_KEEP_FILE)).unwrap();
+        assert!(!on_disk.contains(&token), "the token itself is not kept");
+        assert!(on_disk.contains(&sha(&token)));
+        // a login made after the request is in the file too, and one that is closed is out of it
+        let (late, _, _) = a.login("juan", "una-clave-larga", now + 1).unwrap();
+        a.logout(&token);
+        let on_disk = std::fs::read_to_string(d.join(RESTART_KEEP_FILE)).unwrap();
+        assert!(on_disk.contains(&sha(&late)) && !on_disk.contains(&sha(&token)));
+        // the server that starts after the update takes it up, once
+        let mut b = Auth::open(&d, 12).unwrap();
+        assert!(
+            b.identify(&late, now + 2).is_none(),
+            "not before it is asked for"
+        );
+        assert_eq!(b.restore_after_restart(true, now + 5), 1);
+        assert!(b.identify(&late, now + 6).is_some());
+        assert!(b.identify(&token, now + 6).is_none());
+        assert!(!d.join(RESTART_KEEP_FILE).exists(), "used once");
+        assert!(
+            !d.join("sessions.json").exists(),
+            "persist_sessions stays off: nothing else is written"
+        );
+        let mut again = Auth::open(&d, 12).unwrap();
+        assert_eq!(again.restore_after_restart(true, now + 7), 0);
+        // too late: the time is up, and the file goes all the same
+        a.keep_for_restart(300, now);
+        let mut c = Auth::open(&d, 12).unwrap();
+        assert_eq!(c.restore_after_restart(true, now + 301), 0);
+        assert!(!d.join(RESTART_KEEP_FILE).exists());
+        // the switch is off: nothing comes back and the file goes
+        a.keep_for_restart(300, now);
+        let mut e = Auth::open(&d, 12).unwrap();
+        assert_eq!(e.restore_after_restart(false, now + 5), 0);
+        assert!(!d.join(RESTART_KEEP_FILE).exists());
+        assert!(e.identify(&late, now + 6).is_none());
+        // a damaged file costs the logins only
+        std::fs::write(d.join(RESTART_KEEP_FILE), "{ not json").unwrap();
+        let mut f = Auth::open(&d, 12).unwrap();
+        assert_eq!(f.restore_after_restart(true, now + 5), 0);
+        assert!(!d.join(RESTART_KEEP_FILE).exists());
         let _ = std::fs::remove_dir_all(&d);
     }
 

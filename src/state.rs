@@ -137,6 +137,10 @@ impl AppState {
         let policy = crate::policy::Policy::open(&cfg, &cfg.data_dir)?;
         apply_policy(&mut auth, &policy.get());
         auth.set_persist_sessions(cfg.persist_sessions);
+        let kept = auth.restore_after_restart(policy.get().update_keep_logins, crate::jobs::now());
+        if kept > 0 {
+            eprintln!("eh3d-server: {kept} login(s) kept across the update");
+        }
         crate::plan::set_rack_max_slots(cfg.rack_max_slots);
         let machines = Machines::open(&cfg.data_dir)?;
         let jobs = JobBook::open(&cfg.data_dir, cfg.keep_jobs)?;

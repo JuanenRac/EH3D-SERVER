@@ -146,4 +146,6 @@ The installation checked by the hash alone has to be allowed on purpose, in one 
 * the setting of the helper: in the file of `--config` (for example `/etc/eh3d-update.json`) the key `{"settings": {"require_signature": false}}` next to the components;
 * the option `--allow-unsigned` in the `ExecStart` of `eh3d-update.service`.
 
+The restart of an update of the server ends the logins unless `persist_sessions` is on. The switch `update_keep_logins` of the security page (`PUT /api/v1/auth/policy`, off by default, it needs the confirmation of a looser value; or `update_keep_logins = true` in `server.cfg`) keeps them for that restart only: the server writes the SHA-256 of each login to `sessions-update.json` of its data folder when an update of the server is asked for, and the server that starts takes them up only if it starts within `update_keep_logins_s` seconds (300 by default, 30 to 900); the file is used once and removed in every case.
+
 Even with the hash alone allowed, a `.sig` that the release does publish must verify: a signature by another key is refused. Only a release that publishes no `.sig` (or a machine with no signers file) falls back to the hash.
