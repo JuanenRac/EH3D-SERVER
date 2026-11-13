@@ -15,6 +15,12 @@ pub struct ServerConfig {
     /// Whether the helper that updates the services may install a release that has no signature when its hash is right. Off by default: a signature is required. It is a
     /// switch of the security page (`PUT /api/v1/auth/policy`) and the server passes it to the helper with each request to apply an update.
     pub update_allow_unsigned: bool,
+    /// Whether the logins survive the restart that an update of the server makes (the logins are kept in memory unless `persist_sessions` is on, so the update would log
+    /// everybody out and the pages could not follow it to the end). Off by default. It is a switch of the security page (`PUT /api/v1/auth/policy`); `persist_sessions`
+    /// keeps its own, wider meaning and is not changed by it.
+    pub update_keep_logins: bool,
+    /// How long, in seconds, the logins kept for an update stay good: they are used only by a server that starts within this time of the request to update (30 to 900).
+    pub update_keep_logins_s: u64,
     /// Where users, tokens, machines and jobs are kept.
     pub data_dir: PathBuf,
     /// How long a login lasts, in hours.
@@ -192,6 +198,8 @@ impl Default for ServerConfig {
             listen: "127.0.0.1:18200".parse().expect("a valid default address"),
             network_open: false,
             update_allow_unsigned: false,
+            update_keep_logins: false,
+            update_keep_logins_s: 300,
             data_dir: PathBuf::from("data"),
             session_hours: 12,
             max_body_mb: 8,
@@ -481,6 +489,10 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
             "password_deny_name" => c.password_deny_name = flag(&key, value).map_err(at)?,
             "network_open" => c.network_open = flag(&key, value).map_err(at)?,
             "update_allow_unsigned" => c.update_allow_unsigned = flag(&key, value).map_err(at)?,
+            "update_keep_logins" => c.update_keep_logins = flag(&key, value).map_err(at)?,
+            "update_keep_logins_s" => {
+                c.update_keep_logins_s = number(&key, value, 30, 900).map_err(at)?
+            }
             "design_run" => c.design_run = flag(&key, value).map_err(at)?,
             "design_program" => {
                 c.design_program = if value.is_empty() {

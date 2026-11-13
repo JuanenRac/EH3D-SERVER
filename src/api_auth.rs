@@ -328,6 +328,11 @@ async fn policy(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
             json!(h.update_allow_unsigned),
             h.is_safe("update_allow_unsigned"),
         ),
+        switch(
+            "update_keep_logins",
+            json!(h.update_keep_logins),
+            h.is_safe("update_keep_logins"),
+        ),
     ];
     let attention: Vec<String> = switches
         .iter()
