@@ -1,0 +1,51 @@
+name: Count the tests
+
+on:
+  push:
+    branches: [tmp-count]
+
+permissions:
+  contents: read
+
+jobs:
+  count:
+    runs-on: ubuntu-latest
+    steps:
+      # the server uses the libraries of the programs, which have to be next to it
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          path: EH3D-SERVER
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          repository: JuanenRac/EH3D-COMMON
+          ref: v0.2.1
+          path: EH3D-COMMON
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          repository: JuanenRac/EH3D-DRILLPRO
+          ref: v0.1.7
+          path: EH3D-DRILLPRO
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          repository: JuanenRac/EH3D-ROUTEPRO
+          ref: v0.1.6
+          path: EH3D-ROUTEPRO
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          repository: JuanenRac/EH3D-CORE-LIBS
+          ref: v0.0.9
+          path: EH3D-CORE-LIBS
+      - name: Rust toolchain
+        shell: bash
+        working-directory: EH3D-SERVER
+        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)" --profile minimal --component rustfmt,clippy
+      - name: Count the tests of cargo test --workspace
+        run: |
+          cargo test --workspace 2>&1 | tee /tmp/t.log || true
+          awk '/test result: ok/ {s += $4} END {print "TESTCOUNT=" s}' /tmp/t.log
+        working-directory: EH3D-SERVER
