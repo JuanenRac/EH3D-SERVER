@@ -48,7 +48,7 @@ jobs:
           [[ "$REF" =~ ^[A-Za-z0-9._/-]{1,100}$ ]] || { echo "::error::the ref has characters that a branch, tag or commit does not have"; exit 1; }
 
       - name: Check out this repository
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
@@ -86,7 +86,7 @@ jobs:
           - { os: windows-latest, label: windows-x86_64, ext: ".exe", archive: zip }
           - { os: macos-latest, label: macos-arm64, ext: "", archive: tar.gz }
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           ref: ${{ needs.plan.outputs.sha }}
@@ -104,7 +104,7 @@ jobs:
         run: cargo test --all-targets
       - name: Build
         run: cargo build --release --features serial
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - name: Smoke test of the binary (it starts, answers its health check and stops on SIGTERM)
@@ -136,7 +136,7 @@ jobs:
           MATRIX_LABEL: ${{ matrix.label }}
           MATRIX_EXT: ${{ matrix.ext }}
           MATRIX_ARCHIVE: ${{ matrix.archive }}
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: parts-${{ matrix.label }}
           path: dist/*
@@ -157,7 +157,7 @@ jobs:
       SHA: ${{ needs.plan.outputs.sha }}
     steps:
       - name: Download the packages of every platform
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: parts-*
           merge-multiple: true
@@ -186,12 +186,12 @@ jobs:
           cat SHA256SUMS
 
       - name: Attest the provenance of the files
-        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: files/*
 
       - name: Upload the build
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-server-${{ needs.plan.outputs.version }}
           path: files/*
@@ -210,7 +210,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Download the build
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-server-${{ needs.plan.outputs.version }}
           path: build
@@ -251,7 +251,7 @@ jobs:
       OWNER: ${{ github.repository_owner }}
     steps:
       - name: Download the build
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-server-${{ needs.plan.outputs.version }}
           path: files
