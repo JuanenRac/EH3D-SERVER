@@ -13,7 +13,7 @@ on:
         required: true
         default: true
       ref:
-        description: "Branch, tag or commit of this repository (it must be part of main)"
+        description: "Branch or tag of this repository, the same one the run is started from (--ref); it must be part of main"
         type: string
         required: true
         default: main
@@ -29,7 +29,7 @@ concurrency:
 jobs:
   plan:
     name: Plan the build
-    if: ${{ github.actor == github.repository_owner && github.ref == 'refs/heads/main' }}
+    if: ${{ github.actor == github.repository_owner }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -50,16 +50,22 @@ jobs:
       - name: Check out this repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.ref }}
+          # the commit this run was started from; the ref input can only confirm it (start the run from that branch or tag)
+          ref: ${{ github.sha }}
           persist-credentials: false
           fetch-depth: 0
 
       - name: Make sure the commit belongs to the main branch
         shell: bash
+        env:
+          REF: ${{ inputs.ref }}
         run: |
           set -euo pipefail
           # only code that is already in main is built: a branch or a fork commit that is not in main is refused
           git merge-base --is-ancestor HEAD refs/remotes/origin/main || { echo "::error::the commit $(git rev-parse --short HEAD) is not part of the main branch; merge it first"; exit 1; }
+          # the commit built is the one this run was started from (github.sha); the ref input can only confirm it, never choose another commit
+          want="$(git rev-parse --verify --quiet "refs/remotes/origin/${REF}^{commit}" || git rev-parse --verify --quiet "refs/tags/${REF}^{commit}" || git rev-parse --verify --quiet "${REF}^{commit}" || true)"
+          [ -n "$want" ] && [ "$want" = "$(git rev-parse HEAD)" ] || { echo "::error::the ref $REF is not the commit this run was started from ($(git rev-parse --short HEAD)); start the run from that ref"; exit 1; }
 
       - name: Work out the version and pin the commit
         id: plan
@@ -89,7 +95,8 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-          ref: ${{ needs.plan.outputs.sha }}
+          # the commit this run was started from, which is the one the plan job checked out and pinned
+          ref: ${{ github.sha }}
       - name: Check out the siblings (path dependencies)
         shell: bash
         run: |
