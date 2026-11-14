@@ -9,6 +9,7 @@
 Usage (on ONE repository, under 15 seconds):
   python lessons_lint.py --repo DIR
   python lessons_lint.py --repo DIR --json | --check | --rules subprocess-timeout,lang-keys | --measured 91.5
+  python lessons_lint.py --repo DIR --precheck [--base origin/main]   # before every push: the rules over the change, the rules of the change itself and the linters the workflows run
   python lessons_lint.py --repo DIR --write-baseline   # saves today's findings in tools/lessons_lint_baseline.json; --check then fails only on NEW ones
 
 Optional per-repository settings, tools/hygiene_config.json:
@@ -30,6 +31,26 @@ Rules (each with its known false positive):
                       the Version table and the badge of README*.md) does not agree; 0.8.3.0 equals 0.8.3.
                       FP: a README table that quotes another component on purpose; workspace crates with their own versions; an internal library
                       with its own version is ignored on its own (its package must carry the name of the repository; if not, use `ignore`).
+
+More rules, from the lessons that came back most often (not part of the default CI set: ask for them with "rules" in the settings, or run --precheck, which uses all of them
+over the files and lines of the change only; mark a line with  # lessons: ok  to accept it):
+  mosquitto-direct       a test or script that starts the MQTT broker from the system program (a security profile can stop it reading the configuration):
+                         copy the program to the test folder first. FP: a copy made in another module.
+  memcmp-string-literal  C/C++ memcmp against a string literal where tests read the magic bytes from the source as byte literals. FP: any other memcmp use.
+  regex-control-char     a pattern written in a plain string where a backslash escape (b, 1, a) became a control character: use a raw string.
+  catalog-register       texts of the fr/de/pt catalogue in the familiar form (tu/du/teu): they must be formal. FP: a quoted word of that spelling.
+  ts-es2020-api          .at(), .replaceAll(), Object.hasOwn(), .findLast() in TypeScript whose tsconfig targets ES2020. FP: a polyfilled project.
+  e2e-broad-locator      locator('header select') made only of tag names in an e2e test: use a test id. FP: a page with a single such element.
+  forbidden-literal      text you list in the settings ("forbidden": [{"pattern": ..., "message": ..., "globs": [...]}]), e.g. an old port number.
+  worktree-name          the folder is not named like the repository of its manifest (the validators want the same name).
+  shell-not-executable   a committed shell script with a shebang and without the executable bit.
+Rules of the change itself (--precheck, needs git):
+  generated-hand-edit    a README block between generated-section markers, or data/glance.json, edited without its source in the change. FP: a prose edit in a block that is not generated.
+  test-count-stale       tests added and no README, glance or manifest touched: the generator of the test counts is the last step.
+  stacked-or-behind      the branch is behind the base, or carries the commits of another branch.
+  private-reference      private words, internal identifiers or local paths in added lines. commit-trailer: the same, or an assistant trailer, in a commit message.
+It also prints the commands the workflows of the repository run (ruff, mypy, cargo fmt, tsc...) so the same ones are run before pushing, and the new findings of
+workflow_hygiene.py with its speed rules when that tool is beside this one.
 
 Nothing is modified (only --write-baseline writes, and only the baseline file).
 """
@@ -390,7 +411,7 @@ def load_section(repo: Path, config: str | None) -> dict:
 
 
 def finding_key(f: dict) -> str:
-    return f"{f['rule']}|{f['file']}|" + ("" if f["rule"] in COUNT_ONLY else f["message"])
+    return f"{f['rule']}|{f['file']}|" + ("" if f["rule"] in COUNT_ONLY | COUNT_ONLY_MORE else f["message"])
 
 
 def load_baseline(path: Path) -> Counter:
@@ -413,6 +434,370 @@ def write_baseline(result: dict, path: Path) -> None:
     path.write_text(json.dumps(doc, ensure_ascii=False, indent=1) + chr(10), encoding="utf-8")
 
 
+# ---------------------------------------------------------------- more rules: the lessons that came back most often
+# FILE_RULES look at the files (in a precheck only at the files and lines the change touches); PRECHECK_RULES need the change itself (git).
+FILE_RULES = ("mosquitto-direct", "memcmp-string-literal", "regex-control-char", "catalog-register", "ts-es2020-api", "e2e-broad-locator",
+              "forbidden-literal", "worktree-name", "shell-not-executable")
+PRECHECK_RULES = ("generated-hand-edit", "test-count-stale", "stacked-or-behind", "private-reference", "commit-trailer")
+ALL_RULES = RULES + FILE_RULES + PRECHECK_RULES
+WHOLE_REPO_RULES = ("worktree-name", "coverage-floor", "lang-keys", "version-mismatch")   # a precheck keeps these whole, whatever the change
+# rules whose finding is the same whatever the line: they are counted per file in a baseline
+COUNT_ONLY_MORE = {"memcmp-string-literal", "e2e-broad-locator", "ts-es2020-api", "mosquitto-direct", "regex-control-char"}
+
+# words that must never reach a public repository, written in pieces so that this very file does not contain them
+_PRIVATE_PIECES = (("SON", "NET"), ("AUDIT", "ORIA"), ("Cla", "ude"), ("Co-Auth", "ored-By"), ("Generated", " with"), ("Users[\\\\/]ju", "ane"))
+PRIVATE_RE = re.compile("|".join(a + b if "[" in a else re.escape(a + b) for a, b in _PRIVATE_PIECES) + r"|\b(?:AR|UR|HY|GR)\d{4}\b")
+TRAILER_RE = re.compile("|".join(re.escape(a + b) for a, b in _PRIVATE_PIECES[2:5]))
+TEXT_SUFFIXES = (".py", ".ts", ".tsx", ".js", ".mjs", ".md", ".json", ".yml", ".yaml", ".toml", ".txt", ".sh", ".rs", ".go", ".kt", ".swift", ".c", ".h", ".cpp", ".hpp", ".cc")
+C_SUFFIXES = (".c", ".h", ".cpp", ".hpp", ".cc", ".cxx")
+INFORMAL = {   # the register of the catalogue texts: fr and pt in the formal form, de with Sie (the pronouns of the familiar form are what is looked for)
+    "fr": re.compile(r"\b(tu|toi|ton|ta|tes)\b", re.I),
+    "de": re.compile(r"\b(du|dir|dich|dein|deine|deinen|deinem|deiner)\b", re.I),
+    "pt": re.compile(r"\b(tu|teu|tua|teus|tuas)\b", re.I),
+}
+PLACEHOLDER = re.compile(r"\{\{[^}]*\}\}|\{[^}]*\}|%\w")
+SPAWN_NAMES = {"Popen", "run", "call", "check_call", "check_output"}
+RE_FUNCS = {"compile", "sub", "subn", "search", "match", "fullmatch", "findall", "finditer", "split"}
+CONTROL = re.compile("[\x01-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def git_run(repo: Path, *args: str, timeout: int = 60) -> str | None:
+    """Output of a read only git command, or None when git is missing, the folder is not a repository or the command fails."""
+    import subprocess
+    try:
+        out = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return out.stdout if out.returncode == 0 else None
+
+
+def lint_mosquitto(tree: ast.AST, text: str):
+    """A Python test that starts the broker program straight from the system: under AppArmor (the image of the runner moves) it cannot read the configuration
+    of the test. A private copy of the program in the folder of the test runs without that profile."""
+    low = text.lower()
+    if "mosquitto" not in low:
+        return []
+    copies = any(isinstance(n, ast.Call) and (isinstance(n.func, ast.Attribute) and n.func.attr in ("copy", "copy2", "copyfile", "copyfileobj"))
+                 for n in ast.walk(tree))
+    if copies:
+        return []
+    out = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not node.args or not isinstance(node.args[0], (ast.List, ast.Tuple)) or not node.args[0].elts:
+            continue
+        fn = node.func
+        name = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
+        if name not in SPAWN_NAMES:
+            continue
+        first, rest = node.args[0].elts[0], node.args[0].elts[1:]
+        direct = isinstance(first, ast.Constant) and isinstance(first.value, str) and re.fullmatch(r"(.*[\\/])?mosquitto(\.exe)?", first.value) is not None
+        with_conf = bool(rest) and isinstance(rest[0], ast.Constant) and rest[0].value == "-c"
+        if direct or with_conf:
+            out.append((node.lineno, "the MQTT broker is started from the system program: copy the program to the test folder first (a security profile can stop it reading the configuration)"))
+    return out
+
+
+def lint_python_more(repo: Path, rules: set[str]):
+    out = []
+    for path in walk(repo, (".py",)):
+        try:
+            text = read(path)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                tree = ast.parse(text)
+        except (SyntaxError, ValueError, OSError):
+            continue
+        lines = text.split("\n")
+        if "mosquitto-direct" in rules:
+            out += [finding("mosquitto-direct", path, ln, msg, repo) for ln, msg in lint_mosquitto(tree, text) if not PRAGMA.search(lines[ln - 1])]
+        if "regex-control-char" in rules:
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in RE_FUNCS and isinstance(node.func.value, ast.Name) and node.func.value.id == "re":
+                    for arg in node.args[:2]:
+                        if isinstance(arg, ast.Constant) and isinstance(arg.value, str) and CONTROL.search(arg.value) and not PRAGMA.search(lines[node.lineno - 1]):
+                            out.append(finding("regex-control-char", path, node.lineno, "a backslash sequence of the pattern (\\b, \\1, \\a...) became a control character in a plain string: use a raw string", repo))
+                            break
+    return out
+
+
+def lint_text_files(repo: Path, rules: set[str], forbidden: list):
+    """The rules that read text: the broker in shell and workflows, memcmp with a literal, ES2020 only TypeScript, broad e2e locators and the forbidden literals."""
+    out = []
+    es2020 = False
+    if "ts-es2020-api" in rules:
+        for ts in walk(repo, (".json",)):
+            if ts.name.startswith("tsconfig"):
+                body = read(ts)
+                if re.search(r"(?i)\"es2020\"", body) and not re.search(r"(?i)\"(es2021|es2022|es2023|es2024|esnext)\"", body):
+                    es2020 = True
+    suffixes = tuple(sorted(set(C_SUFFIXES + (".sh", ".yml", ".yaml", ".ts", ".tsx", ".js") + (TEXT_SUFFIXES if forbidden else ()))))
+    for path in walk(repo, suffixes):
+        try:
+            text = read(path)
+        except OSError:
+            continue
+        rel = path.relative_to(repo).as_posix()
+        lines = text.split("\n")
+        if "mosquitto-direct" in rules and path.suffix in (".sh", ".yml", ".yaml") and not re.search(r"\bcp\b[^\n]*mosquitto", text):
+            for i, ln in enumerate(lines, 1):
+                if re.match(r"^\s*(sudo\s+)?mosquitto\s+-c\s", ln) and not PRAGMA.search(ln):
+                    out.append(finding("mosquitto-direct", path, i, "the MQTT broker is started from the system program: copy the program first (a security profile can stop it reading the configuration)", repo))
+        if "memcmp-string-literal" in rules and path.suffix in C_SUFFIXES:
+            for m in re.finditer(r"\bmemcmp\s*\([^;]*?\"[^\"\n]*\"", text):
+                at = text.count("\n", 0, m.start()) + 1
+                if not PRAGMA.search(lines[at - 1]):
+                    out.append(finding("memcmp-string-literal", path, at, "memcmp against a string literal: the tests that read the magic bytes from the source expect byte literals", repo))
+        if es2020 and path.suffix in (".ts", ".tsx") and not path.name.endswith(".d.ts"):
+            for i, ln in enumerate(lines, 1):
+                if re.search(r"\.at\(\s*-?\d|\.replaceAll\(|Object\.hasOwn\(|\.findLast(Index)?\(", ln) and not PRAGMA.search(ln):
+                    out.append(finding("ts-es2020-api", path, i, "an API newer than ES2020 where the type check targets ES2020 (use items[items.length - 1], replace with a regex, hasOwnProperty)", repo))
+        if "e2e-broad-locator" in rules and path.suffix in (".ts", ".js", ".tsx") and re.search(r"(\.spec\.|\.e2e\.|(^|/)e2e/)", rel):
+            for i, ln in enumerate(lines, 1):
+                if re.search(r"\.locator\(\s*(['\"`])[a-z][\w-]*(\s+[a-z][\w-]*)*\1\s*\)", ln) and not PRAGMA.search(ln):
+                    out.append(finding("e2e-broad-locator", path, i, "a locator made only of tag names breaks (strict mode) when the page gets a second one: use a test id", repo))
+        if "forbidden-literal" in rules and forbidden:
+            for item in forbidden:
+                if not isinstance(item, dict) or "pattern" not in item:
+                    continue
+                globs = item.get("globs") or ["*"]
+                if not any(fnmatch.fnmatch(rel, g) for g in globs):
+                    continue
+                try:
+                    rx = re.compile(item["pattern"])
+                except re.error:
+                    continue
+                for i, ln in enumerate(lines, 1):
+                    if rx.search(ln) and not PRAGMA.search(ln):
+                        out.append(finding("forbidden-literal", path, i, str(item.get("message", "forbidden text: " + item["pattern"])), repo))
+    return out
+
+
+def catalog_strings(obj, prefix=""):
+    """(key, text) of every text of a catalogue; the keys that start with an underscore at the top are metadata."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if not (isinstance(k, str) and k.startswith("_") and not prefix):
+                yield from catalog_strings(v, f"{prefix}.{k}" if prefix else str(k))
+    elif isinstance(obj, str):
+        yield prefix, obj
+
+
+def lint_catalog_register(repo: Path, catalogs):
+    out = []
+    for d in catalogs:
+        for lang, rx in INFORMAL.items():
+            f = d / f"{lang}.json"
+            if not f.is_file():
+                continue
+            try:
+                data = json.loads(read(f))
+            except ValueError:
+                continue
+            bad = [key for key, text in catalog_strings(data) if rx.search(PLACEHOLDER.sub(" ", text))]
+            if bad:
+                out.append(finding("catalog-register", f, 0, f"{len(bad)} texts in the familiar form ({lang}): {', '.join(bad[:3])}{'...' if len(bad) > 3 else ''}", repo))
+    return out
+
+
+def lint_manifest_name(repo: Path):
+    out = []
+    for f in sorted(repo.glob("*.project.json")):
+        try:
+            name = json.loads(read(f)).get("name")
+        except ValueError:
+            continue
+        if isinstance(name, str) and name != repo.name:
+            out.append(finding("worktree-name", f, 0, f"the manifest says '{name}' but the folder is '{repo.name}': the validators want a worktree named like the repository", repo))
+    return out
+
+
+def lint_executable_scripts(repo: Path):
+    listing = git_run(repo, "ls-files", "-s", "--", "*.sh")
+    out = []
+    for line in (listing or "").splitlines():
+        meta, _, rel = line.partition("\t")
+        if meta.startswith("100644") and rel:
+            try:
+                first = read(repo / rel).split("\n", 1)[0]
+            except OSError:
+                continue
+            if first.startswith("#!"):
+                out.append(finding("shell-not-executable", repo / rel, 0, "a shell script with a shebang is committed without the executable bit (git update-index --chmod=+x)", repo))
+    return out
+
+
+# ---------------------------------------------------------------- the change itself (precheck)
+HUNK = chr(64) * 2   # the start of a hunk of a diff, written so that no template check finds a placeholder mark in this file
+
+
+def parse_diff(diff: str):
+    """{path: {line number: text}} of the added lines of a `git diff -U0`."""
+    added: dict[str, dict[int, str]] = {}
+    path, line_no = None, 0
+    for raw in diff.split("\n"):
+        if raw.startswith("+++ "):
+            path = raw[4:].strip()
+            path = path[2:] if path.startswith("b/") else (None if path == "/dev/null" else path)
+        elif raw.startswith(HUNK):
+            m = re.search(r"\+(\d+)", raw)
+            line_no = int(m.group(1)) if m else 0
+        elif raw.startswith("+") and not raw.startswith("+++") and path:
+            added.setdefault(path, {})[line_no] = raw[1:]
+            line_no += 1
+    return added
+
+
+def resolve_base(repo: Path, base: str | None) -> str | None:
+    for cand in ([base] if base else []) + ["origin/main", "main"]:
+        if cand and git_run(repo, "rev-parse", "--verify", "-q", cand + "^{commit}") is not None:
+            return cand
+    return None
+
+
+def change_of(repo: Path, base: str | None):
+    """(base, added lines by path, changed paths). Untracked files count as wholly added."""
+    ref = resolve_base(repo, base)
+    diff = git_run(repo, "diff", "-U0", "--no-color", ref) if ref else git_run(repo, "diff", "-U0", "--no-color", "HEAD")
+    added = parse_diff(diff or "")
+    changed = set(added)
+    names = git_run(repo, "diff", "--name-only", ref or "HEAD") or ""
+    changed |= {n for n in names.split("\n") if n}
+    for rel in (git_run(repo, "ls-files", "--others", "--exclude-standard") or "").split("\n"):
+        if rel and (repo / rel).is_file() and rel.endswith(TEXT_SUFFIXES):
+            try:
+                added[rel] = {i: t for i, t in enumerate(read(repo / rel).split("\n"), 1)}
+            except OSError:
+                continue
+            changed.add(rel)
+    return ref, added, changed
+
+
+def lint_change(repo: Path, rules: set[str], ref: str | None, added: dict, changed: set):
+    out = []
+    if "private-reference" in rules:
+        for rel, lines in sorted(added.items()):
+            if not rel.endswith(TEXT_SUFFIXES):
+                continue
+            for ln, text in sorted(lines.items()):
+                m = PRIVATE_RE.search(text)
+                if m:
+                    out.append(finding("private-reference", repo / rel, ln, f"'{m.group(0)}' must not reach a public repository", repo))
+    if ref and "commit-trailer" in rules:
+        log = git_run(repo, "log", f"{ref}..HEAD", "--format=%h%x1f%B%x1e") or ""
+        for entry in log.split("\x1e"):
+            sha, _, body = entry.strip().partition("\x1f")
+            m = TRAILER_RE.search(body) or PRIVATE_RE.search(body)
+            if sha and m:
+                out.append(finding("commit-trailer", repo / ".git", 0, f"commit {sha} says '{m.group(0)}' in its message", repo))
+    if ref and "stacked-or-behind" in rules:
+        behind = (git_run(repo, "rev-list", "--count", f"HEAD..{ref}") or "0").strip()
+        if behind.isdigit() and int(behind) > 0:
+            out.append(finding("stacked-or-behind", repo / ".git", 0, f"the branch is {behind} commits behind {ref}: merge it before asking for a review", repo))
+        current = (git_run(repo, "branch", "--show-current") or "").strip()
+        commits = (git_run(repo, "rev-list", f"{ref}..HEAD") or "").split()
+        for sha in commits[:20]:
+            heads = [b.strip() for b in (git_run(repo, "branch", "-r", "--contains", sha) or "").split("\n") if b.strip() and "->" not in b]
+            other = [b for b in heads if b not in (ref, f"origin/{current}")]
+            if other:
+                out.append(finding("stacked-or-behind", repo / ".git", 0, f"the branch carries commits of another branch ({other[0]}): every branch starts at {ref}", repo))
+                break
+    if "test-count-stale" in rules:
+        tests = 0
+        for rel, lines in added.items():
+            if re.search(r"(^|/)(tests?|__tests__)/|(^|/)test_|\.test\.|\.spec\.", rel):
+                tests += sum(1 for t in lines.values() if re.match(r"\s*(async def test_|def test_|it\(|test\(|#\[test\])", t))
+        counted = any(re.match(r"README.*\.md$|data/glance\.json$|.*\.project\.json$", c) for c in changed)
+        if tests and not counted:
+            out.append(finding("test-count-stale", repo / "README.md", 0, f"{tests} tests added and no README, glance or manifest in the change: run the generator of the test counts last", repo))
+    if "generated-hand-edit" in rules:
+        sources = any(re.search(r"(sections\.json|readme_src|readme_sections|glance\.py|make_glance|\.project\.json)", c) for c in changed)
+        touched: list[str] = []
+        if "data/glance.json" in changed:
+            touched.append("data/glance.json")
+        for rel, lines in added.items():
+            if re.match(r"README.*\.md$", rel) and (repo / rel).is_file():
+                spans, start = [], None
+                for i, ln in enumerate(read(repo / rel).split("\n"), 1):
+                    if re.search(r"<!--\s*[\w.-]+-section:[^>]*-->", ln):
+                        if start:
+                            spans.append((start, i))
+                        start = i
+                    elif start and (ln.startswith("## ") or re.search(r"<!--\s*/[\w.-]+-section", ln)):
+                        spans.append((start, i))
+                        start = None
+                if start:
+                    spans.append((start, 10 ** 9))
+                if any(a < n < b for n in lines for a, b in spans):
+                    touched.append(rel)
+        if touched and not sources:
+            out.append(finding("generated-hand-edit", repo / touched[0], 0, f"generated text edited by hand ({', '.join(touched[:3])}): change the source and regenerate", repo))
+    return out
+
+
+def linters_to_run(repo: Path) -> list[str]:
+    """The checks the workflows of the repository run, to be run before pushing (the exact ones, not similar ones)."""
+    seen: list[str] = []
+    wf = repo / ".github" / "workflows"
+    if not wf.is_dir():
+        return seen
+    rx = re.compile(r"((?:python\d? -m )?(?:ruff check|mypy|cargo fmt|cargo clippy|gofmt|go vet|staticcheck|tsc|eslint)\b[^\n&|]*|npm run (?:typecheck|lint)\b[^\n&|]*|python3? -I? ?tools/[\w]*ci_validate\.py)")
+    for f in sorted(wf.glob("*.y*ml")):
+        for ln in read(f).split("\n"):
+            m = rx.search(ln)
+            if m and not ln.lstrip().startswith("#"):
+                cmd = m.group(1).strip()
+                if cmd not in seen:
+                    seen.append(cmd)
+    return seen[:12]
+
+
+def precheck_repo(repo: Path, base: str | None = None, measured=None, config: str | None = CONFIG_FILE, baseline: str | None = None) -> dict:
+    """Everything an agent runs before pushing: the rules of the files over the files and lines of the change, the rules of the change and the workflow rules."""
+    sec = load_section(repo, config)
+    files_rules = set(RULES) | set(FILE_RULES)
+    result = lint_repo(repo, tuple(files_rules), measured, config, baseline)
+    ref, added, changed = change_of(repo, base)
+    scoped = []
+    for f in result["findings"]:
+        if f["rule"] not in WHOLE_REPO_RULES:   # the other rules only count in the files and the lines the change touches
+            if f["file"] not in changed or (f["line"] and f["line"] not in added.get(f["file"], {})):
+                continue
+        scoped.append(f)
+    ignore: dict[str, Any] = sec["ignore"] if isinstance(sec.get("ignore"), dict) else {}
+    extra = [f for f in lint_change(repo, set(PRECHECK_RULES), ref, added, changed) if not is_ignored(f, ignore)]
+    for f in extra:
+        f["new"] = True
+    scoped += extra
+    scoped += [f for f in workflow_findings(repo) if f["file"] in changed or (f["rule"] == "changelog-union" and "CHANGELOG.md" in changed)]   # only the workflows the change touches
+    scoped.sort(key=lambda x: (x["rule"], x["file"], x["line"]))
+    result["findings"] = scoped
+    result["base"] = ref
+    result["run_before_push"] = linters_to_run(repo)
+    return result
+
+
+def workflow_findings(repo: Path):
+    """The new findings of workflow_hygiene.py with its speed rules (cancel-in-progress on main, ubuntu-latest in infrastructure jobs...), when that tool is beside this one."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import workflow_hygiene as wh
+    except ImportError:
+        return []
+    if not (repo / ".github" / "workflows").is_dir():
+        return []
+    try:
+        repos = wh.scan(repo, speed=True)
+    except TypeError:   # an older copy without the speed rules
+        repos = wh.scan(repo)
+    wh.apply_config_and_baseline(repos)
+    out = []
+    for r in repos.values():
+        for f in r["findings"]:
+            if f.get("new", True):
+                out.append({"rule": f["rule"], "file": f".github/workflows/{f['file']}", "line": f["line"], "message": f["message"], "new": True})
+    return out
+
+
 # ---------------------------------------------------------------- orchestration
 def lint_repo(repo: Path, rules=RULES, measured=None, config: str | None = None, baseline: str | None = None) -> dict:
     """config: relative path of the settings file (None = ignore it). baseline: relative path of the baseline (None = the one of the settings or the default)."""
@@ -422,7 +807,7 @@ def lint_repo(repo: Path, rules=RULES, measured=None, config: str | None = None,
     if measured is None and isinstance(sec.get("measured"), (int, float)):
         measured = float(sec["measured"])
     rules = set(rules)
-    catalogs = find_catalogs(repo) if rules & {"visible-text", "lang-keys"} else []
+    catalogs = find_catalogs(repo) if rules & {"visible-text", "lang-keys", "catalog-register"} else []
     findings: list[dict] = []
     notes: list[str] = []
     if rules & {"subprocess-timeout", "visible-text"}:
@@ -436,6 +821,17 @@ def lint_repo(repo: Path, rules=RULES, measured=None, config: str | None = None,
         findings += lint_lang_keys(repo, catalogs)
     if "version-mismatch" in rules:
         findings += lint_versions(repo)
+    if rules & {"mosquitto-direct", "regex-control-char"}:
+        findings += lint_python_more(repo, rules)
+    if rules & {"mosquitto-direct", "memcmp-string-literal", "ts-es2020-api", "e2e-broad-locator", "forbidden-literal"}:
+        forbidden: list[Any] = sec["forbidden"] if isinstance(sec.get("forbidden"), list) else []
+        findings += lint_text_files(repo, rules, forbidden)
+    if "catalog-register" in rules:
+        findings += lint_catalog_register(repo, catalogs)
+    if "worktree-name" in rules:
+        findings += lint_manifest_name(repo)
+    if "shell-not-executable" in rules:
+        findings += lint_executable_scripts(repo)
     ignore: dict[str, Any] = sec["ignore"] if isinstance(sec.get("ignore"), dict) else {}
     findings = [f for f in findings if not is_ignored(f, ignore)]
     findings.sort(key=lambda x: (x["rule"], x["file"], x["line"]))
@@ -472,6 +868,8 @@ def main(argv=None) -> int:
     ap.add_argument("--check", action="store_true", help="exit 1 if there are NEW findings (not in the baseline)")
     ap.add_argument("--config", default=CONFIG_FILE, help="settings file inside the repository (default " + CONFIG_FILE + "); 'none' ignores it")
     ap.add_argument("--baseline", help="baseline inside the repository (default: the one of the settings or " + DEFAULT_BASELINE + ")")
+    ap.add_argument("--precheck", action="store_true", help="what to run before pushing: the rules over the change (against --base), the rules of the change itself (git), the workflow rules and the list of linters the workflows run; exit 1 on a new finding")
+    ap.add_argument("--base", help="reference the change is compared with in --precheck (default origin/main, then main)")
     ap.add_argument("--write-baseline", action="store_true", help="WRITE the baseline with today's findings (the only option that writes)")
     args = ap.parse_args(argv)
     repo = Path(args.repo).resolve()
@@ -482,9 +880,17 @@ def main(argv=None) -> int:
     sec = load_section(repo, cfg)
     cfg_rules = tuple(sec["rules"]) if isinstance(sec.get("rules"), list) else None
     rules = tuple(args.rules.split(",")) if args.rules else (cfg_rules or RULES)
-    if not set(rules) <= set(RULES):
+    if not set(rules) <= set(ALL_RULES):
         print("unknown rule: " + ", ".join(sorted(set(rules) - set(RULES))), file=sys.stderr)
         return 2
+    if args.precheck:
+        result = precheck_repo(repo, args.base, args.measured, cfg, args.baseline)
+        print(json.dumps(result, ensure_ascii=False, indent=1) if args.json else render(result))
+        new = sum(1 for f in result["findings"] if f.get("new", True))
+        for cmd in result.get("run_before_push", []):
+            print(f"  run before pushing: {cmd}", file=sys.stderr if args.json else sys.stdout)
+        print(f"PRECHECK={'FAIL' if new else 'PASS'} new={new} findings={len(result['findings'])} base={result.get('base')}", file=sys.stderr if args.json else sys.stdout)
+        return 1 if new else 0
     result = lint_repo(repo, rules, args.measured, cfg or "", args.baseline)
     if args.write_baseline:
         target = repo / (args.baseline or sec.get("baseline") or DEFAULT_BASELINE)
