@@ -15,6 +15,17 @@ It walks <root>/<repo>/.github/workflows/*.yml|yaml (or <root>/.github/workflows
   prt-checkout        pull_request_target that checks out the code of the pull request (head ref or repository)
   secret-in-run       ${{ secrets.X }} interpolated inside a `run:` (pass it through env: instead)
 
+Speed rules (opt in with "speed": true in tools/hygiene_config.json, or --speed; they keep the queue of the runners short without taking a check away):
+
+  macos-on-pr         a job on a macOS runner that starts on every pull request (it belongs to main, tags, the nightly run and a manual start; a pull request can ask for it with the label full-ci)
+  cancel-main         `cancel-in-progress: true` as a plain value in a workflow that also runs on push (a newer push to main or a tag would cancel the one before it)
+  no-branch-cancel    a workflow that runs on pull requests and never cancels a superseded run of a branch (expression: ref is not main and not a tag)
+  heavy-no-filter     a job with Gradle, Xcode, ESP-IDF, PlatformIO, Flutter builds, Renode or an ARM firmware script on pull requests, with no paths filter and no changed-paths answer
+  no-gate             skipped jobs (changed-paths answers) and no job that always runs after them, so a required check could wait forever
+  ubuntu-latest-infra a job that measures a coverage floor or tests infrastructure (systemd, mosquitto, containers, AppArmor) on `ubuntu-latest`: the image moves to a newer Ubuntu and the counts of gcov
+                      or the profiles of AppArmor change under it; pin `runs-on: ubuntu-24.04` with a comment (the other jobs may follow latest)
+  changelog-union     CHANGELOG.md without `merge=union` in .gitattributes (two pull requests that add an entry do not conflict)
+
 Usage:
   python workflow_hygiene.py --root DIR              # table per repository, then the count per ecosystem (default root: the current folder)
   python workflow_hygiene.py --root DIR --json       # JSON output
@@ -44,7 +55,9 @@ SKIP_DIRS = {"third_party", "node_modules", ".git"}   # plus every folder whose 
 OWN_OWNERS = ("juanenrac",)
 
 SEVERITY = {"prt-checkout": "high", "secret-in-run": "high", "unpinned-action": "medium", "no-permissions": "medium",
-            "no-timeout": "low", "no-concurrency": "low"}
+            "no-timeout": "low", "no-concurrency": "low",
+            "macos-on-pr": "medium", "cancel-main": "medium", "no-branch-cancel": "low", "heavy-no-filter": "low", "no-gate": "low", "changelog-union": "low", "ubuntu-latest-infra": "medium"}
+SPEED_RULES = frozenset({"macos-on-pr", "cancel-main", "no-branch-cancel", "heavy-no-filter", "no-gate", "changelog-union", "ubuntu-latest-infra"})
 WEIGHT = {"high": 3, "medium": 2, "low": 1}
 SEV_ORDER = {"low": 0, "medium": 1, "high": 2}
 RULES = tuple(SEVERITY)
@@ -57,6 +70,11 @@ JOB_NAME = re.compile(r'^(?P<indent>\s+)(?P<name>[\w.-]+|"[^"]+"|\'[^\']+\'):\s*
 SECRET = re.compile(r"\$\{\{\s*secrets\.", re.I)
 PR_HEAD = re.compile(r"(pull_request\.head|head_ref|refs/pull/|github\.event\.pull_request\.merge_commit_sha)", re.I)
 RELEASE_WORDS = re.compile(r"(release|publish|deploy)", re.I)
+MACOS = re.compile(r"\bmacos-[\w.]+", re.I)
+HEAVY = re.compile(r"(gradlew|\bgradle\b|xcodebuild|swift test|idf\.py|espressif/idf|\bpio run\b|platformio|flutter build|renode|build_firmware|arm-none-eabi)", re.I)
+CANCEL = re.compile(r"^\s*cancel-in-progress:\s*(?P<val>.+?)\s*$")
+INFRA = re.compile(r"(mosquitto|systemd|systemctl|apparmor|\bdocker\b|podman|gcov|lcov|coverage_threshold|cov-fail-under|fail_under|coverage floor|npm run coverage)", re.I)
+UNION = re.compile(r"(?m)^\S*CHANGELOG\S*\s+(?:\S+\s+)*merge=union\b")
 RELEASE_CMDS = re.compile(r"(gh\s+release\s+(create|upload)|action-gh-release|npm\s+publish|twine\s+upload|cargo\s+publish|pypa/gh-action-pypi-publish)")
 
 
@@ -210,7 +228,53 @@ class Workflow:
         return bool(RELEASE_CMDS.search("\n".join(b for _, b in self.run_bodies)) or re.search(r"uses:\s*\S*action-gh-release", text))
 
 
-def check_workflow(path: Path, text: str, allow_owners=OWN_OWNERS) -> list[dict]:
+def job_texts(wf: "Workflow", jobs: list[dict]) -> list[tuple[dict, str, str]]:
+    """[(job, its code lines, all its lines)] - a job runs from its name to the next job (or the end of the file)."""
+    out = []
+    for n, j in enumerate(jobs):
+        stop = jobs[n + 1]["start"] if n + 1 < len(jobs) else len(wf.lines)
+        rows = range(j["start"], stop)
+        code = "\n".join(strip_comment(wf.lines[i]) for i in rows if i not in wf.body_lines and wf.lines[i].strip() and not wf.lines[i].lstrip().startswith("#"))
+        out.append((j, code, "\n".join(wf.lines[j["start"]:stop])))
+    return out
+
+
+def speed_findings(wf: "Workflow", jobs: list[dict], add) -> None:
+    """The speed rules of one workflow (see the text at the top of this file)."""
+    trig = wf.triggers()
+    on_pr = "pull_request" in trig
+    texts = job_texts(wf, jobs)
+    code_all = "\n".join(code for _, code, _ in texts)
+    if on_pr:   # macos-on-pr: a macOS job needs a guard that mentions the event, the pull request, the label or the changed-paths answer
+        for j, code, _ in texts:
+            if j["uses"] is None and MACOS.search(code):
+                guard = " ".join([j["keys"].get("if", "")] + [ln for ln in code.splitlines() if "event_name" in ln or "pull_request" in ln])
+                if not re.search(r"(event_name|pull_request|\.matched|full-ci)", guard):
+                    add("macos-on-pr", j["line"], f"job '{j['name']}' runs on a macOS runner in every pull request")
+    cancels = [(i + 1, CANCEL.match(code).group("val").strip("\"'")) for i, code in wf.code_lines() if CANCEL.match(code)]
+    if "push" in trig:   # cancel-main
+        for line, val in cancels:
+            if val.lower() == "true":
+                add("cancel-main", line, "cancel-in-progress: true also cancels the runs of main and of the tags")
+    if on_pr and not wf.is_release():   # no-branch-cancel
+        if not any(v.lower() == "true" or "github.ref" in v or "event_name" in v for _, v in cancels):
+            add("no-branch-cancel", 1, "a newer run of a branch does not cancel the one before it (concurrency with cancel-in-progress: the ref is not main)")
+    if on_pr:   # heavy-no-filter: a paths filter of the trigger, a changed-paths call or an answer of it anywhere counts
+        top = "\n".join(c for _, c in wf.code_lines()).split("\njobs:")[0]
+        filtered = bool(re.search(r"(?m)^\s{2,6}paths(-ignore)?\s*:", top)) or "changed-paths" in code_all or "outputs.matched" in code_all
+        if not filtered:
+            for j, code, full in texts:
+                if j["uses"] is None and HEAVY.search(full):
+                    add("heavy-no-filter", j["line"], f"job '{j['name']}' builds with Gradle, Xcode, ESP-IDF, PlatformIO, Flutter or Renode on every pull request, without a paths filter")
+    for j, code, full in texts:   # ubuntu-latest-infra
+        if j["uses"] is None and re.search(r"ubuntu-latest", code) and INFRA.search(full):
+            add("ubuntu-latest-infra", j["line"], f"job '{j['name']}' measures coverage or tests infrastructure on ubuntu-latest (pin ubuntu-24.04)")
+    skipped = [j for j, _, _ in texts if "matched" in j["keys"].get("if", "")]   # no-gate
+    if skipped and not any("always()" in j["keys"].get("if", "") for j in jobs):
+        add("no-gate", skipped[0]["line"], f"{len(skipped)} job(s) can be skipped by the paths answer and no job runs always() after them (a required check would wait)")
+
+
+def check_workflow(path: Path, text: str, allow_owners=OWN_OWNERS, speed: bool = False) -> list[dict]:
     wf = Workflow(text, path.name)
     out: list[dict] = []
 
@@ -251,6 +315,9 @@ def check_workflow(path: Path, text: str, allow_owners=OWN_OWNERS) -> list[dict]
     if wf.is_release() and "concurrency" not in wf.top_level_keys() and not any("concurrency" in j["keys"] for j in jobs):
         add("no-concurrency", 1, "release or publish workflow without 'concurrency'")
 
+    if speed:
+        speed_findings(wf, jobs, add)
+
     # prt-checkout
     if "pull_request_target" in wf.triggers():
         for i, code in wf.code_lines():
@@ -277,12 +344,13 @@ def find_repos(root: Path, skip: frozenset = frozenset()):
             yield child.name, child
 
 
-def scan(root: Path, only: set[str] | None = None, allow_owners=OWN_OWNERS, skip: frozenset = frozenset()) -> dict:
+def scan(root: Path, only: set[str] | None = None, allow_owners=OWN_OWNERS, skip: frozenset = frozenset(), speed: bool = False) -> dict:
     repos = {}
     for name, path in find_repos(root, skip):
         if only and name not in only:
             continue
         findings, nwf = [], 0
+        spd = speed or repo_section(path).get("speed") is True   # the speed rules: asked for, or turned on by the settings of the repository
         for wf in sorted(list((path / ".github" / "workflows").glob("*.yml")) + list((path / ".github" / "workflows").glob("*.yaml"))):
             nwf += 1
             try:
@@ -290,7 +358,12 @@ def scan(root: Path, only: set[str] | None = None, allow_owners=OWN_OWNERS, skip
             except OSError as exc:
                 findings.append({"file": wf.name, "rule": "no-permissions", "severity": "low", "line": 0, "message": f"could not be read: {exc}"})
                 continue
-            findings.extend(check_workflow(wf, text, allow_owners))
+            findings.extend(check_workflow(wf, text, allow_owners, spd))
+        if spd and (path / "CHANGELOG.md").is_file():
+            attrs = path / ".gitattributes"
+            if not UNION.search(attrs.read_text(encoding="utf-8", errors="replace") if attrs.is_file() else ""):
+                findings.append({"file": ".gitattributes", "rule": "changelog-union", "severity": SEVERITY["changelog-union"], "line": 1,
+                                 "message": "CHANGELOG.md is not set to merge=union (two entries added at the same place conflict)"})
         repos[name] = {"ecosystem": ecosystem(name), "workflows": nwf, "findings": findings, "path": str(path)}
     return repos
 
@@ -397,7 +470,10 @@ def summarize(repos: dict) -> dict:
 
 
 def render_table(repos: dict, summary: dict, detail: bool = False) -> str:
-    short = {"unpinned-action": "unpin", "no-timeout": "notmo", "no-permissions": "noperm", "no-concurrency": "nocon", "prt-checkout": "prt", "secret-in-run": "secret"}
+    short = {"unpinned-action": "unpin", "no-timeout": "notmo", "no-permissions": "noperm", "no-concurrency": "nocon", "prt-checkout": "prt", "secret-in-run": "secret",
+             "macos-on-pr": "macpr", "cancel-main": "cnlmn", "no-branch-cancel": "nocnl", "heavy-no-filter": "heavy", "no-gate": "nogat", "changelog-union": "union", "ubuntu-latest-infra": "ubu"}
+    found = {f["rule"] for x in repos.values() for f in x["findings"]}
+    RULES = tuple(r for r in globals()["RULES"] if r not in SPEED_RULES or r in found)   # the speed columns appear only when they have something
     head = ["repo", "eco", "wf"] + [short[r] for r in RULES] + ["score"]
     rows = []
     for name, r in sorted(repos.items(), key=lambda kv: (-score(kv[1]["findings"]), kv[0])):
@@ -430,6 +506,7 @@ def main(argv=None) -> int:
     ap.add_argument("--min-severity", choices=list(SEV_ORDER), default="low")
     ap.add_argument("--skip", action="append", default=[], help="folder name to skip when root holds several repositories (repeatable)")
     ap.add_argument("--allow-owner", action="append", default=[], help="extra owner whose actions need not be pinned")
+    ap.add_argument("--speed", action="store_true", help="also apply the speed rules (" + ", ".join(sorted(SPEED_RULES)) + "); a repository can turn them on with \"speed\": true in " + CONFIG_FILE)
     ap.add_argument("--json", action="store_true", help="JSON output")
     ap.add_argument("--detail", action="store_true", help="list every finding with file and line")
     ap.add_argument("--check", action="store_true", help="exit 1 if the NEW findings (not in the baseline) exceed the threshold")
@@ -447,7 +524,8 @@ def main(argv=None) -> int:
         print("unknown rule: " + ", ".join(sorted(rules - set(RULES))), file=sys.stderr)
         return 2
     owners = OWN_OWNERS + tuple(o.lower() for o in args.allow_owner)
-    repos = scan(root, set(args.repo) if args.repo else None, owners, frozenset(args.skip))
+    speed = args.speed or bool(rules and rules & SPEED_RULES)
+    repos = scan(root, set(args.repo) if args.repo else None, owners, frozenset(args.skip), speed)
     cfg = None if args.config == "none" else args.config
     apply_config_and_baseline(repos, cfg, args.baseline)
     filter_findings(repos, rules, args.min_severity)
