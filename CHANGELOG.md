@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **Simulation of a shift with failures:** add `tests/shift_faults.rs`, which goes through the real router with the simulated machine: a machine whose node does not answer (the job ends and the machine is free again), a job that is stopped, removed and followed by the next one that runs to the end, and a seeded storm of requests (make, start, stop) that never answers with a server error and never leaves two jobs working on one machine. Three tests cover them. Nothing has run with a real machine.
+
 ## [0.1.6] - Logins kept across update restarts and tests of the interface edges
 
 - **The shared validation tools are updated:** the validator also runs the workflow and lessons checks of the suite with their latest rules, including a check to run before every push.
