@@ -4,6 +4,10 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.1.7] - The release files are attached again and a shift with failures is tested
+
+- **The release files are attached again:** version 0.1.6 was published without its packages, so the update of the server said that the release had no `eh3d-server-0.1.6-linux-aarch64.tar.gz`. This version is built and attached from its own commit by the release workflow, with the names the update helper looks for (`eh3d-server-<version>-linux-<x86_64|aarch64>.tar.gz` and its `.sha256`), and the Windows and macOS packages beside them.
+
 - **Simulation of a shift with failures:** add `tests/shift_faults.rs`, which goes through the real router with the simulated machine: a machine whose node does not answer (the job ends and the machine is free again), a job that is stopped, removed and followed by the next one that runs to the end, and a seeded storm of requests (make, start, stop) that never answers with a server error and never leaves two jobs working on one machine. Three tests cover them. Nothing has run with a real machine.
 
 ## [0.1.6] - Logins kept across update restarts and tests of the interface edges
