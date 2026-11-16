@@ -1904,8 +1904,9 @@
           "machines"
         ],
         "summary": "Create a machine",
-        "description": "`connection.kind` is `node`, `demo` (the simulator) or `grbl` (a serial port of the computer the server runs on). Role admin.",
+        "description": "`connection.kind` is `node`, `demo` (the simulator) or `grbl` (a serial port of the computer the server runs on). Role admin. Scope `machines:manage` if the token is limited by scopes.",
         "x-role": "admin",
+        "x-scope": "machines:manage",
         "x-error-codes": [
           "bad_address",
           "bad_cfg",
@@ -1915,6 +1916,7 @@
           "bad_request",
           "bad_station",
           "forbidden",
+          "forbidden_scope",
           "machine_exists",
           "unauthorized"
         ],
@@ -1979,7 +1981,7 @@
             }
           },
           "403": {
-            "description": "Refused with `forbidden`.",
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2110,8 +2112,9 @@
           "machines"
         ],
         "summary": "Change a machine",
-        "description": "Not while a job runs on it. Secrets sent empty keep the stored value. Role admin.",
+        "description": "Not while a job runs on it. Secrets sent empty keep the stored value. Role admin. Scope `machines:manage` if the token is limited by scopes.",
         "x-role": "admin",
+        "x-scope": "machines:manage",
         "x-error-codes": [
           "bad_address",
           "bad_cfg",
@@ -2120,6 +2123,7 @@
           "bad_spindle",
           "bad_station",
           "forbidden",
+          "forbidden_scope",
           "machine_busy",
           "unauthorized",
           "unknown_machine"
@@ -2185,7 +2189,7 @@
             }
           },
           "403": {
-            "description": "Refused with `forbidden`.",
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2248,10 +2252,12 @@
           "machines"
         ],
         "summary": "Remove a machine",
-        "description": "Role admin.",
+        "description": "Role admin. Scope `machines:manage` if the token is limited by scopes.",
         "x-role": "admin",
+        "x-scope": "machines:manage",
         "x-error-codes": [
           "forbidden",
+          "forbidden_scope",
           "machine_busy",
           "unauthorized",
           "unknown_machine"
@@ -2296,7 +2302,7 @@
             }
           },
           "403": {
-            "description": "Refused with `forbidden`.",
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2347,9 +2353,11 @@
           "machines"
         ],
         "summary": "Read the spindle and its limits",
-        "description": "Role viewer or higher.",
+        "description": "Role viewer or higher. Scope `machines:view` if the token is limited by scopes.",
         "x-role": "viewer",
+        "x-scope": "machines:view",
         "x-error-codes": [
+          "forbidden_scope",
           "unauthorized",
           "unknown_machine"
         ],
@@ -2389,6 +2397,20 @@
               }
             }
           },
+          "403": {
+            "description": "Refused with `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden_scope",
+                  "detail": ""
+                }
+              }
+            }
+          },
           "404": {
             "description": "Refused with `unknown_machine`.",
             "content": {
@@ -2411,12 +2433,14 @@
           "machines"
         ],
         "summary": "Set the spindle, its switch and its limits",
-        "description": "`guard` is `reject` (the default) or `warn`. Nothing changes when a value cannot be used. Role admin.",
+        "description": "`guard` is `reject` (the default) or `warn`. Nothing changes when a value cannot be used. Role admin. Scope `machines:manage` if the token is limited by scopes.",
         "x-role": "admin",
+        "x-scope": "machines:manage",
         "x-error-codes": [
           "bad_request",
           "bad_spindle",
           "forbidden",
+          "forbidden_scope",
           "unauthorized",
           "unknown_machine"
         ],
@@ -2481,7 +2505,7 @@
             }
           },
           "403": {
-            "description": "Refused with `forbidden`.",
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3127,10 +3151,12 @@
           "jobs"
         ],
         "summary": "Remove a job that is not running",
-        "description": "Role operator or higher.",
+        "description": "Role operator or higher. Scope `jobs:cancel` if the token is limited by scopes.",
         "x-role": "operator",
+        "x-scope": "jobs:cancel",
         "x-error-codes": [
           "forbidden",
+          "forbidden_scope",
           "job_active",
           "unauthorized",
           "unknown_job"
@@ -3175,7 +3201,7 @@
             }
           },
           "403": {
-            "description": "Refused with `forbidden`.",
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3982,10 +4008,12 @@
           "head"
         ],
         "summary": "Status of the node of the drill head",
-        "description": "Role viewer or higher.",
+        "description": "Role viewer or higher. Scope `machines:view` if the token is limited by scopes.",
         "x-role": "viewer",
+        "x-scope": "machines:view",
         "x-error-codes": [
           "bad_address",
+          "forbidden_scope",
           "head_refused",
           "head_unreachable",
           "no_head",
@@ -4023,6 +4051,20 @@
                 },
                 "example": {
                   "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden_scope",
                   "detail": ""
                 }
               }
@@ -4080,12 +4122,14 @@
           "head"
         ],
         "summary": "One measure of the table under the head",
-        "description": "Role operator or higher.",
+        "description": "Role operator or higher. Scope `jobs:prepare` if the token is limited by scopes.",
         "x-role": "operator",
+        "x-scope": "jobs:prepare",
         "x-error-codes": [
           "bad_address",
           "bad_samples",
           "forbidden",
+          "forbidden_scope",
           "head_refused",
           "head_unreachable",
           "no_head",
@@ -4140,7 +4184,7 @@
             }
           },
           "403": {
-            "description": "Refused with `forbidden`.",
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4205,10 +4249,12 @@
           "head"
         ],
         "summary": "The camera of the node as MJPEG",
-        "description": "Role viewer or higher.",
+        "description": "Role viewer or higher. Scope `machines:view` if the token is limited by scopes.",
         "x-role": "viewer",
+        "x-scope": "machines:view",
         "x-error-codes": [
           "bad_address",
+          "forbidden_scope",
           "head_refused",
           "head_unreachable",
           "no_head",
@@ -4278,6 +4324,20 @@
               }
             }
           },
+          "403": {
+            "description": "Refused with `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden_scope",
+                  "detail": ""
+                }
+              }
+            }
+          },
           "404": {
             "description": "Refused with `no_head`, `unknown_machine`.",
             "content": {
@@ -4330,10 +4390,12 @@
           "head"
         ],
         "summary": "The ring of LEDs as the node says it",
-        "description": "Role viewer or higher.",
+        "description": "Role viewer or higher. Scope `machines:view` if the token is limited by scopes.",
         "x-role": "viewer",
+        "x-scope": "machines:view",
         "x-error-codes": [
           "bad_address",
+          "forbidden_scope",
           "head_refused",
           "head_unreachable",
           "no_head",
@@ -4371,6 +4433,20 @@
                 },
                 "example": {
                   "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden_scope",
                   "detail": ""
                 }
               }
@@ -4426,12 +4502,14 @@
           "head"
         ],
         "summary": "Turn the ring on or off and change how it shines",
-        "description": "Role operator or higher.",
+        "description": "Role operator or higher. Scope `jobs:prepare` if the token is limited by scopes.",
         "x-role": "operator",
+        "x-scope": "jobs:prepare",
         "x-error-codes": [
           "bad_address",
           "bad_light",
           "forbidden",
+          "forbidden_scope",
           "head_refused",
           "head_unreachable",
           "no_head",
@@ -4560,7 +4638,7 @@
             }
           },
           "403": {
-            "description": "Refused with `forbidden`.",
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4625,10 +4703,12 @@
           "head"
         ],
         "summary": "One picture of the camera",
-        "description": "Role viewer or higher.",
+        "description": "Role viewer or higher. Scope `machines:view` if the token is limited by scopes.",
         "x-role": "viewer",
+        "x-scope": "machines:view",
         "x-error-codes": [
           "bad_address",
+          "forbidden_scope",
           "head_refused",
           "head_unreachable",
           "no_head",
@@ -4667,6 +4747,20 @@
                 },
                 "example": {
                   "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden_scope",
                   "detail": ""
                 }
               }
@@ -4724,14 +4818,16 @@
           "head"
         ],
         "summary": "Check the quality of the work with the camera",
-        "description": "Lights the ring when `light` is given, takes a picture, judges it with the profile of the machine and makes the ring say how it went. Role operator or higher.",
+        "description": "Lights the ring when `light` is given, takes a picture, judges it with the profile of the machine and makes the ring say how it went. Role operator or higher. Scope `jobs:prepare` if the token is limited by scopes.",
         "x-role": "operator",
+        "x-scope": "jobs:prepare",
         "x-error-codes": [
           "bad_address",
           "bad_picture",
           "bad_profile",
           "bad_request",
           "forbidden",
+          "forbidden_scope",
           "head_refused",
           "head_unreachable",
           "no_head",
@@ -4800,7 +4896,7 @@
             }
           },
           "403": {
-            "description": "Refused with `forbidden`.",
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4863,9 +4959,11 @@
           "head"
         ],
         "summary": "The last check of the machine",
-        "description": "Role viewer or higher.",
+        "description": "Role viewer or higher. Scope `machines:view` if the token is limited by scopes.",
         "x-role": "viewer",
+        "x-scope": "machines:view",
         "x-error-codes": [
+          "forbidden_scope",
           "no_inspection",
           "unauthorized",
           "unknown_machine"
@@ -4906,6 +5004,20 @@
               }
             }
           },
+          "403": {
+            "description": "Refused with `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden_scope",
+                  "detail": ""
+                }
+              }
+            }
+          },
           "404": {
             "description": "Refused with `no_inspection`, `unknown_machine`.",
             "content": {
@@ -4930,9 +5042,11 @@
           "head"
         ],
         "summary": "The profile of the analyser",
-        "description": "Role viewer or higher.",
+        "description": "Role viewer or higher. Scope `machines:view` if the token is limited by scopes.",
         "x-role": "viewer",
+        "x-scope": "machines:view",
         "x-error-codes": [
+          "forbidden_scope",
           "unauthorized",
           "unknown_machine"
         ],
@@ -4972,6 +5086,20 @@
               }
             }
           },
+          "403": {
+            "description": "Refused with `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden_scope",
+                  "detail": ""
+                }
+              }
+            }
+          },
           "404": {
             "description": "Refused with `unknown_machine`.",
             "content": {
@@ -4994,12 +5122,14 @@
           "head"
         ],
         "summary": "Change the profile of the analyser",
-        "description": "What cannot be used is listed in `rejected` and changes nothing. Role operator or higher.",
+        "description": "What cannot be used is listed in `rejected` and changes nothing. Role operator or higher. Scope `jobs:prepare` if the token is limited by scopes.",
         "x-role": "operator",
+        "x-scope": "jobs:prepare",
         "x-error-codes": [
           "bad_profile",
           "bad_request",
           "forbidden",
+          "forbidden_scope",
           "storage",
           "store",
           "unauthorized",
@@ -5066,7 +5196,7 @@
             }
           },
           "403": {
-            "description": "Refused with `forbidden`.",
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5131,10 +5261,12 @@
           "head"
         ],
         "summary": "Set the scale of the picture from the first hole found",
-        "description": "Role operator or higher.",
+        "description": "Role operator or higher. Scope `jobs:prepare` if the token is limited by scopes.",
         "x-role": "operator",
+        "x-scope": "jobs:prepare",
         "x-error-codes": [
           "forbidden",
+          "forbidden_scope",
           "no_hole",
           "no_inspection",
           "store",
@@ -5178,7 +5310,7 @@
             }
           },
           "403": {
-            "description": "Refused with `forbidden`.",
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
             "content": {
               "application/json": {
                 "schema": {

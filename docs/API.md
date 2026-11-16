@@ -245,13 +245,13 @@ An upload nobody touched for `upload_ttl_s` is cleaned, and so are the files of 
 | `artifacts:read`, `artifacts:write` | read artifacts and ask about blobs; make, upload, share and delete them |
 | `catalog:read`, `catalog:write` | read the shared catalogs; replace or empty one of them (`docs/CATALOGS.md`) |
 | `tasks:read`, `tasks:run` | list and read tasks; make, cancel and delete them |
-| `machines:view` | read the machines, the fleet and the jobs |
-| `jobs:prepare` | the preview, the creation of a job and the resuming from a stopped one |
+| `machines:view` | read the machines, the fleet and the jobs, and what the head of a machine says (status, light, camera, last check, profile of the analyser) |
+| `jobs:prepare` | the preview, the creation of a job and the resuming from a stopped one, and the actions on the head of a machine (measure, light, check, calibration, profile) |
 | `jobs:authorize` | authorising a prepared job (reserved: no request uses it yet) |
 | `jobs:start` | start, hold and resume a job |
 | `jobs:confirm` | answer the dialog a running job waits at |
-| `jobs:cancel` | cancel a job and stop a machine |
-| `machines:manage` | make, change and remove the machines of the plugins (`docs/MACHINE_PLUGINS.md`) |
+| `jobs:cancel` | cancel a job, remove a finished one and stop a machine |
+| `machines:manage` | make, change and remove the machines (and the spindle of one) and the machines of the plugins (`docs/MACHINE_PLUGINS.md`) |
 | `admin:users` | list, make, change and delete the users, and list every open login |
 | `admin:tokens` | list, make, rotate and revoke the tokens, and read the keys |
 | `admin:policy` | read and change the switches of security, and read the audit |

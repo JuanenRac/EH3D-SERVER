@@ -57,7 +57,7 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/health` | GET | none | Health check |
 | `/api/v1/jobs` | GET | viewer + `machines:view` | List the jobs, newest first |
 | `/api/v1/jobs/:id` | GET | viewer + `machines:view` | Read a job with its view |
-| `/api/v1/jobs/:id` | DELETE | operator | Remove a job that is not running |
+| `/api/v1/jobs/:id` | DELETE | operator + `jobs:cancel` | Remove a job that is not running |
 | `/api/v1/jobs/:id/cancel` | POST | operator + `jobs:cancel` | Stop a running job or cancel a ready one |
 | `/api/v1/jobs/:id/confirm` | POST | operator + `jobs:confirm` | Answer the dialog the job waits at |
 | `/api/v1/jobs/:id/pause` | POST | operator + `jobs:start` | Hold a running G-code job |
@@ -68,25 +68,25 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/login` | POST | none | Log in |
 | `/api/v1/logout` | POST | any login or token | End the login |
 | `/api/v1/machines` | GET | viewer + `machines:view` | List the machines |
-| `/api/v1/machines` | POST | admin | Create a machine |
+| `/api/v1/machines` | POST | admin + `machines:manage` | Create a machine |
 | `/api/v1/machines/:id` | GET | viewer + `machines:view` | Read a machine |
-| `/api/v1/machines/:id` | PUT | admin | Change a machine |
-| `/api/v1/machines/:id` | DELETE | admin | Remove a machine |
-| `/api/v1/machines/:id/head/inspect` | GET | viewer | The last check of the machine |
-| `/api/v1/machines/:id/head/inspect` | POST | operator | Check the quality of the work with the camera |
-| `/api/v1/machines/:id/head/inspect/calibrate` | POST | operator | Set the scale of the picture from the first hole found |
-| `/api/v1/machines/:id/head/inspect/profile` | GET | viewer | The profile of the analyser |
-| `/api/v1/machines/:id/head/inspect/profile` | PUT | operator | Change the profile of the analyser |
-| `/api/v1/machines/:id/head/light` | GET | viewer | The ring of LEDs as the node says it |
-| `/api/v1/machines/:id/head/light` | POST | operator | Turn the ring on or off and change how it shines |
-| `/api/v1/machines/:id/head/measure` | POST | operator | One measure of the table under the head |
-| `/api/v1/machines/:id/head/snapshot` | GET | viewer | One picture of the camera |
-| `/api/v1/machines/:id/head/status` | GET | viewer | Status of the node of the drill head |
-| `/api/v1/machines/:id/head/stream` | GET | viewer | The camera of the node as MJPEG |
+| `/api/v1/machines/:id` | PUT | admin + `machines:manage` | Change a machine |
+| `/api/v1/machines/:id` | DELETE | admin + `machines:manage` | Remove a machine |
+| `/api/v1/machines/:id/head/inspect` | GET | viewer + `machines:view` | The last check of the machine |
+| `/api/v1/machines/:id/head/inspect` | POST | operator + `jobs:prepare` | Check the quality of the work with the camera |
+| `/api/v1/machines/:id/head/inspect/calibrate` | POST | operator + `jobs:prepare` | Set the scale of the picture from the first hole found |
+| `/api/v1/machines/:id/head/inspect/profile` | GET | viewer + `machines:view` | The profile of the analyser |
+| `/api/v1/machines/:id/head/inspect/profile` | PUT | operator + `jobs:prepare` | Change the profile of the analyser |
+| `/api/v1/machines/:id/head/light` | GET | viewer + `machines:view` | The ring of LEDs as the node says it |
+| `/api/v1/machines/:id/head/light` | POST | operator + `jobs:prepare` | Turn the ring on or off and change how it shines |
+| `/api/v1/machines/:id/head/measure` | POST | operator + `jobs:prepare` | One measure of the table under the head |
+| `/api/v1/machines/:id/head/snapshot` | GET | viewer + `machines:view` | One picture of the camera |
+| `/api/v1/machines/:id/head/status` | GET | viewer + `machines:view` | Status of the node of the drill head |
+| `/api/v1/machines/:id/head/stream` | GET | viewer + `machines:view` | The camera of the node as MJPEG |
 | `/api/v1/machines/:id/jobs` | POST | operator + `jobs:prepare` | Plan a job and keep it ready |
 | `/api/v1/machines/:id/preview` | POST | operator + `jobs:prepare` | Plan a job and show its view, creating nothing |
-| `/api/v1/machines/:id/spindle` | GET | viewer | Read the spindle and its limits |
-| `/api/v1/machines/:id/spindle` | PUT | admin | Set the spindle, its switch and its limits |
+| `/api/v1/machines/:id/spindle` | GET | viewer + `machines:view` | Read the spindle and its limits |
+| `/api/v1/machines/:id/spindle` | PUT | admin + `machines:manage` | Set the spindle, its switch and its limits |
 | `/api/v1/machines/:id/stop` | POST | operator + `jobs:cancel` | Stop the machine now |
 | `/api/v1/notifications` | GET | viewer + `machines:view` | List the notifications of the caller |
 | `/api/v1/notifications/read` | POST | viewer + `machines:view` | Mark notifications as read |
