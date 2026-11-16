@@ -275,6 +275,9 @@ impl AppState {
         self.job_log.append(&started_line);
         let run = Arc::new(RealRun::start(config, planned.items));
         self.runs.locked().insert(id.to_string(), run.clone());
+        if self.stop_was_asked(id) {
+            run.cancel();
+        }
         let state = Arc::clone(self);
         let job_id = id.to_string();
         std::thread::spawn(move || state.follow(&job_id, run, &hole_ends));
@@ -327,6 +330,9 @@ impl AppState {
             self.cfg.grbl_timeouts(),
         );
         self.gcode_runs.locked().insert(id.to_string(), run.clone());
+        if self.stop_was_asked(id) {
+            run.cancel();
+        }
         let state = Arc::clone(self);
         let job_id = id.to_string();
         std::thread::spawn(move || state.follow_gcode(&job_id, run));
@@ -569,8 +575,29 @@ impl AppState {
                 jobs.changed();
                 true
             }
+            // the job was marked as connecting but its run is not registered yet: the stop is written down and the start looks for it once the run exists; if the run
+            // appeared while this was being decided, it is stopped here (one of the two always sees the other)
+            Some(job) if job.state == JobState::Connecting => {
+                job.stopped_by = by.to_string();
+                drop(jobs);
+                if let Some(run) = self.gcode_runs.locked().get(id) {
+                    run.cancel();
+                }
+                if let Some(run) = self.runs.locked().get(id) {
+                    run.cancel();
+                }
+                true
+            }
             _ => false,
         }
+    }
+
+    /// Whether a stop arrived for the job while its run was being started (see `cancel_job`).
+    fn stop_was_asked(&self, id: &str) -> bool {
+        self.jobs
+            .locked()
+            .get(id)
+            .is_some_and(|job| !job.stopped_by.is_empty())
     }
 
     /// The stop of a machine: the job that is active on it, if any, is stopped at once (a GRBL machine gets the real-time hold and reset on the port; a

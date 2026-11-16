@@ -464,7 +464,15 @@ struct StreamQuery {
 /// How long the stream waits in silence before it asks whether the login is still good.
 const RECHECK: Duration = Duration::from_secs(30);
 
+/// How long is left before the login has to be asked about again: the time of the stream is counted from the last check, not from the last event, so that a server that is
+/// never quiet is asked as often as a quiet one.
+fn recheck_wait(since_check: Duration) -> Duration {
+    RECHECK.saturating_sub(since_check)
+}
+
 struct Live {
+    /// When the login was last asked about.
+    checked: tokio::time::Instant,
     rx: broadcast::Receiver<FeedEvent>,
     backlog: VecDeque<FeedEvent>,
     /// The number of the last event sent: the ones at or below it are not sent twice.
@@ -478,6 +486,19 @@ struct Live {
 }
 
 impl Live {
+    /// Asks again whether the login is good and takes the identity as it is now (a role that was lowered, a token that was narrowed). False when it is not good any more.
+    fn still_logged_in(&mut self) -> bool {
+        self.checked = tokio::time::Instant::now();
+        let current = self.state.auth.locked().identify(&self.token, now());
+        match current {
+            Some(who) => {
+                self.who = who;
+                true
+            }
+            None => false,
+        }
+    }
+
     fn allowed(&self, e: &FeedEvent) -> bool {
         self.filter.passes(e)
             && e.visible_to(&self.who)
@@ -537,6 +558,7 @@ async fn stream_events(
     let rx = s.feed.subscribe();
     let newest = s.feed.last_id();
     let mut live = Live {
+        checked: tokio::time::Instant::now(),
         rx,
         backlog: VecDeque::new(),
         high: last.unwrap_or(newest),
@@ -570,23 +592,16 @@ async fn stream_events(
                 let event = Event::default().event("hello").data(text);
                 return Some((Ok::<Event, Infallible>(event), live));
             }
+            if recheck_wait(live.checked.elapsed()).is_zero() && !live.still_logged_in() {
+                return None;
+            }
             if let Some(e) = live.backlog.pop_front() {
                 live.high = live.high.max(e.id);
                 return Some((Ok(sse_event(&e)), live));
             }
-            match tokio::time::timeout(RECHECK, live.rx.recv()).await {
-                // quiet for a while: is the login still good?
-                Err(_) => {
-                    let still = live
-                        .state
-                        .auth
-                        .locked()
-                        .identify(&live.token, now())
-                        .is_some();
-                    if !still {
-                        return None;
-                    }
-                }
+            match tokio::time::timeout(recheck_wait(live.checked.elapsed()), live.rx.recv()).await {
+                // the time to ask whether the login is still good has come (the next turn of the loop does it)
+                Err(_) => {}
                 Ok(Ok(e)) => {
                     if e.id > live.high && live.allowed(&e) {
                         live.high = e.id;
@@ -650,4 +665,20 @@ async fn read_notifications(
     crate::api::need_scope(&who, "machines:view")?;
     let marked = s.work.notes.locked().mark_read(&who, &b.ids, b.all);
     Ok(Json(json!({ "marked": marked })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_login_is_asked_about_by_the_clock_and_not_by_the_silence() {
+        assert_eq!(recheck_wait(Duration::ZERO), RECHECK);
+        assert_eq!(
+            recheck_wait(Duration::from_secs(10)),
+            Duration::from_secs(20)
+        );
+        assert!(recheck_wait(RECHECK).is_zero());
+        assert!(recheck_wait(RECHECK + Duration::from_secs(5)).is_zero());
+    }
 }
