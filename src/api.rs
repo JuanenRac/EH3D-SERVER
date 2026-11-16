@@ -224,13 +224,15 @@ impl FromRequestParts<Shared> for Authed {
     }
 }
 
-/// With `local_until_setup` on, a server that has no user yet answers only the connections from its own computer: nobody else on the network can make the first administrator.
+/// With `local_until_setup` in force (on, or left out of the file while the network is open), a server that has no user yet answers only the connections from its own computer: nobody else on the network can make the first administrator.
 async fn local_until_setup(
     State(s): State<Shared>,
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
-    if s.cfg.local_until_setup {
+    if s.cfg
+        .local_until_setup_in_force(s.policy.get().network_open)
+    {
         let peer = req
             .extensions()
             .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
@@ -387,7 +389,7 @@ async fn health(State(s): State<Shared>, headers: axum::http::HeaderMap) -> Json
             "studio": s.cfg.studio_dir.is_some(),
             "updates": s.updates.is_some(),
             "url_token": s.policy.get().url_token,
-            "local_until_setup": s.cfg.local_until_setup,
+            "local_until_setup": s.cfg.local_until_setup_in_force(s.policy.get().network_open),
             "trust_forwarded_for": s.cfg.trust_forwarded_for,
             "exit_on_panic": s.cfg.exit_on_panic,
             "persist_sessions": s.cfg.persist_sessions,

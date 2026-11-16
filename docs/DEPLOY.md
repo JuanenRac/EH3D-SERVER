@@ -23,7 +23,7 @@ By default the server listens on `127.0.0.1:18200`, this computer only: nothing 
 * write `listen = 0.0.0.0:18200` in `server.cfg` (every address of the computer; or the address of one network card, such as `listen = 192.168.0.180:18200`). An address written on purpose is never narrowed. A CM5 that serves the nodes of a workshop needs this line, or the switch below, in its `server.cfg`: a server that had no `listen` line and was reached from the network before must have one now.
 * or turn on the switch `network_open` of the security page of Studio (`PUT /api/v1/auth/policy`, `{"key": "network_open", "value": true, "confirm_weak": true}`; or `network_open = true` in `server.cfg`). While `listen` is an address of this computer, the server then listens on every address of the computer with the same port. The change is kept in `policy.json` and read when the server starts, so restart the service after it (`GET /api/v1/auth/policy` lists it in `restart_required`). Reached from the network without HTTPS the logins travel in clear text: see "HTTPS" below.
 
-Before the first start on a computer that is reached from the network, make the first administrator from that computer itself (`local_until_setup = true` allows only 127.0.0.1 until then).
+Before the first start on a computer that is reached from the network, make the first administrator from that computer itself (while there is no user the server answers only 127.0.0.1 by itself as soon as `network_open` is on or `listen` is a network address; `local_until_setup = true` applies it always and `local_until_setup = false` turns it off on purpose).
 
 ## First start
 

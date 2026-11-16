@@ -232,6 +232,7 @@ async fn policy(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
     let c = &s.cfg;
     let h = s.policy.get();
     let needs_setup = s.auth.locked().needs_setup();
+    let local_in_force = c.local_until_setup_in_force(h.network_open);
     let switches = vec![
         switch("url_token", json!(h.url_token), h.is_safe("url_token")),
         switch(
@@ -241,8 +242,8 @@ async fn policy(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
         ),
         switch(
             "local_until_setup",
-            json!(c.local_until_setup),
-            c.local_until_setup || !needs_setup,
+            json!(local_in_force),
+            local_in_force || !needs_setup,
         ),
         switch(
             "persist_sessions",
