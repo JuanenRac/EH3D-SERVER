@@ -926,6 +926,7 @@ async fn add_machine(
     ApiJson(record): ApiJson<MachineRecord>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
+    need_scope(&who, "machines:manage")?;
     let shown = record.public();
     s.machines.locked().add(record)?;
     note(
@@ -959,6 +960,7 @@ async fn put_machine(
     ApiJson(body): ApiJson<Value>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
+    need_scope(&who, "machines:manage")?;
     let mut record: MachineRecord = serde_json::from_value(body.clone()).map_err(|e| {
         ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -1012,6 +1014,7 @@ async fn spindle_get(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Viewer)?;
+    need_scope(&who, "machines:view")?;
     Ok(Json(machine_of(&s, &id)?.spindle_view()))
 }
 
@@ -1031,6 +1034,7 @@ async fn spindle_put(
     ApiJson(b): ApiJson<SpindleBody>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
+    need_scope(&who, "machines:manage")?;
     let record = s
         .machines
         .locked()
@@ -1070,6 +1074,7 @@ async fn delete_machine(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
+    need_scope(&who, "machines:manage")?;
     if s.jobs.locked().active_on(&id).is_some() {
         return Err(ApiError::new(
             StatusCode::CONFLICT,
@@ -1567,6 +1572,7 @@ async fn delete_job(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
+    need_scope(&who, "jobs:cancel")?;
     {
         let mut jobs = s.jobs.locked();
         match jobs.get(&id) {
@@ -1638,6 +1644,7 @@ async fn head_status(
     Path(id): Path<String>,
 ) -> Result<Response, ApiError> {
     need(&who, Role::Viewer)?;
+    need_scope(&who, "machines:view")?;
     let (address, token) = head_of(&s, &id)?;
     let (status, ct, body) = head::fetch(&address, &token, "GET", "/api/status")
         .await
@@ -1665,6 +1672,7 @@ async fn head_measure(
     Query(q): Query<MeasureQuery>,
 ) -> Result<Response, ApiError> {
     need(&who, Role::Operator)?;
+    need_scope(&who, "jobs:prepare")?;
     let (address, token) = head_of(&s, &id)?;
     let path = match q.samples {
         Some(n) if (1..=31).contains(&n) => format!("/api/measure?samples={n}"),
@@ -1690,6 +1698,7 @@ async fn head_light(
     Path(id): Path<String>,
 ) -> Result<Response, ApiError> {
     need(&who, Role::Viewer)?;
+    need_scope(&who, "machines:view")?;
     let (address, token) = head_of(&s, &id)?;
     let (status, ct, body) = head::fetch(&address, &token, "GET", "/api/light")
         .await
@@ -1705,6 +1714,7 @@ async fn head_light_set(
     parts: Parts,
 ) -> Result<Response, ApiError> {
     need(&who, Role::Operator)?;
+    need_scope(&who, "jobs:prepare")?;
     let query = parts.uri.query().unwrap_or("");
     if !inspect::light_query_ok(query) {
         return Err(ApiError::new(
@@ -1732,6 +1742,7 @@ async fn head_snapshot(
     Path(id): Path<String>,
 ) -> Result<Response, ApiError> {
     need(&who, Role::Viewer)?;
+    need_scope(&who, "machines:view")?;
     let (address, token) = head_of(&s, &id)?;
     let (status, ct, body) =
         head::fetch_limit(&address, &token, "GET", "/api/snapshot", 6 * 1024 * 1024)
@@ -1747,6 +1758,7 @@ async fn inspect_profile(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Viewer)?;
+    need_scope(&who, "machines:view")?;
     machine_of(&s, &id)?;
     let p = inspect::load_profile(&s.cfg.data_dir, &id);
     Ok(Json(p.to_json()))
@@ -1761,6 +1773,7 @@ async fn inspect_profile_put(
     ApiJson(body): ApiJson<Value>,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
+    need_scope(&who, "jobs:prepare")?;
     machine_of(&s, &id)?;
     let mut base = inspect::load_profile(&s.cfg.data_dir, &id);
     let mut body = body;
@@ -1831,6 +1844,7 @@ async fn inspect_run(
     body: Option<Json<InspectBody>>,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
+    need_scope(&who, "jobs:prepare")?;
     let (address, token) = head_of(&s, &id)?;
     let b = body.map(|Json(b)| b).unwrap_or_default();
     let mut profile = inspect::load_profile(&s.cfg.data_dir, &id);
@@ -1891,6 +1905,7 @@ async fn inspect_calibrate(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
+    need_scope(&who, "jobs:prepare")?;
     machine_of(&s, &id)?;
     let last = s.inspections.locked().get(&id).cloned().ok_or_else(|| {
         ApiError::new(
@@ -1937,6 +1952,7 @@ async fn inspect_last(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Viewer)?;
+    need_scope(&who, "machines:view")?;
     machine_of(&s, &id)?;
     match s.inspections.locked().get(&id) {
         Some(v) => Ok(Json(v.clone())),
@@ -1955,7 +1971,8 @@ async fn head_stream(
     Path(id): Path<String>,
     Query(q): Query<TokenQuery>,
 ) -> Result<Response, ApiError> {
-    let (_who, _token) = identify_open(&s, &parts, &q)?;
+    let (who, _token) = identify_open(&s, &parts, &q)?;
+    need_scope(&who, "machines:view")?;
     let (address, head_token) = head_of(&s, &id)?;
     let answer = head::open(&address, &head_token, "GET", "/stream")
         .await

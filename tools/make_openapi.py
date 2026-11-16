@@ -334,16 +334,16 @@ op("POST", "/updates/clear-history", "admin", "admin", "Ask the helper to empty 
 
 # -- machines
 op("GET", "/machines", "machines", "viewer", "List the machines", scope="machines:view", ok=(200, arr(ref("Machine")), "application/json"))
-op("POST", "/machines", "machines", "admin", "Create a machine", body="Machine", errors=["bad_id", "bad_station", "bad_address", "bad_name", "bad_dcf", "bad_cfg", "machine_exists"],
+op("POST", "/machines", "machines", "admin", "Create a machine", scope="machines:manage", body="Machine", errors=["bad_id", "bad_station", "bad_address", "bad_name", "bad_dcf", "bad_cfg", "machine_exists"],
    desc="`connection.kind` is `node`, `demo` (the simulator) or `grbl` (a serial port of the computer the server runs on).",
    example={"id": "bungard", "name": "Bungard CCD", "model": "ccd-mtc", "connection": {"kind": "demo"}})
 op("GET", "/machines/{id}", "machines", "viewer", "Read a machine", scope="machines:view", ok=(200, "Machine", "application/json"), errors=MACHINE_ERR)
-op("PUT", "/machines/{id}", "machines", "admin", "Change a machine", body="Machine", ok=(200, "Machine", "application/json"),
+op("PUT", "/machines/{id}", "machines", "admin", "Change a machine", scope="machines:manage", body="Machine", ok=(200, "Machine", "application/json"),
    errors=MACHINE_ERR + ["bad_station", "bad_address", "bad_dcf", "bad_cfg", "bad_spindle", "machine_busy"],
    desc="Not while a job runs on it. Secrets sent empty keep the stored value.")
-op("DELETE", "/machines/{id}", "machines", "admin", "Remove a machine", errors=MACHINE_ERR + ["machine_busy"])
-op("GET", "/machines/{id}/spindle", "machines", "viewer", "Read the spindle and its limits", ok=(200, "Spindle", "application/json"), errors=MACHINE_ERR)
-op("PUT", "/machines/{id}/spindle", "machines", "admin", "Set the spindle, its switch and its limits", body="SpindleChange", ok=(200, "Spindle", "application/json"),
+op("DELETE", "/machines/{id}", "machines", "admin", "Remove a machine", scope="machines:manage", errors=MACHINE_ERR + ["machine_busy"])
+op("GET", "/machines/{id}/spindle", "machines", "viewer", "Read the spindle and its limits", scope="machines:view", ok=(200, "Spindle", "application/json"), errors=MACHINE_ERR)
+op("PUT", "/machines/{id}/spindle", "machines", "admin", "Set the spindle, its switch and its limits", scope="machines:manage", body="SpindleChange", ok=(200, "Spindle", "application/json"),
    errors=MACHINE_ERR + ["bad_spindle"], desc="`guard` is `reject` (the default) or `warn`. Nothing changes when a value cannot be used.")
 op("POST", "/machines/{id}/stop", "machines", "operator", "Stop the machine now", scope="jobs:cancel", ok=(200, "StopResult", "application/json"), errors=MACHINE_ERR,
    desc="The stop button: ends the job that is active on the machine without naming it. `stopped` is false when this server has no job on the machine.")
@@ -361,7 +361,7 @@ op("POST", "/machines/{id}/jobs", "jobs", "operator", "Plan a job and keep it re
 op("GET", "/jobs", "jobs", "viewer", "List the jobs, newest first", scope="machines:view", ok=(200, arr(ref("JobSummary")), "application/json"),
    query=[q("machine", S, "Only the jobs of this machine."), q("state", S, "Only the jobs in this state.")])
 op("GET", "/jobs/{id}", "jobs", "viewer", "Read a job with its view", scope="machines:view", ok=(200, "Job", "application/json"), errors=JOB_ERR)
-op("DELETE", "/jobs/{id}", "jobs", "operator", "Remove a job that is not running", errors=JOB_ERR + ["job_active"])
+op("DELETE", "/jobs/{id}", "jobs", "operator", "Remove a job that is not running", scope="jobs:cancel", errors=JOB_ERR + ["job_active"])
 op("POST", "/jobs/{id}/start", "jobs", "operator", "Plan again and run the job", scope="jobs:start", ok=(200, "Job", "application/json"),
    errors=JOB_ERR + ["not_ready", "machine_busy"] + PLAN_ERR[1:],
    desc="One job at a time on a machine. A person starts it; the machine's constants of this moment are used.")
@@ -376,28 +376,28 @@ op("POST", "/jobs/{id}/resume-from", "jobs", "operator", "Make a new ready job f
 
 # -- the node of the drill head
 HEAD_ERR = MACHINE_ERR + ["no_head", "bad_address", "head_unreachable", "head_refused"]
-op("GET", "/machines/{id}/head/status", "head", "viewer", "Status of the node of the drill head", ok=(200, "HeadStatus", "application/json"), errors=HEAD_ERR)
-op("POST", "/machines/{id}/head/measure", "head", "operator", "One measure of the table under the head", ok=(200, "NodeAnswer", "application/json"),
+op("GET", "/machines/{id}/head/status", "head", "viewer", "Status of the node of the drill head", scope="machines:view", ok=(200, "HeadStatus", "application/json"), errors=HEAD_ERR)
+op("POST", "/machines/{id}/head/measure", "head", "operator", "One measure of the table under the head", scope="jobs:prepare", ok=(200, "NodeAnswer", "application/json"),
    query=[q("samples", {"type": "integer", "minimum": 1, "maximum": 31}, "How many samples (1 to 31).")], errors=HEAD_ERR + ["bad_samples"])
-op("GET", "/machines/{id}/head/stream", "head", "viewer", "The camera of the node as MJPEG", security=SECURITY_OPEN,
+op("GET", "/machines/{id}/head/stream", "head", "viewer", "The camera of the node as MJPEG", scope="machines:view", security=SECURITY_OPEN,
    ok=(200, {"type": "string", "format": "binary"}, "multipart/x-mixed-replace"), ok_desc="The pictures, handed on while they come.", errors=HEAD_ERR,
    query=[q("ticket", S, "A ticket from `POST /tickets`; a browser cannot set a header on a picture."), q("token", S, "Only with `url_token` on in `server.cfg`.")])
-op("GET", "/machines/{id}/head/light", "head", "viewer", "The ring of LEDs as the node says it", ok=(200, "NodeAnswer", "application/json"), errors=HEAD_ERR)
-op("POST", "/machines/{id}/head/light", "head", "operator", "Turn the ring on or off and change how it shines", ok=(200, "NodeAnswer", "application/json"),
+op("GET", "/machines/{id}/head/light", "head", "viewer", "The ring of LEDs as the node says it", scope="machines:view", ok=(200, "NodeAnswer", "application/json"), errors=HEAD_ERR)
+op("POST", "/machines/{id}/head/light", "head", "operator", "Turn the ring on or off and change how it shines", scope="jobs:prepare", ok=(200, "NodeAnswer", "application/json"),
    errors=HEAD_ERR + ["bad_light"],
    query=[q("on", {"type": "integer", "enum": [0, 1]}, "0 or 1."), q("level", {"type": "integer", "minimum": 0, "maximum": 100}, "Kept under the ceiling of the node."),
           q("tone", {"type": "string", "enum": ["white", "cool", "warm", "red", "green", "blue"]}, "The tone."), q("color", S, "Six hexadecimal digits."),
           q("sectors", S, "`all`, `front`, `right`, `back`, `left`, `front_back`, `left_right` or `0x` and two digits."),
           q("cue", {"type": "string", "enum": ["ok", "nok", "busy", "warn", "alarm", "none"]}, "A cue the ring shows."), q("cue_ms", I, "How long the cue lasts.")])
-op("GET", "/machines/{id}/head/snapshot", "head", "viewer", "One picture of the camera", ok=(200, {"type": "string", "format": "binary"}, "image/jpeg"), errors=HEAD_ERR)
-op("POST", "/machines/{id}/head/inspect", "head", "operator", "Check the quality of the work with the camera", body="InspectRequest", body_required=False,
+op("GET", "/machines/{id}/head/snapshot", "head", "viewer", "One picture of the camera", scope="machines:view", ok=(200, {"type": "string", "format": "binary"}, "image/jpeg"), errors=HEAD_ERR)
+op("POST", "/machines/{id}/head/inspect", "head", "operator", "Check the quality of the work with the camera", scope="jobs:prepare", body="InspectRequest", body_required=False,
    ok=(200, "InspectReport", "application/json"), errors=HEAD_ERR + ["too_many_holes", "bad_profile", "bad_picture"],
    desc="Lights the ring when `light` is given, takes a picture, judges it with the profile of the machine and makes the ring say how it went.")
-op("GET", "/machines/{id}/head/inspect", "head", "viewer", "The last check of the machine", ok=(200, "InspectReport", "application/json"), errors=MACHINE_ERR + ["no_inspection"])
-op("GET", "/machines/{id}/head/inspect/profile", "head", "viewer", "The profile of the analyser", ok=(200, "InspectProfile", "application/json"), errors=MACHINE_ERR)
-op("PUT", "/machines/{id}/head/inspect/profile", "head", "operator", "Change the profile of the analyser", body="InspectProfile", ok=(200, "InspectProfile", "application/json"),
+op("GET", "/machines/{id}/head/inspect", "head", "viewer", "The last check of the machine", scope="machines:view", ok=(200, "InspectReport", "application/json"), errors=MACHINE_ERR + ["no_inspection"])
+op("GET", "/machines/{id}/head/inspect/profile", "head", "viewer", "The profile of the analyser", scope="machines:view", ok=(200, "InspectProfile", "application/json"), errors=MACHINE_ERR)
+op("PUT", "/machines/{id}/head/inspect/profile", "head", "operator", "Change the profile of the analyser", scope="jobs:prepare", body="InspectProfile", ok=(200, "InspectProfile", "application/json"),
    errors=MACHINE_ERR + ["bad_profile", "storage", "store"], desc="What cannot be used is listed in `rejected` and changes nothing.")
-op("POST", "/machines/{id}/head/inspect/calibrate", "head", "operator", "Set the scale of the picture from the first hole found", ok=(200, "InspectCalibration", "application/json"),
+op("POST", "/machines/{id}/head/inspect/calibrate", "head", "operator", "Set the scale of the picture from the first hole found", scope="jobs:prepare", ok=(200, "InspectCalibration", "application/json"),
    errors=MACHINE_ERR + ["no_inspection", "no_hole", "store"])
 
 # -- tasks
