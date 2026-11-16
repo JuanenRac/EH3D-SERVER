@@ -20,6 +20,9 @@ const TURN: Duration = Duration::from_millis(25);
 /// The feed hold and the soft reset of GRBL.
 pub const REAL_TIME_STOP: [u8; 2] = [b'!', 0x18];
 
+/// The feed hold alone: the machine stops moving but keeps its state, and the job can go on after it.
+pub const REAL_TIME_HOLD: [u8; 1] = [b'!'];
+
 /// The link the thread of the job uses.
 pub struct SharedLink<T: LineTransport> {
     inner: Arc<Mutex<T>>,
@@ -46,6 +49,12 @@ pub fn share<T: LineTransport>(transport: T) -> (SharedLink<T>, StopHandle<T>) {
 }
 
 impl<T: LineTransport> StopHandle<T> {
+    /// Writes the feed hold only, at once, without ending anything: the thread that waits for an answer goes on waiting.
+    pub fn hold(&self) -> io::Result<()> {
+        let mut port = self.inner.locked();
+        port.write_all(&REAL_TIME_HOLD)
+    }
+
     /// Writes the feed hold and the soft reset, and makes the thread that waits for an answer stop waiting.
     pub fn stop(&self) -> io::Result<()> {
         self.stopped.store(true, Ordering::SeqCst);
@@ -125,6 +134,20 @@ mod tests {
         assert!(took < Duration::from_secs(5), "{took:?}");
         let bytes = written.lock().unwrap().clone();
         assert!(bytes.ends_with(&REAL_TIME_STOP), "{bytes:?}");
+    }
+
+    #[test]
+    fn a_hold_gets_in_while_the_job_waits_and_does_not_end_the_wait() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let (mut link, handle) = share(Silent {
+            written: written.clone(),
+        });
+        link.write_all(b"G4 P5\n").unwrap();
+        handle.hold().unwrap();
+        assert_eq!(written.lock().unwrap().as_slice(), b"G4 P5\n!");
+        // the link still works: a hold is not a stop
+        link.write_all(b"~").unwrap();
+        assert!(link.read_line(Duration::from_millis(30)).unwrap().is_none());
     }
 
     #[test]

@@ -59,6 +59,10 @@ struct Shared {
     emergency: Mutex<Option<StopFn>>,
     /// The real-time stop went out: the controller was reset, so it will not answer the lines that were waiting.
     hard: AtomicBool,
+    /// Writes the real-time feed hold to the port from any thread (a GRBL machine only).
+    hold_now: Mutex<Option<StopFn>>,
+    /// The real-time feed hold went out: the thread of the job has to take over the pause (and the resume) even if it was already lifted.
+    hold_sent: AtomicBool,
 }
 
 impl Shared {
@@ -72,6 +76,8 @@ impl Shared {
             detach: AtomicBool::new(false),
             emergency: Mutex::new(None),
             hard: AtomicBool::new(false),
+            hold_now: Mutex::new(None),
+            hold_sent: AtomicBool::new(false),
         }
     }
 
@@ -119,6 +125,9 @@ fn open_grbl(
     let transport = SerialTransport::open(port, baud).map_err(|e| format!("{port}: {e}"))?;
     // the port is shared so that a stop can be written while the thread of the job waits for an answer
     let (link, handle) = crate::emergency::share(transport);
+    let handle = Arc::new(handle);
+    let for_hold = handle.clone();
+    *shared.hold_now.locked() = Some(Box::new(move || for_hold.hold()));
     *shared.emergency.locked() = Some(Box::new(move || handle.stop()));
     Ok(Box::new(GrblController::new(link).with_timeouts(timeouts)))
 }
@@ -197,9 +206,19 @@ impl GcodeRun {
         }
     }
 
-    /// Holds the job where it is (the controller is told to hold its movement); it stays held until [`GcodeRun::resume`].
+    /// Holds the job where it is; it stays held until [`GcodeRun::resume`]. On a GRBL machine the feed hold is written to the port at once, from
+    /// this thread, so that the machine stops moving even while the thread of the job waits for the end of a line or for the last moves.
     pub fn pause(&self) {
         self.shared.hold.store(true, Ordering::SeqCst);
+        let sent = self
+            .shared
+            .hold_now
+            .locked()
+            .as_ref()
+            .map(|hold| hold().is_ok());
+        if sent == Some(true) {
+            self.shared.hold_sent.store(true, Ordering::SeqCst);
+        }
     }
 
     /// Lets a held job go on.
@@ -279,6 +298,26 @@ fn stop_after(c: &mut dyn Controller, why: String) -> String {
     }
 }
 
+/// The operator asked for a pause that the thread of the job has not taken over yet.
+fn hold_pending(shared: &Shared) -> bool {
+    shared.hold.load(Ordering::SeqCst) || shared.hold_sent.load(Ordering::SeqCst)
+}
+
+/// The pause of the operator: the controller is told to hold, the job waits for the resume and then lets the controller go on.
+/// `Ok(true)` when the job goes on, `Ok(false)` when it was cancelled while held.
+fn operator_pause(c: &mut dyn Controller, shared: &Shared) -> Result<bool, String> {
+    shared.hold_sent.store(false, Ordering::SeqCst);
+    c.command(Command::Pause)
+        .map_err(|e| format!("pause: {e}"))?;
+    if !wait_held(shared, Hold::Operator) {
+        return Ok(false);
+    }
+    c.command(Command::Resume)
+        .map_err(|e| format!("resume: {e}"))?;
+    shared.set(GState::Running);
+    Ok(true)
+}
+
 /// Waits while the job is held. `Ok(true)` when it can go on, `Ok(false)` when it was cancelled.
 fn wait_held(shared: &Shared, hold: Hold) -> bool {
     shared.set(GState::Held(hold));
@@ -308,7 +347,19 @@ fn run(
     timeouts: Timeouts,
     shared: &Shared,
 ) -> Result<GState, String> {
-    let mut c = open(connection, timeouts, shared)?;
+    let c = open(connection, timeouts, shared)?;
+    drive(c, lines, preamble, resume, finish_wait, shared)
+}
+
+/// Sends the lines to the controller and waits for the machine to be still.
+fn drive(
+    mut c: Box<dyn Controller>,
+    lines: &[Entry],
+    preamble: usize,
+    resume: bool,
+    finish_wait: Duration,
+    shared: &Shared,
+) -> Result<GState, String> {
     alarm_of(c.as_mut())?;
     shared.set(GState::Running);
     for (i, entry) in lines.iter().enumerate() {
@@ -319,17 +370,12 @@ fn run(
         if shared.cancel.load(Ordering::SeqCst) {
             return cancelled(c.as_mut(), shared);
         }
-        if shared.hold.load(Ordering::SeqCst) {
-            if let Err(e) = c.command(Command::Pause) {
-                return Err(stop_after(c.as_mut(), format!("pause: {e}")));
+        if hold_pending(shared) {
+            match operator_pause(c.as_mut(), shared) {
+                Ok(true) => {}
+                Ok(false) => return cancelled(c.as_mut(), shared),
+                Err(why) => return Err(stop_after(c.as_mut(), why)),
             }
-            if !wait_held(shared, Hold::Operator) {
-                return cancelled(c.as_mut(), shared);
-            }
-            if let Err(e) = c.command(Command::Resume) {
-                return Err(stop_after(c.as_mut(), format!("resume: {e}")));
-            }
-            shared.set(GState::Running);
         }
         if let Err(e) = c.send_line(&entry.text) {
             // a line that was waiting when the operator stopped the machine is not a failure
@@ -349,10 +395,18 @@ fn run(
         }
     }
     // the controller takes lines ahead of the movement: the job is done when the machine is still
-    let limit = Instant::now() + finish_wait;
+    let mut limit = Instant::now() + finish_wait;
     loop {
         if shared.cancel.load(Ordering::SeqCst) {
             return cancelled(c.as_mut(), shared);
+        }
+        // a pause during the last moves holds the machine too, and the time it stands held does not count as time spent finishing
+        if hold_pending(shared) {
+            match operator_pause(c.as_mut(), shared) {
+                Ok(true) => limit = Instant::now() + finish_wait,
+                Ok(false) => return cancelled(c.as_mut(), shared),
+                Err(why) => return Err(stop_after(c.as_mut(), why)),
+            }
         }
         match c.status() {
             Ok(s) if s.state == State::Alarm => {
@@ -469,6 +523,168 @@ mod tests {
         }
         assert_eq!(wait(&run, GState::finished), GState::Done);
         assert_eq!(run.progress().0, 400);
+    }
+
+    /// A controller that reports itself still moving for a number of polls and remembers what it was told.
+    struct Busy {
+        inner: SimController,
+        moving_polls: Arc<AtomicUsize>,
+        told: Arc<Mutex<Vec<String>>>,
+        held: bool,
+    }
+
+    impl Controller for Busy {
+        fn family(&self) -> eh3d_controller::Family {
+            self.inner.family()
+        }
+        fn capabilities(&self) -> eh3d_controller::Capabilities {
+            self.inner.capabilities()
+        }
+        fn status(&mut self) -> Result<eh3d_controller::Status, eh3d_controller::Error> {
+            let mut s = self.inner.status()?;
+            if self.held {
+                s.state = State::Hold;
+            } else if self.moving_polls.load(Ordering::SeqCst) > 0 {
+                self.moving_polls.fetch_sub(1, Ordering::SeqCst);
+                s.state = State::Run;
+            }
+            Ok(s)
+        }
+        fn command(&mut self, command: Command) -> Result<(), eh3d_controller::Error> {
+            let name = match &command {
+                Command::Pause => {
+                    self.held = true;
+                    Some("pause")
+                }
+                Command::Resume => {
+                    self.held = false;
+                    Some("resume")
+                }
+                Command::Stop => Some("stop"),
+                _ => None,
+            };
+            if let Some(n) = name {
+                self.told.lock().unwrap().push(n.to_string());
+            }
+            self.inner.command(command)
+        }
+        fn send_line(&mut self, line: &str) -> Result<(), eh3d_controller::Error> {
+            self.inner.send_line(line)
+        }
+    }
+
+    type Busy3 = (
+        Arc<Shared>,
+        Arc<AtomicUsize>,
+        Arc<Mutex<Vec<String>>>,
+        JoinHandle<Result<GState, String>>,
+    );
+
+    /// A job of three lines on a machine that goes on moving for `moving` polls after the last one went out.
+    fn drive_busy(moving: usize, finish_wait: Duration) -> Busy3 {
+        let shared = Arc::new(Shared::new());
+        let moving_polls = Arc::new(AtomicUsize::new(moving));
+        let told = Arc::new(Mutex::new(Vec::new()));
+        let busy = Busy {
+            inner: SimController::new(),
+            moving_polls: moving_polls.clone(),
+            told: told.clone(),
+            held: false,
+        };
+        let p = gcode::parse("G21\nG0 X1\nG0 X2\n", 0, false).unwrap();
+        let worker = shared.clone();
+        let handle = thread::spawn(move || {
+            drive(
+                Box::new(busy),
+                &p.entries,
+                p.preamble,
+                p.resume,
+                finish_wait,
+                &worker,
+            )
+        });
+        (shared, moving_polls, told, handle)
+    }
+
+    fn until(what: &str, ok: impl Fn() -> bool) {
+        let limit = Instant::now() + Duration::from_secs(20);
+        while !ok() {
+            assert!(Instant::now() < limit, "{what}");
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// Starts the job and asks for the pause once every line is in and the machine still moves.
+    fn paused_in_the_last_moves(moving: usize, finish_wait: Duration) -> Busy3 {
+        let (shared, moving_polls, told, handle) = drive_busy(moving, finish_wait);
+        until("the lines did not go out", || {
+            shared.next.load(Ordering::SeqCst) >= 3
+        });
+        shared.hold.store(true, Ordering::SeqCst);
+        until("the pause was not attended", || {
+            *shared.state.locked() == GState::Held(Hold::Operator)
+        });
+        (shared, moving_polls, told, handle)
+    }
+
+    #[test]
+    fn a_pause_during_the_last_moves_holds_the_machine_and_the_resume_lets_it_finish() {
+        let (shared, moving, told, handle) = paused_in_the_last_moves(200, Duration::from_secs(30));
+        assert_eq!(told.lock().unwrap().as_slice(), ["pause"]);
+        // held: the job does not end while the operator has not resumed
+        thread::sleep(Duration::from_millis(300));
+        assert!(!handle.is_finished());
+        moving.store(0, Ordering::SeqCst);
+        shared.hold.store(false, Ordering::SeqCst);
+        assert_eq!(handle.join().unwrap(), Ok(GState::Done));
+        assert_eq!(told.lock().unwrap().as_slice(), ["pause", "resume"]);
+    }
+
+    #[test]
+    fn a_hold_that_went_out_in_real_time_and_was_lifted_at_once_is_still_resumed() {
+        let (shared, moving, told, handle) = drive_busy(200, Duration::from_secs(30));
+        until("the lines did not go out", || {
+            shared.next.load(Ordering::SeqCst) >= 3
+        });
+        // what pause() followed by resume() leaves when the thread of the job did not see the flag in between
+        shared.hold_sent.store(true, Ordering::SeqCst);
+        until("the hold was not taken over", || {
+            told.lock().unwrap().len() >= 2
+        });
+        moving.store(0, Ordering::SeqCst);
+        assert_eq!(handle.join().unwrap(), Ok(GState::Done));
+        assert_eq!(told.lock().unwrap().as_slice(), ["pause", "resume"]);
+    }
+
+    #[test]
+    fn a_cancel_while_held_in_the_last_moves_stops_the_machine() {
+        let (shared, _moving, told, handle) =
+            paused_in_the_last_moves(200, Duration::from_secs(30));
+        shared.cancel.store(true, Ordering::SeqCst);
+        assert_eq!(handle.join().unwrap(), Ok(GState::Cancelled));
+        assert_eq!(told.lock().unwrap().as_slice(), ["pause", "stop"]);
+    }
+
+    #[test]
+    fn the_time_held_does_not_count_against_the_wait_for_the_machine_to_be_still() {
+        // a wait of 1 s for the end and a hold of 1.5 s: the job still ends as done
+        let (shared, moving, _told, handle) = paused_in_the_last_moves(30, Duration::from_secs(1));
+        thread::sleep(Duration::from_millis(1500));
+        moving.store(5, Ordering::SeqCst);
+        shared.hold.store(false, Ordering::SeqCst);
+        assert_eq!(handle.join().unwrap(), Ok(GState::Done));
+    }
+
+    #[test]
+    fn a_pause_on_the_simulator_holds_the_job_and_needs_no_port() {
+        let text: String = (0..400).map(|i| format!("G0 X{}\n", i % 100)).collect();
+        let run = start(&text, 0);
+        run.pause();
+        assert!(run.shared.hold.load(Ordering::SeqCst));
+        // no port, no real-time byte
+        assert!(!run.shared.hold_sent.load(Ordering::SeqCst));
+        run.resume();
+        assert_eq!(wait(&run, GState::finished), GState::Done);
     }
 
     #[test]
