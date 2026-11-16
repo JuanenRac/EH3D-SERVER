@@ -324,6 +324,9 @@ pub struct Auth {
     setup_code: Option<String>,
     /// Wrong passwords per name: how many in a row and until when the name is blocked.
     failures: HashMap<String, (u32, u64)>,
+    /// The wrong passwords for names that are not (or no longer) a user. They have a table of their own so that a flood of invented names can never push the
+    /// blocks of the real users out of theirs; they are slowed down the same way, so the answer does not tell which names exist.
+    unknown_failures: HashMap<String, (u32, u64)>,
     /// Wrong setup codes in a row and until when the setup is blocked.
     setup_failures: (u32, u64),
     /// Wrong passwords per address of the socket (any name): how many in a row and until when the address is blocked.
@@ -419,6 +422,7 @@ impl Auth {
             sessions: HashMap::new(),
             setup_code,
             failures: HashMap::new(),
+            unknown_failures: HashMap::new(),
             setup_failures: (0, 0),
             ip_failures: HashMap::new(),
             ip_limit: 10,
@@ -686,12 +690,18 @@ impl Auth {
                 return Err(AuthError::Throttled);
             }
         }
-        if let Some(&(_, until)) = self.failures.get(name) {
+        let user = self.users.iter().find(|u| u.name == name && !u.disabled);
+        let exists = user.is_some();
+        let table = if exists {
+            &self.failures
+        } else {
+            &self.unknown_failures
+        };
+        if let Some(&(_, until)) = table.get(name) {
             if until > now {
                 return Err(AuthError::Throttled);
             }
         }
-        let user = self.users.iter().find(|u| u.name == name && !u.disabled);
         // the hash of a user that does not exist is checked anyway, so the time does not tell which names exist
         let good = match user {
             Some(u) => password_ok(&u.hash, password),
@@ -715,14 +725,20 @@ impl Auth {
                     }
                 }
             }
-            // names that were never real must not make the map grow for ever: the blocks that ended are forgotten
-            if self.failures.len() >= MAX_TRACKED_NAMES {
-                self.failures.retain(|_, &mut (_, until)| until > now);
+            // names that were never real must not make the map grow for ever: the blocks that ended are forgotten, and a name that is a user is
+            // always counted (there are as many as there are users), whatever the invented names have filled
+            let table = if exists {
+                &mut self.failures
+            } else {
+                &mut self.unknown_failures
+            };
+            if !exists && table.len() >= MAX_TRACKED_NAMES {
+                table.retain(|_, &mut (_, until)| until > now);
             }
-            if self.failures.len() >= MAX_TRACKED_NAMES && !self.failures.contains_key(name) {
+            if !exists && table.len() >= MAX_TRACKED_NAMES && !table.contains_key(name) {
                 return Err(AuthError::BadCredentials);
             }
-            let entry = self.failures.entry(name.to_string()).or_insert((0, 0));
+            let entry = table.entry(name.to_string()).or_insert((0, 0));
             entry.0 += 1;
             if entry.0 >= self.max_failures {
                 // 30 s, then 60 s, 120 s... for as long as the wrong passwords go on
@@ -1166,6 +1182,48 @@ mod tests {
         assert!(a
             .login_from("juan", "una-clave-larga", 1001, Some(ip))
             .is_ok());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn invented_names_cannot_crowd_out_the_block_of_a_real_user() {
+        let d = dir("auth-crowd");
+        let mut a = Auth::open(&d, 12).unwrap();
+        let code = a.setup_code().unwrap().to_string();
+        a.setup(&code, "juan", "una-clave-larga").unwrap();
+        let now = crate::jobs::now();
+        // a flood of invented names has filled the table of the names that are not users
+        for i in 0..MAX_TRACKED_NAMES {
+            a.unknown_failures
+                .insert(format!("ghost{i}"), (1, now + 100_000));
+        }
+        for _ in 0..MAX_FAILURES {
+            assert_eq!(
+                a.login("juan", "wrong", now),
+                Err(AuthError::BadCredentials)
+            );
+        }
+        assert_eq!(
+            a.login("juan", "una-clave-larga", now),
+            Err(AuthError::Throttled),
+            "the real user is still blocked after the wrong passwords"
+        );
+        assert!(a.failures.contains_key("juan"));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_name_that_is_not_a_user_is_slowed_down_like_one_that_is() {
+        let d = dir("auth-ghost");
+        let mut a = Auth::open(&d, 12).unwrap();
+        let code = a.setup_code().unwrap().to_string();
+        a.setup(&code, "juan", "una-clave-larga").unwrap();
+        let now = crate::jobs::now();
+        for _ in 0..MAX_FAILURES {
+            assert_eq!(a.login("nobody", "x", now), Err(AuthError::BadCredentials));
+        }
+        assert_eq!(a.login("nobody", "x", now), Err(AuthError::Throttled));
+        assert!(a.failures.is_empty());
         let _ = std::fs::remove_dir_all(&d);
     }
 

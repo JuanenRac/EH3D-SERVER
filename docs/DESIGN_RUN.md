@@ -40,6 +40,7 @@ The run is off by default and the program is never found by itself:
 | `design_program` | not set | the full path of the program. A bare name is refused when the file is read, so the search path of the system is never used |
 | `design_timeout_s` | `120` | the program is stopped after this many seconds (1 to 3600) |
 | `design_max_output_kb` | `4096` | the most it may write to each output, in kilobytes; the rest is dropped |
+| `design_max_parallel` | `1` | how many runs may go on at the same time (1 to 64); one more is refused with `429 queue_full` |
 
 Without both `design_run` and `design_program` the route answers `501 design_run_unavailable`, and nothing else is looked at, so a client can tell it is not set up.
 

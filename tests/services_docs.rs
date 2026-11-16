@@ -110,6 +110,7 @@ fn the_new_settings_are_in_the_example_with_the_values_the_server_starts_with() 
         "design_program",
         "design_timeout_s",
         "design_max_output_kb",
+        "design_max_parallel",
         "tls_cert_file",
         "tasks_enabled",
         "tasks_selftest",
@@ -173,6 +174,10 @@ fn the_new_settings_are_in_the_example_with_the_values_the_server_starts_with() 
     assert_eq!(
         from_the_example.design_max_output_kb,
         default.design_max_output_kb
+    );
+    assert_eq!(
+        from_the_example.design_max_parallel,
+        default.design_max_parallel
     );
     assert_eq!(from_the_example.tls_cert_file, default.tls_cert_file);
 }

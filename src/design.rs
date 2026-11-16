@@ -11,7 +11,7 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use axum::extract::State;
@@ -255,6 +255,43 @@ pub fn report(kind: &str, file: &str, ran: &Ran) -> Value {
     })
 }
 
+/// How many runs of the design program are going on for each server (told apart by its data folder, so two servers in one process do not count each other).
+static RUNNING: Mutex<Vec<(PathBuf, usize)>> = Mutex::new(Vec::new());
+
+/// A place among the runs that may go on at the same time; it is given back when it is dropped, however the run ends.
+struct Slot(PathBuf);
+
+impl Slot {
+    fn take(server: &Path, most: usize) -> Result<Slot, ApiError> {
+        let mut running = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+        let at = match running.iter().position(|(p, _)| p == server) {
+            Some(i) => i,
+            None => {
+                running.push((server.to_path_buf(), 0));
+                running.len() - 1
+            }
+        };
+        if running[at].1 >= most.max(1) {
+            return Err(ApiError::new(
+                StatusCode::TOO_MANY_REQUESTS,
+                "queue_full",
+                "the design program is already running as many times as design_max_parallel allows; try again when one has finished",
+            ));
+        }
+        running[at].1 += 1;
+        Ok(Slot(server.to_path_buf()))
+    }
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        let mut running = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(entry) = running.iter_mut().find(|(p, _)| *p == self.0) {
+            entry.1 = entry.1.saturating_sub(1);
+        }
+    }
+}
+
 fn available(s: &Shared) -> Result<(PathBuf, Duration, usize), ApiError> {
     let program = s.cfg.design_program.clone();
     match program {
@@ -274,6 +311,7 @@ fn available(s: &Shared) -> Result<(PathBuf, Duration, usize), ApiError> {
 /// Checks the request, copies the board out of the project and makes the job; the run goes on in a thread of its own.
 fn prepare(s: &Shared, who: &Identity, b: NewDesignJob) -> Result<WorkJob, ApiError> {
     let (program, timeout, max) = available(s)?;
+    let slot = Slot::take(&s.cfg.data_dir, s.cfg.design_max_parallel as usize)?;
     if !KINDS.contains(&b.kind.as_str()) {
         return Err(bad(format!("kind must be one of {}", KINDS.join(", "))));
     }
@@ -348,6 +386,7 @@ fn prepare(s: &Shared, who: &Identity, b: NewDesignJob) -> Result<WorkJob, ApiEr
         program,
         timeout,
         max,
+        _slot: slot,
     };
     let spawned = std::thread::Builder::new()
         .name("eh3d-design".into())
@@ -376,6 +415,8 @@ struct Run {
     program: PathBuf,
     timeout: Duration,
     max: usize,
+    /// The place of this run among the ones allowed at the same time; given back when the run ends.
+    _slot: Slot,
 }
 
 /// Ends the job and tells the stream.
@@ -429,6 +470,8 @@ impl Run {
                 ("ms", &started.elapsed().as_millis().to_string()),
             ],
         );
+        // the place is given back before the job is told to be over, so a client that starts the next run as soon as it sees this one end is not refused
+        drop(self._slot);
         finish(&self.state, &self.job, state, &message);
     }
 
@@ -509,6 +552,34 @@ async fn create_job(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn running(server: &Path) -> usize {
+        let running = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+        running
+            .iter()
+            .find(|(p, _)| p == server)
+            .map_or(0, |(_, n)| *n)
+    }
+
+    #[test]
+    fn a_run_over_the_limit_is_refused_and_a_finished_one_gives_its_place_back() {
+        let server = PathBuf::from("a-server-of-the-limit-test");
+        let other = PathBuf::from("another-server-of-the-limit-test");
+        let first = Slot::take(&server, 2).map_err(|_| "busy").unwrap();
+        let second = Slot::take(&server, 2).map_err(|_| "busy").unwrap();
+        assert!(
+            Slot::take(&server, 2).is_err(),
+            "the third is over the limit"
+        );
+        // another server in the same process has its own count
+        let apart = Slot::take(&other, 1).map_err(|_| "busy").unwrap();
+        drop(first);
+        let again = Slot::take(&server, 2).map_err(|_| "busy").unwrap();
+        drop(second);
+        drop(again);
+        drop(apart);
+        assert_eq!((running(&server), running(&other)), (0, 0));
+    }
 
     #[test]
     fn only_fabpack_takes_options_and_the_other_kinds_ask_for_json() {
