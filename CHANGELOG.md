@@ -4,6 +4,7 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **The first administrator is made from this computer by default once the network is open:** `local_until_setup` now applies by itself, while the server has no user, whenever `network_open` is on or `listen` names an address that is not this computer, so nobody else on the network can make the first administrator. The switch stays: `local_until_setup = false` in `server.cfg` turns it off on purpose, and `local_until_setup = true` applies it always. The security page and the health detail show the value in force.
 ## [0.1.7] - The release files are attached again and a shift with failures is tested
 
 - **The release files are attached again:** version 0.1.6 was published without its packages, so the update of the server said that the release had no `eh3d-server-0.1.6-linux-aarch64.tar.gz`. This version is built and attached from its own commit by the release workflow, with the names the update helper looks for (`eh3d-server-<version>-linux-<x86_64|aarch64>.tar.gz` and its `.sha256`), and the Windows and macOS packages beside them.

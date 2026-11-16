@@ -38,8 +38,8 @@ resume_margin_lines = 16
 login_ip_limit = 10
 # Accept the token of the session in the address of the camera and of the websocket (the first versions of the clients sent it there). Off by default: the clients ask for a ticket (POST /api/v1/tickets), good for one use within 30 seconds.
 url_token = false
-# While the server has no user yet, answer only connections from this very computer (127.0.0.1), so that nobody else on the network can make the first administrator. Off by default (the server answers whoever reaches it); once there is a user it makes no difference.
-local_until_setup = false
+# While the server has no user yet, answer only connections from this very computer (127.0.0.1), so that nobody else on the network can make the first administrator. Left out, it applies by itself as soon as the server can be reached from the network (network_open on, or a listen address that is not this computer); true applies it always and false turns it off on purpose. Once there is a user it makes no difference.
+# local_until_setup = true
 # The homing cycle ($H, on a machine that allows the $ lines) answers only when the machine has finished; give it more than the longest homing takes.
 grbl_homing_timeout_s = 120
 # A jog ($J=...) answers when the move is done: give it more than the longest slow move you send.

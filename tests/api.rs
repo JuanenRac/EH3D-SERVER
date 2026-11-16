@@ -2996,6 +2996,58 @@ async fn with_local_until_setup_only_this_computer_makes_the_first_administrator
 }
 
 #[tokio::test]
+async fn with_the_network_open_the_first_administrator_is_local_without_the_switch() {
+    use axum::extract::ConnectInfo;
+    let setup_from = |ip: &str| {
+        let mut r = Request::builder()
+            .uri("/api/v1/setup")
+            .body(Body::empty())
+            .unwrap();
+        r.extensions_mut()
+            .insert(ConnectInfo(std::net::SocketAddr::new(
+                ip.parse().unwrap(),
+                5000,
+            )));
+        r
+    };
+    let open = std::env::temp_dir().join(format!("eh3d-server-api-open-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&open);
+    let state = AppState::open(ServerConfig {
+        data_dir: open.clone(),
+        network_open: true,
+        ..ServerConfig::default()
+    })
+    .unwrap();
+    let app = router(state.clone());
+    let far = app
+        .clone()
+        .oneshot(setup_from("192.168.0.77"))
+        .await
+        .unwrap();
+    assert_eq!(far.status(), StatusCode::FORBIDDEN);
+    let near = app.oneshot(setup_from("127.0.0.1")).await.unwrap();
+    assert_eq!(near.status(), StatusCode::OK);
+    drop(state);
+    let _ = std::fs::remove_dir_all(&open);
+    // the switch is still there: written as false, the open network does not restrict the set-up
+    let loose = std::env::temp_dir().join(format!("eh3d-server-api-loose-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&loose);
+    let state = AppState::open(ServerConfig {
+        data_dir: loose.clone(),
+        network_open: true,
+        local_until_setup: false,
+        local_until_setup_set: true,
+        ..ServerConfig::default()
+    })
+    .unwrap();
+    let app = router(state.clone());
+    let far = app.oneshot(setup_from("192.168.0.77")).await.unwrap();
+    assert_eq!(far.status(), StatusCode::OK);
+    drop(state);
+    let _ = std::fs::remove_dir_all(&loose);
+}
+
+#[tokio::test]
 async fn the_stop_of_a_machine_ends_the_job_that_runs_on_it_whoever_asks_and_a_viewer_cannot() {
     let s = server("stop-machine");
     let boss = admin(&s).await;

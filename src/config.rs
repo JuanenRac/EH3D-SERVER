@@ -49,8 +49,12 @@ pub struct ServerConfig {
     pub login_ip_limit: u32,
     /// Accept the token of the session in the address (`?token=`) of the camera and of the websocket, as the first versions of the clients sent it. Off: only a ticket.
     pub url_token: bool,
-    /// While the server has no user yet, answer only the connections that come from this very computer (127.0.0.1): the first administrator is made from here. Off by default: the server answers whoever reaches it, as it always did.
+    /// While the server has no user yet, answer only the connections that come from this very computer (127.0.0.1): the first administrator is made from here. True always applies it. When
+    /// the line is not in the file, it applies by itself as soon as the server can be reached from the network (`network_open`, or a `listen` that is not this computer); `local_until_setup = false`
+    /// is the explicit way to turn it off there. See `local_until_setup_in_force`.
     pub local_until_setup: bool,
+    /// Whether `local_until_setup` was written in the file (true or false): then it is what the file says and nothing is decided from the network switch.
+    pub local_until_setup_set: bool,
     /// What happens when any thread of the server panics: true stops the machines that are running and exits (the service manager starts the server again); false
     /// only writes the panic to the console and goes on, with the locks recovered.
     pub exit_on_panic: bool,
@@ -168,6 +172,13 @@ pub struct ServerConfig {
 }
 
 impl ServerConfig {
+    /// Whether the server answers only its own computer while it has no user: `local_until_setup` when it is on, otherwise (the line is not in the file) whenever the server can be reached from
+    /// the network, that is when `network_open` is on or `listen` names an address that is not this computer. An explicit `local_until_setup = false` turns it off.
+    pub fn local_until_setup_in_force(&self, network_open: bool) -> bool {
+        self.local_until_setup
+            || (!self.local_until_setup_set && (network_open || !self.listen.ip().is_loopback()))
+    }
+
     /// The address the server binds: `listen`, or the same port on every address of the computer when `network_open` is on and `listen` is an address of this computer only. An
     /// address that `listen` names on purpose (a network address) is never narrowed.
     pub fn bind_address(&self, network_open: bool) -> SocketAddr {
@@ -214,6 +225,7 @@ impl Default for ServerConfig {
             login_ip_limit: 10,
             url_token: false,
             local_until_setup: false,
+            local_until_setup_set: false,
             exit_on_panic: true,
             trust_forwarded_for: false,
             persist_sessions: false,
@@ -348,6 +360,7 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
                 c.grbl_jog_timeout_s = number(&key, value, 1, 3_600).map_err(at)?
             }
             "local_until_setup" => {
+                c.local_until_setup_set = true;
                 c.local_until_setup = match value.to_ascii_lowercase().as_str() {
                     "true" | "yes" | "on" | "1" => true,
                     "false" | "no" | "off" | "0" => false,
@@ -1002,6 +1015,31 @@ design_max_output_kb = 64
         assert_eq!(wide.bind_address(true), wide.listen);
         let lan = parse("listen = 192.168.0.180:18200\n").unwrap();
         assert_eq!(lan.bind_address(true), lan.listen);
+    }
+
+    #[test]
+    fn the_first_administrator_is_local_by_itself_once_the_network_is_open() {
+        let plain = parse("").unwrap();
+        assert!(
+            !plain.local_until_setup_in_force(false),
+            "this computer only: nothing to restrict"
+        );
+        assert!(
+            plain.local_until_setup_in_force(true),
+            "network_open turns it on"
+        );
+        let lan = parse("listen = 192.168.0.180:18200\n").unwrap();
+        assert!(
+            lan.local_until_setup_in_force(false),
+            "a listen address of the network turns it on"
+        );
+        let off = parse("network_open = on\nlocal_until_setup = false\n").unwrap();
+        assert!(
+            !off.local_until_setup_in_force(true),
+            "the switch can still be turned off on purpose"
+        );
+        let on = parse("local_until_setup = true\n").unwrap();
+        assert!(on.local_until_setup_in_force(false));
     }
 
     #[test]
