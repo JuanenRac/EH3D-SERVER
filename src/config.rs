@@ -167,6 +167,8 @@ pub struct ServerConfig {
     pub design_timeout_s: u64,
     /// The most the design program may write to its output, in kilobytes; what comes after is dropped.
     pub design_max_output_kb: u64,
+    /// How many runs of the design program may go on at the same time; one more is refused with `429 queue_full`.
+    pub design_max_parallel: u64,
     /// The certificate (PEM) the reverse proxy in front of the server shows, so that `GET /auth/keys` can tell its SHA-256 fingerprint. The server does not terminate TLS itself.
     pub tls_cert_file: Option<PathBuf>,
 }
@@ -281,6 +283,7 @@ impl Default for ServerConfig {
             design_program: None,
             design_timeout_s: 120,
             design_max_output_kb: 4096,
+            design_max_parallel: 1,
             tls_cert_file: None,
         }
     }
@@ -523,6 +526,9 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
             "design_timeout_s" => c.design_timeout_s = number(&key, value, 1, 3_600).map_err(at)?,
             "design_max_output_kb" => {
                 c.design_max_output_kb = number(&key, value, 1, 65_536).map_err(at)?
+            }
+            "design_max_parallel" => {
+                c.design_max_parallel = number(&key, value, 1, 64).map_err(at)?
             }
             "tls_cert_file" => {
                 c.tls_cert_file = if value.is_empty() {

@@ -11,6 +11,7 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -255,6 +256,37 @@ pub fn report(kind: &str, file: &str, ran: &Ran) -> Value {
     })
 }
 
+/// How many runs of the design program are going on in this process.
+static RUNNING: AtomicUsize = AtomicUsize::new(0);
+
+/// A place among the runs that may go on at the same time; it is given back when it is dropped, however the run ends.
+struct Slot;
+
+impl Slot {
+    fn take(most: usize) -> Result<Slot, ApiError> {
+        let mut now = RUNNING.load(Ordering::SeqCst);
+        loop {
+            if now >= most.max(1) {
+                return Err(ApiError::new(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "queue_full",
+                    "the design program is already running as many times as design_max_parallel allows; try again when one has finished",
+                ));
+            }
+            match RUNNING.compare_exchange(now, now + 1, Ordering::SeqCst, Ordering::SeqCst) {
+                Ok(_) => return Ok(Slot),
+                Err(seen) => now = seen,
+            }
+        }
+    }
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        RUNNING.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 fn available(s: &Shared) -> Result<(PathBuf, Duration, usize), ApiError> {
     let program = s.cfg.design_program.clone();
     match program {
@@ -274,6 +306,7 @@ fn available(s: &Shared) -> Result<(PathBuf, Duration, usize), ApiError> {
 /// Checks the request, copies the board out of the project and makes the job; the run goes on in a thread of its own.
 fn prepare(s: &Shared, who: &Identity, b: NewDesignJob) -> Result<WorkJob, ApiError> {
     let (program, timeout, max) = available(s)?;
+    let slot = Slot::take(s.cfg.design_max_parallel as usize)?;
     if !KINDS.contains(&b.kind.as_str()) {
         return Err(bad(format!("kind must be one of {}", KINDS.join(", "))));
     }
@@ -348,6 +381,7 @@ fn prepare(s: &Shared, who: &Identity, b: NewDesignJob) -> Result<WorkJob, ApiEr
         program,
         timeout,
         max,
+        _slot: slot,
     };
     let spawned = std::thread::Builder::new()
         .name("eh3d-design".into())
@@ -376,6 +410,8 @@ struct Run {
     program: PathBuf,
     timeout: Duration,
     max: usize,
+    /// The place of this run among the ones allowed at the same time; given back when the run ends.
+    _slot: Slot,
 }
 
 /// Ends the job and tells the stream.
@@ -509,6 +545,19 @@ async fn create_job(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_run_over_the_limit_is_refused_and_a_finished_one_gives_its_place_back() {
+        // the counter is shared by the process, so the whole check is in one test
+        let first = Slot::take(2).unwrap();
+        let second = Slot::take(2).unwrap();
+        assert!(Slot::take(2).is_err(), "the third is over the limit");
+        drop(first);
+        let again = Slot::take(2).unwrap();
+        drop(second);
+        drop(again);
+        assert_eq!(RUNNING.load(Ordering::SeqCst), 0);
+    }
 
     #[test]
     fn only_fabpack_takes_options_and_the_other_kinds_ask_for_json() {

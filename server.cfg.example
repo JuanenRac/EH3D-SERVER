@@ -145,6 +145,8 @@ design_program =
 # The program is stopped after this many seconds (1 to 3600), and may write at most this many kilobytes to each output (1 to 65536); the rest is dropped.
 design_timeout_s = 120
 design_max_output_kb = 4096
+# How many runs may go on at the same time (1 to 64); one more is refused with 429 queue_full.
+design_max_parallel = 1
 
 # ---- the certificate in front of the server
 # The certificate (PEM) the reverse proxy shows, so that GET /api/v1/auth/keys can tell its SHA-256 fingerprint. The server does not terminate TLS itself. Empty: none.
