@@ -281,15 +281,6 @@ impl Slot {
         running[at].1 += 1;
         Ok(Slot(server.to_path_buf()))
     }
-
-    #[cfg(test)]
-    fn running(server: &Path) -> usize {
-        let running = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
-        running
-            .iter()
-            .find(|(p, _)| p == server)
-            .map_or(0, |(_, n)| *n)
-    }
 }
 
 impl Drop for Slot {
@@ -562,6 +553,14 @@ async fn create_job(
 mod tests {
     use super::*;
 
+    fn running(server: &Path) -> usize {
+        let running = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+        running
+            .iter()
+            .find(|(p, _)| p == server)
+            .map_or(0, |(_, n)| *n)
+    }
+
     #[test]
     fn a_run_over_the_limit_is_refused_and_a_finished_one_gives_its_place_back() {
         let server = PathBuf::from("a-server-of-the-limit-test");
@@ -579,7 +578,7 @@ mod tests {
         drop(second);
         drop(again);
         drop(apart);
-        assert_eq!((Slot::running(&server), Slot::running(&other)), (0, 0));
+        assert_eq!((running(&server), running(&other)), (0, 0));
     }
 
     #[test]
