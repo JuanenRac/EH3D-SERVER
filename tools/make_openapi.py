@@ -308,29 +308,29 @@ op("GET", "/events", "system", "viewer", "Open the websocket of the events", sec
         "the last four only for who may see them; `resync` tells a client that fell behind to ask again. The server pings every `events_ping_s` and closes idle connections.")
 
 # -- admin
-op("GET", "/users", "admin", "admin", "List the users", ok=(200, arr(ref("User")), "application/json"))
-op("POST", "/users", "admin", "admin", "Create a user", body="NewUser", errors=["bad_name", "weak_password", "user_exists"], example={"name": "ana", "role": "operator", "password": "a long password"})
-op("PUT", "/users/{name}", "admin", "admin", "Change a user", body="UserChange", errors=["unknown_user", "weak_password", "last_admin"],
+op("GET", "/users", "admin", "admin", "List the users", scope="admin:users", ok=(200, arr(ref("User")), "application/json"))
+op("POST", "/users", "admin", "admin", "Create a user", scope="admin:users", body="NewUser", errors=["bad_name", "weak_password", "user_exists"], example={"name": "ana", "role": "operator", "password": "a long password"})
+op("PUT", "/users/{name}", "admin", "admin", "Change a user", scope="admin:users", body="UserChange", errors=["unknown_user", "weak_password", "last_admin"],
    desc="The last administrator cannot be disabled or demoted.")
-op("DELETE", "/users/{name}", "admin", "admin", "Delete a user", errors=["unknown_user", "last_admin"])
-op("GET", "/tokens", "admin", "admin", "List the tokens of programs", ok=(200, arr(ref("Token")), "application/json"))
-op("POST", "/tokens", "admin", "admin", "Make a token for a program", body="NewToken", ok=(200, "TokenSecret", "application/json"),
+op("DELETE", "/users/{name}", "admin", "admin", "Delete a user", scope="admin:users", errors=["unknown_user", "last_admin"])
+op("GET", "/tokens", "admin", "admin", "List the tokens of programs", scope="admin:tokens", ok=(200, arr(ref("Token")), "application/json"))
+op("POST", "/tokens", "admin", "admin", "Make a token for a program", scope="admin:tokens", body="NewToken", ok=(200, "TokenSecret", "application/json"),
    errors=["bad_name", "bad_days", "bad_template", "bad_scope", "forbidden_scope"],
    desc="The token is shown this once. Without `days` the token lasts `token_default_days` of `server.cfg` (0: it does not expire). With scopes its power is the intersection of the role and the scopes.",
    example={"name": "design-program", "role": "operator", "days": 90, "template": "phoenix"})
-op("DELETE", "/tokens/{id}", "admin", "admin", "Revoke a token", errors=["unknown_token"])
-op("POST", "/tokens/{id}/rotate", "admin", "admin", "Give a token a new secret", ok=(200, "TokenSecret", "application/json"), errors=["unknown_token"],
+op("DELETE", "/tokens/{id}", "admin", "admin", "Revoke a token", scope="admin:tokens", errors=["unknown_token"])
+op("POST", "/tokens/{id}/rotate", "admin", "admin", "Give a token a new secret", scope="admin:tokens", ok=(200, "TokenSecret", "application/json"), errors=["unknown_token"],
    desc="The new secret is shown this once and the old one stops working at once; the id, the scopes and the expiry stay.")
-op("GET", "/updates", "admin", "admin", "See the updates of the services", ok=(200, "Updates", "application/json"),
+op("GET", "/updates", "admin", "admin", "See the updates of the services", scope="admin:updates", ok=(200, "Updates", "application/json"),
    desc="Without `updates_dir` in `server.cfg` the answer is `{\"enabled\": false}`.")
-op("POST", "/updates/check", "admin", "admin", "Ask the helper to look for the latest releases", errors=["updates_off", "update_refused"])
-op("POST", "/updates/apply", "admin", "admin", "Ask the helper to update components", body="UpdateComponents", errors=["updates_off", "update_refused", "machines_busy"],
+op("POST", "/updates/check", "admin", "admin", "Ask the helper to look for the latest releases", scope="admin:updates", errors=["updates_off", "update_refused"])
+op("POST", "/updates/apply", "admin", "admin", "Ask the helper to update components", scope="admin:updates", body="UpdateComponents", errors=["updates_off", "update_refused", "machines_busy"],
    desc="The helper installs a release only when it is signed by one of the allowed signers of the machine. The request it finds carries `allow_unsigned`, the value of the switch "
         "`update_allow_unsigned` of the security page (false by default); when it is true a release that publishes no signature may be installed by its hash alone.",
    example={"components": ["server", "studio"]})
-op("POST", "/updates/undo", "admin", "admin", "Ask the helper to put back the previous version", body="UpdateComponents", errors=["updates_off", "update_refused", "machines_busy"],
+op("POST", "/updates/undo", "admin", "admin", "Ask the helper to put back the previous version", scope="admin:updates", body="UpdateComponents", errors=["updates_off", "update_refused", "machines_busy"],
    example={"components": ["studio"]})
-op("POST", "/updates/clear-history", "admin", "admin", "Ask the helper to empty its history", errors=["updates_off", "update_refused"])
+op("POST", "/updates/clear-history", "admin", "admin", "Ask the helper to empty its history", scope="admin:updates", errors=["updates_off", "update_refused"])
 
 # -- machines
 op("GET", "/machines", "machines", "viewer", "List the machines", scope="machines:view", ok=(200, arr(ref("Machine")), "application/json"))
@@ -709,7 +709,7 @@ op("GET", "/auth/sessions", "auth", "any", "List the open logins of the caller",
    desc="The newest first, with the application, the address and when each was last seen; `current` marks the one that asks. A token of a program has none.")
 op("DELETE", "/auth/sessions/{id}", "auth", "person", "Close one login", errors=["unknown_session"],
    desc="A person closes their own logins; an administrator closes anybody's. The id is the one the list shows. The token of that login stops working at once.")
-op("GET", "/auth/policy", "auth", "admin", "See the switches of security", ok=(200, "AuthPolicy", "application/json"),
+op("GET", "/auth/policy", "auth", "admin", "See the switches of security", scope="admin:policy", ok=(200, "AuthPolicy", "application/json"),
    desc="What Studio shows in its security page: the values of the switches in `server.cfg` and which of them deserve attention. No secret is ever in it.")
 op("GET", "/auth/apps", "auth", "any", "The applications the server accepts", ok=(200, "AuthApps", "application/json"))
 
@@ -745,14 +745,14 @@ SCHEMAS.update({
         }, description="Only `fabpack` takes options (`profile`, `lang`, `panel_boards`, `dnp`); the other kinds take none."),
     }, ["kind", "project"], extra=True),
 })
-op("PUT", "/auth/policy", "auth", "admin", "Change a switch of security while the server runs", body="PolicyChange", ok=(200, "AuthPolicy", "application/json"),
+op("PUT", "/auth/policy", "auth", "admin", "Change a switch of security while the server runs", scope="admin:policy", body="PolicyChange", ok=(200, "AuthPolicy", "application/json"),
    errors=["bad_policy", "weak_confirm_required", "storage"],
    desc="One switch at a time, answering the new policy. Only the keys in `editable` can change; the others need a restart. A value looser than recommended (`safe: false`) changes nothing "
         "unless the body says `confirm_weak: true`. Every change is in the audit with the old and the new value.",
    example={"key": "password_min_len", "value": 12})
-op("GET", "/auth/keys", "auth", "admin", "The identifiers of the keys and the fingerprint of the certificate", ok=(200, "AuthKeys", "application/json"),
+op("GET", "/auth/keys", "auth", "admin", "The identifiers of the keys and the fingerprint of the certificate", scope="admin:tokens", ok=(200, "AuthKeys", "application/json"),
    desc="The tokens of programs by id, name, role and age, and the SHA-256 fingerprint of the certificate named by `tls_cert_file`. No secret is ever in it.")
-op("GET", "/audit", "admin", "admin", "Read the audit", ok=(200, "AuditLines", "application/json"),
+op("GET", "/audit", "admin", "admin", "Read the audit", scope="admin:policy", ok=(200, "AuditLines", "application/json"),
    query=[q("since", I, "Only the lines from this moment (seconds since 1970)."), q("until", I, "Only the lines up to this moment."),
           q("who", S, "Only the lines of this person or token."), q("event", S, "Only this event."),
           q("limit", {"type": "integer", "minimum": 1, "maximum": 1000}, "Up to this many lines (100).")],

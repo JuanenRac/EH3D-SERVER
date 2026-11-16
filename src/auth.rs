@@ -70,7 +70,7 @@ pub struct ApiToken {
 }
 
 /// Every scope a token can carry. A scope narrows a role, never widens it: what a token may do is the intersection of the two.
-pub const SCOPES: [&str; 15] = [
+pub const SCOPES: [&str; 19] = [
     "projects:read",
     "projects:write",
     "catalog:read",
@@ -86,15 +86,23 @@ pub const SCOPES: [&str; 15] = [
     "jobs:confirm",
     "jobs:cancel",
     "machines:manage",
+    "admin:users",
+    "admin:tokens",
+    "admin:policy",
+    "admin:updates",
 ];
 
-/// The scopes that move or release a machine: a person's, never a design program's.
-pub const MACHINE_SCOPES: [&str; 5] = [
+/// The scopes that move or release a machine, or that administer the server (users, tokens, security, updates): a person's, never a design program's.
+pub const MACHINE_SCOPES: [&str; 9] = [
     "jobs:authorize",
     "jobs:start",
     "jobs:confirm",
     "jobs:cancel",
     "machines:manage",
+    "admin:users",
+    "admin:tokens",
+    "admin:policy",
+    "admin:updates",
 ];
 
 /// The templates a token is made from.
