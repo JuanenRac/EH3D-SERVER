@@ -149,6 +149,59 @@ class UpdateHelper(unittest.TestCase):
         self.assertEqual((self.root / "opt" / "eh3d-studio.previous" / "index.html").read_text(encoding="utf-8"), "old")
         self.assertEqual(self.run.calls, [])  # the pages need no restart
 
+    def test_a_release_older_than_the_installed_version_is_refused_unless_going_back_is_allowed(self):
+        studio = self.root / "opt" / "eh3d-studio"
+        studio.mkdir(parents=True)
+        (studio / "index.html").write_text("installed", encoding="utf-8")
+        (studio / "version.json").write_text('{"version":"0.0.9"}', encoding="utf-8")   # the latest release says v0.0.3
+        self.ask({"action": "apply", "components": ["studio"]})
+        status = self.folder.read("status.json")
+        self.assertEqual(status["state"], "error")
+        self.assertEqual((studio / "index.html").read_text(encoding="utf-8"), "installed")
+        self.assertFalse((self.root / "opt" / "eh3d-studio.previous").exists())
+        before = H.ALLOW_DOWNGRADE
+        H.ALLOW_DOWNGRADE = True
+        try:
+            self.ask({"action": "apply", "components": ["studio"]})
+        finally:
+            H.ALLOW_DOWNGRADE = before
+        self.assertEqual(self.folder.read("status.json")["state"], "done")
+        self.assertEqual((studio / "index.html").read_text(encoding="utf-8"), "<html>new</html>")
+
+    def test_the_same_or_a_newer_version_and_an_unreadable_one_are_installed(self):
+        for installed in ("0.0.3", "0.0.2", "0.0.3.0", "unknown", ""):
+            studio = self.root / "opt" / "eh3d-studio"
+            shutil.rmtree(studio, ignore_errors=True)
+            studio.mkdir(parents=True)
+            (studio / "version.json").write_text(json.dumps({"version": installed}), encoding="utf-8")
+            self.ask({"action": "apply", "components": ["studio"]})
+            self.assertEqual(self.folder.read("status.json")["state"], "done", installed)
+
+    def test_the_versions_are_compared_by_their_numbers(self):
+        self.assertTrue(H.is_older("0.0.3", "0.0.10"))
+        self.assertTrue(H.is_older("v1.2", "1.2.1"))
+        self.assertFalse(H.is_older("1.2.0", "1.2"))
+        self.assertFalse(H.is_older("2.0.0", "1.9.9"))
+        self.assertFalse(H.is_older("0.0.3", None))
+        self.assertFalse(H.is_older("nightly", "1.0.0"))
+
+    def test_the_option_and_the_setting_allow_going_back(self):
+        before = H.ALLOW_DOWNGRADE
+        try:
+            cfg = self.root / "helper.json"
+            for body, argv, expected in (
+                (config(self.root), [], False),
+                ({**config(self.root), "settings": {"allow_downgrade": True}}, [], True),
+                ({**config(self.root), "settings": {"allow_downgrade": "yes"}}, [], False),
+                ({**config(self.root), "settings": {}}, ["--allow-downgrade"], True),
+            ):
+                cfg.write_text(json.dumps(body), encoding="utf-8")
+                H.ALLOW_DOWNGRADE = not expected
+                self.assertEqual(H.main(["--dir", str(self.root / "meet3"), "--config", str(cfg), *argv]), 0)
+                self.assertEqual(H.ALLOW_DOWNGRADE, expected, (body.get("settings"), argv))
+        finally:
+            H.ALLOW_DOWNGRADE = before
+
     def test_the_server_is_replaced_made_executable_and_restarted(self):
         self.ask({"action": "apply", "components": ["server"]})
         program = self.root / "opt" / "eh3d-server" / "eh3d-server"

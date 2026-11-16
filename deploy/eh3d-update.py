@@ -27,6 +27,9 @@ The installation checked by the hash only has to be allowed on purpose, in any o
 in the file of `--config`, or the switch `update_allow_unsigned` of the security page of Studio, which the server passes in the request as `"allow_unsigned": true`. Even then a
 signature that is published must verify: only a release with no `.sig` falls back to the hash, and the log says that the files are not checked for who made them.
 
+A release whose version is lower than the installed one is refused (a signed old release published again as the latest would otherwise be installed): `--allow-downgrade`, or
+`{"settings": {"allow_downgrade": true}}` in the file of `--config`, allows going back on purpose.
+
 The files are written beside the old ones and moved into place, and the old ones are kept as `.previous` so that a bad update can be put back by hand. Only the standard
 library is used.
 """
@@ -34,6 +37,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -52,6 +56,9 @@ SIGNERS = DEFAULT_SIGNERS if os.path.exists(DEFAULT_SIGNERS) else None
 #: Whether a release with no signature may be installed when its hash is right. Off: a signature is required. Turned on by `--allow-unsigned` or by
 #: `{"settings": {"require_signature": false}}` in the file of `--config`; a request can allow it for one installation (`"allow_unsigned": true`).
 ALLOW_UNSIGNED = False
+#: Whether a release OLDER than the installed version may be installed. Off: a signed old release that someone publishes again as the latest is refused. Turned on by
+#: `--allow-downgrade` or by `{"settings": {"allow_downgrade": true}}` in the file of `--config`.
+ALLOW_DOWNGRADE = False
 #: The file the helper leaves in what it installs, so that the version left behind by the next update can be told.
 VERSION_MARK = ".eh3d-version"
 #: This script: the release of the server carries a newer copy of it (`deploy/eh3d-update.py`), which takes its place when the server is installed.
@@ -255,8 +262,26 @@ def refresh_helper(folder: Folder, comp_id: str, comp: dict, tree: Path, own: Pa
     return True
 
 
+def version_key(text) -> tuple | None:
+    """The numbers of a version (`1.2.3`, `v1.2`) to compare two of them, or None when it does not start with numbers."""
+    match = re.match(r"v?(\d+(?:\.\d+)*)", str(text or "").strip())
+    return tuple(int(part) for part in match.group(1).split(".")) if match else None
+
+
+def is_older(candidate, installed) -> bool:
+    """True when both versions can be read and the candidate is lower than the installed one (the shorter one is completed with zeros)."""
+    a, b = version_key(candidate), version_key(installed)
+    if a is None or b is None:
+        return False
+    size = max(len(a), len(b))
+    return a + (0,) * (size - len(a)) < b + (0,) * (size - len(b))
+
+
 def install(folder: Folder, comp_id: str, comp: dict, release: dict, get=http_get, run=subprocess.run, allow_unsigned: bool = False) -> None:
     version = release["latest"]
+    installed = version_in(Path(comp["install_dir"]))
+    if not ALLOW_DOWNGRADE and is_older(version, installed):
+        raise RuntimeError(f"{comp_id}: the latest release says {version} but {installed} is installed; nothing was installed (allow_downgrade in the settings of the helper allows going back)")
     name = comp["asset"].format(version=version, arch=arch())
     url = release["assets"].get(name)
     if not url:
@@ -496,9 +521,10 @@ def main(argv=None) -> int:
     p.add_argument("--dir", required=True, help="the shared folder (updates_dir of server.cfg)")
     p.add_argument("--signers", help="the file of allowed signers (ssh-keygen format): when given or present at /etc/eh3d-update.signers, only signed releases are installed")
     p.add_argument("--allow-unsigned", action="store_true", help="install a release that has no signature when its hash is right (by default a signature is required)")
+    p.add_argument("--allow-downgrade", action="store_true", help="install a release that is older than the installed version (by default it is refused)")
     p.add_argument("--config", help="a JSON file that replaces the components (id: repo, asset, install_dir, program, restart) and may hold {\"settings\": {\"require_signature\": false}}")
     a = p.parse_args(argv)
-    global SIGNERS, ALLOW_UNSIGNED
+    global SIGNERS, ALLOW_UNSIGNED, ALLOW_DOWNGRADE
     if a.signers:
         SIGNERS = a.signers
     config = DEFAULT_CONFIG
@@ -506,6 +532,7 @@ def main(argv=None) -> int:
         config = json.loads(Path(a.config).read_text(encoding="utf-8"))
     config, settings = split_settings(config)
     ALLOW_UNSIGNED = a.allow_unsigned or settings.get("require_signature") is False
+    ALLOW_DOWNGRADE = a.allow_downgrade or settings.get("allow_downgrade") is True
     folder = Folder(Path(a.dir))
     folder.path.mkdir(parents=True, exist_ok=True)
     handle(folder, config)

@@ -57,8 +57,16 @@ pub fn write_durable(path: &Path, bytes: &[u8], keep_backup: bool) -> io::Result
     }
     let tmp = path.with_extension("tmp");
     // the new text reaches the disk before it takes the place of the old file: a power cut right after the rename must not leave an empty or short file
+    // what the server keeps (users, tokens, sessions, the tokens of the nodes) is private to the account of the server, whatever the umask it was started with
     {
-        let mut file = std::fs::File::create(&tmp)?;
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&tmp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
     }
@@ -122,6 +130,40 @@ mod tests {
         .unwrap();
         assert_eq!(read_json::<Doc>(&p).unwrap().unwrap().n, 8);
         assert!(!p.with_extension("tmp").exists());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn what_is_written_is_private_to_the_account_of_the_server() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = dir("store-private");
+        let p = d.join("doc.json");
+        write_json(
+            &p,
+            &Doc {
+                name: "x".into(),
+                n: 1,
+            },
+        )
+        .unwrap();
+        write_json(
+            &p,
+            &Doc {
+                name: "y".into(),
+                n: 2,
+            },
+        )
+        .unwrap();
+        for file in [p.clone(), backup_path(&p)] {
+            let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+            assert_eq!(
+                mode & 0o077,
+                0,
+                "{} is readable by others: {mode:o}",
+                file.display()
+            );
+        }
         let _ = std::fs::remove_dir_all(&d);
     }
 

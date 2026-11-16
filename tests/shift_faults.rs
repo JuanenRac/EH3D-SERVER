@@ -11,7 +11,9 @@ use axum::http::{Method, Request, StatusCode};
 use axum::Router;
 use eh3d_server::api::router;
 use eh3d_server::config::ServerConfig;
+use eh3d_server::jobs::JobState;
 use eh3d_server::state::AppState;
+use eh3d_server::sync::Locked;
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
 use tower::ServiceExt;
@@ -386,5 +388,26 @@ async fn a_seeded_storm_of_requests_never_gives_a_server_error_and_never_two_job
     assert!(
         !jobs.is_empty(),
         "the storm made no job: the test tries nothing (busy refusals: {busy_refusals})"
+    );
+}
+
+#[tokio::test]
+async fn a_stop_that_arrives_while_the_run_is_being_started_is_not_lost() {
+    let s = server("stop-connecting");
+    let token = admin(&s).await;
+    machine(&s, &token, "m1", json!({"kind": "demo"})).await;
+    let id = make_job(&s, &token, "m1").await;
+    // the window of the start: the job is marked as connecting and its run is not registered yet
+    s.state.jobs.locked().get_mut(&id).unwrap().state = JobState::Connecting;
+    assert!(
+        s.state.cancel_job(&id, "operator"),
+        "the stop of a job that is connecting was answered as not cancellable"
+    );
+    let stopped_by = s.state.jobs.locked().get(&id).unwrap().stopped_by.clone();
+    assert_eq!(stopped_by, "operator", "the stop was not written down");
+    assert_eq!(
+        s.state.stop_machine("m1", "operator").as_deref(),
+        Some(id.as_str()),
+        "the stop of the machine did not find the job"
     );
 }
