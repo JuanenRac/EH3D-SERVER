@@ -549,11 +549,11 @@ mod tests {
     #[test]
     fn a_run_over_the_limit_is_refused_and_a_finished_one_gives_its_place_back() {
         // the counter is shared by the process, so the whole check is in one test
-        let first = Slot::take(2).unwrap();
-        let second = Slot::take(2).unwrap();
+        let first = Slot::take(2).ok().expect("a place");
+        let second = Slot::take(2).ok().expect("a place");
         assert!(Slot::take(2).is_err(), "the third is over the limit");
         drop(first);
-        let again = Slot::take(2).unwrap();
+        let again = Slot::take(2).ok().expect("a place");
         drop(second);
         drop(again);
         assert_eq!(RUNNING.load(Ordering::SeqCst), 0);
