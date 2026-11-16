@@ -102,6 +102,27 @@ class UpdateHelper(unittest.TestCase):
         self.assertFalse(H.handle(self.folder, config(self.root), self.gh.get, self.run))
         self.assertEqual(self.gh.requested, [])
 
+    def test_a_link_left_in_the_shared_folder_is_never_written_through(self):
+        import os
+        target = self.root / "root-file.txt"
+        target.write_text("keep me", encoding="utf-8")
+        meet = self.root / "meet"
+        for name in ("status.json.tmp", "history.json.tmp", "components.json.tmp", "previous.json.tmp"):
+            os.symlink(target, meet / name)
+        self.assertTrue(self.ask({"action": "check"}))
+        self.assertEqual(target.read_text(encoding="utf-8"), "keep me", "the file the link pointed at is untouched")
+        self.assertEqual(self.folder.read("status.json")["state"], "done", "and the helper still did its work")
+        # a link in the place of a file is not read either
+        os.remove(meet / "history.json")
+        os.symlink(target, meet / "history.json")
+        self.assertIsNone(self.folder.read("history.json"))
+
+    def test_a_request_with_any_other_word_is_refused_and_not_copied_into_the_history(self):
+        self.assertTrue(self.ask({"action": "evil\ntext /etc/ld.so.preload"}))
+        history = self.folder.read("history.json")
+        self.assertEqual([item["kind"] for item in history], ["unknown"])
+        self.assertEqual(self.folder.read("status.json")["state"], "error")
+
     def test_a_check_writes_what_the_latest_releases_are(self):
         self.assertTrue(self.ask({"action": "check"}))
         found = {c["id"]: c for c in self.folder.read("components.json")}

@@ -82,6 +82,13 @@ def arch() -> str:
     return {"aarch64": "aarch64", "arm64": "aarch64", "x86_64": "x86_64", "amd64": "x86_64"}.get(m, m)
 
 
+#: Not to follow a link when a file is opened (Linux; the helper runs nowhere else).
+NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+
+#: The actions of a request; any other word is a request that the helper refuses.
+KINDS = ("check", "apply", "undo", "clear_history")
+
+
 class Folder:
     """The shared folder: the files that the server and this helper leave for each other."""
 
@@ -94,15 +101,25 @@ class Folder:
         self.percent = 0
 
     def read(self, name: str):
+        """A file of the folder, or None; a link is never followed (the folder belongs to the account of the server, which could leave one)."""
         try:
-            return json.loads((self.path / name).read_text(encoding="utf-8"))
+            fd = os.open(self.path / name, os.O_RDONLY | NOFOLLOW)
+            with os.fdopen(fd, "r", encoding="utf-8") as f:
+                return json.loads(f.read())
         except (OSError, ValueError):
             return None
 
     def write(self, name: str, value) -> None:
+        """Writes a file of the folder through a new temporary file: a link left in its place is removed, never written through, and the final rename replaces a link instead of following it."""
         tmp = self.path / (name + ".tmp")
-        tmp.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(self.path / name)
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | NOFOLLOW, 0o644)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(value, ensure_ascii=False))
+        os.replace(tmp, self.path / name)
 
     def say(self, state: str, message: str) -> None:
         self.log = (self.log + [message])[-40:]
@@ -434,6 +451,8 @@ def handle(folder: Folder, config: dict, get=http_get, run=subprocess.run) -> bo
     folder.steps, folder.percent = [], 0
     started = int(time.time())
     kind = str(request.get("action", ""))
+    if kind not in KINDS:
+        kind = ""   # nothing the server's account wrote is copied into a file this helper writes as root
     if kind == "clear_history":
         # emptying the list is not a job to put in it
         folder.write("history.json", [])
