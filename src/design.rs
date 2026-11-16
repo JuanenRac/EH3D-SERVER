@@ -11,8 +11,7 @@
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use axum::extract::State;
@@ -256,34 +255,49 @@ pub fn report(kind: &str, file: &str, ran: &Ran) -> Value {
     })
 }
 
-/// How many runs of the design program are going on in this process.
-static RUNNING: AtomicUsize = AtomicUsize::new(0);
+/// How many runs of the design program are going on for each server (told apart by its data folder, so two servers in one process do not count each other).
+static RUNNING: Mutex<Vec<(PathBuf, usize)>> = Mutex::new(Vec::new());
 
 /// A place among the runs that may go on at the same time; it is given back when it is dropped, however the run ends.
-struct Slot;
+struct Slot(PathBuf);
 
 impl Slot {
-    fn take(most: usize) -> Result<Slot, ApiError> {
-        let mut now = RUNNING.load(Ordering::SeqCst);
-        loop {
-            if now >= most.max(1) {
-                return Err(ApiError::new(
-                    StatusCode::TOO_MANY_REQUESTS,
-                    "queue_full",
-                    "the design program is already running as many times as design_max_parallel allows; try again when one has finished",
-                ));
+    fn take(server: &Path, most: usize) -> Result<Slot, ApiError> {
+        let mut running = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+        let at = match running.iter().position(|(p, _)| p == server) {
+            Some(i) => i,
+            None => {
+                running.push((server.to_path_buf(), 0));
+                running.len() - 1
             }
-            match RUNNING.compare_exchange(now, now + 1, Ordering::SeqCst, Ordering::SeqCst) {
-                Ok(_) => return Ok(Slot),
-                Err(seen) => now = seen,
-            }
+        };
+        if running[at].1 >= most.max(1) {
+            return Err(ApiError::new(
+                StatusCode::TOO_MANY_REQUESTS,
+                "queue_full",
+                "the design program is already running as many times as design_max_parallel allows; try again when one has finished",
+            ));
         }
+        running[at].1 += 1;
+        Ok(Slot(server.to_path_buf()))
+    }
+
+    #[cfg(test)]
+    fn running(server: &Path) -> usize {
+        let running = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+        running
+            .iter()
+            .find(|(p, _)| p == server)
+            .map_or(0, |(_, n)| *n)
     }
 }
 
 impl Drop for Slot {
     fn drop(&mut self) {
-        RUNNING.fetch_sub(1, Ordering::SeqCst);
+        let mut running = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(entry) = running.iter_mut().find(|(p, _)| *p == self.0) {
+            entry.1 = entry.1.saturating_sub(1);
+        }
     }
 }
 
@@ -306,7 +320,7 @@ fn available(s: &Shared) -> Result<(PathBuf, Duration, usize), ApiError> {
 /// Checks the request, copies the board out of the project and makes the job; the run goes on in a thread of its own.
 fn prepare(s: &Shared, who: &Identity, b: NewDesignJob) -> Result<WorkJob, ApiError> {
     let (program, timeout, max) = available(s)?;
-    let slot = Slot::take(s.cfg.design_max_parallel as usize)?;
+    let slot = Slot::take(&s.cfg.data_dir, s.cfg.design_max_parallel as usize)?;
     if !KINDS.contains(&b.kind.as_str()) {
         return Err(bad(format!("kind must be one of {}", KINDS.join(", "))));
     }
@@ -465,6 +479,8 @@ impl Run {
                 ("ms", &started.elapsed().as_millis().to_string()),
             ],
         );
+        // the place is given back before the job is told to be over, so a client that starts the next run as soon as it sees this one end is not refused
+        drop(self._slot);
         finish(&self.state, &self.job, state, &message);
     }
 
@@ -548,15 +564,22 @@ mod tests {
 
     #[test]
     fn a_run_over_the_limit_is_refused_and_a_finished_one_gives_its_place_back() {
-        // the counter is shared by the process, so the whole check is in one test
-        let first = Slot::take(2).map_err(|_| "busy").unwrap();
-        let second = Slot::take(2).map_err(|_| "busy").unwrap();
-        assert!(Slot::take(2).is_err(), "the third is over the limit");
+        let server = PathBuf::from("a-server-of-the-limit-test");
+        let other = PathBuf::from("another-server-of-the-limit-test");
+        let first = Slot::take(&server, 2).map_err(|_| "busy").unwrap();
+        let second = Slot::take(&server, 2).map_err(|_| "busy").unwrap();
+        assert!(
+            Slot::take(&server, 2).is_err(),
+            "the third is over the limit"
+        );
+        // another server in the same process has its own count
+        let apart = Slot::take(&other, 1).map_err(|_| "busy").unwrap();
         drop(first);
-        let again = Slot::take(2).map_err(|_| "busy").unwrap();
+        let again = Slot::take(&server, 2).map_err(|_| "busy").unwrap();
         drop(second);
         drop(again);
-        assert_eq!(RUNNING.load(Ordering::SeqCst), 0);
+        drop(apart);
+        assert_eq!((Slot::running(&server), Slot::running(&other)), (0, 0));
     }
 
     #[test]
