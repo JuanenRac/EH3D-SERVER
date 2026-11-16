@@ -400,10 +400,12 @@ paths:
       tags:
         - admin
       summary: List the users
-      description: Role admin.
+      description: "Role admin. Scope `admin:users` if the token is limited by scopes."
       x-role: admin
+      x-scope: "admin:users"
       x-error-codes:
         - forbidden
+        - forbidden_scope
         - unauthorized
       responses:
         "200":
@@ -424,7 +426,7 @@ paths:
                 error: unauthorized
                 detail: ""
         "403":
-          description: "Refused with `forbidden`."
+          description: "Refused with `forbidden`, `forbidden_scope`."
           content:
             application/json:
               schema:
@@ -437,12 +439,14 @@ paths:
       tags:
         - admin
       summary: Create a user
-      description: Role admin.
+      description: "Role admin. Scope `admin:users` if the token is limited by scopes."
       x-role: admin
+      x-scope: "admin:users"
       x-error-codes:
         - bad_name
         - bad_request
         - forbidden
+        - forbidden_scope
         - unauthorized
         - user_exists
         - weak_password
@@ -484,7 +488,7 @@ paths:
                 error: unauthorized
                 detail: ""
         "403":
-          description: "Refused with `forbidden`."
+          description: "Refused with `forbidden`, `forbidden_scope`."
           content:
             application/json:
               schema:
@@ -516,11 +520,13 @@ paths:
       tags:
         - admin
       summary: Change a user
-      description: The last administrator cannot be disabled or demoted. Role admin.
+      description: "The last administrator cannot be disabled or demoted. Role admin. Scope `admin:users` if the token is limited by scopes."
       x-role: admin
+      x-scope: "admin:users"
       x-error-codes:
         - bad_request
         - forbidden
+        - forbidden_scope
         - last_admin
         - unauthorized
         - unknown_user
@@ -566,7 +572,7 @@ paths:
                 error: unauthorized
                 detail: ""
         "403":
-          description: "Refused with `forbidden`."
+          description: "Refused with `forbidden`, `forbidden_scope`."
           content:
             application/json:
               schema:
@@ -606,10 +612,12 @@ paths:
       tags:
         - admin
       summary: Delete a user
-      description: Role admin.
+      description: "Role admin. Scope `admin:users` if the token is limited by scopes."
       x-role: admin
+      x-scope: "admin:users"
       x-error-codes:
         - forbidden
+        - forbidden_scope
         - last_admin
         - unauthorized
         - unknown_user
@@ -639,7 +647,7 @@ paths:
                 error: unauthorized
                 detail: ""
         "403":
-          description: "Refused with `forbidden`."
+          description: "Refused with `forbidden`, `forbidden_scope`."
           content:
             application/json:
               schema:
@@ -671,10 +679,12 @@ paths:
       tags:
         - admin
       summary: List the tokens of programs
-      description: Role admin.
+      description: "Role admin. Scope `admin:tokens` if the token is limited by scopes."
       x-role: admin
+      x-scope: "admin:tokens"
       x-error-codes:
         - forbidden
+        - forbidden_scope
         - unauthorized
       responses:
         "200":
@@ -695,7 +705,7 @@ paths:
                 error: unauthorized
                 detail: ""
         "403":
-          description: "Refused with `forbidden`."
+          description: "Refused with `forbidden`, `forbidden_scope`."
           content:
             application/json:
               schema:
@@ -708,8 +718,9 @@ paths:
       tags:
         - admin
       summary: Make a token for a program
-      description: "The token is shown this once. Without `days` the token lasts `token_default_days` of `server.cfg` (0: it does not expire). With scopes its power is the intersection of the role and the scopes. Role admin."
+      description: "The token is shown this once. Without `days` the token lasts `token_default_days` of `server.cfg` (0: it does not expire). With scopes its power is the intersection of the role and the scopes. Role admin. Scope `admin:tokens` if the token is limited by scopes."
       x-role: admin
+      x-scope: "admin:tokens"
       x-error-codes:
         - bad_days
         - bad_name
@@ -779,10 +790,12 @@ paths:
       tags:
         - admin
       summary: Revoke a token
-      description: Role admin.
+      description: "Role admin. Scope `admin:tokens` if the token is limited by scopes."
       x-role: admin
+      x-scope: "admin:tokens"
       x-error-codes:
         - forbidden
+        - forbidden_scope
         - unauthorized
         - unknown_token
       parameters:
@@ -811,7 +824,7 @@ paths:
                 error: unauthorized
                 detail: ""
         "403":
-          description: "Refused with `forbidden`."
+          description: "Refused with `forbidden`, `forbidden_scope`."
           content:
             application/json:
               schema:
@@ -834,10 +847,12 @@ paths:
       tags:
         - admin
       summary: Give a token a new secret
-      description: "The new secret is shown this once and the old one stops working at once; the id, the scopes and the expiry stay. Role admin."
+      description: "The new secret is shown this once and the old one stops working at once; the id, the scopes and the expiry stay. Role admin. Scope `admin:tokens` if the token is limited by scopes."
       x-role: admin
+      x-scope: "admin:tokens"
       x-error-codes:
         - forbidden
+        - forbidden_scope
         - unauthorized
         - unknown_token
       parameters:
@@ -864,7 +879,7 @@ paths:
                 error: unauthorized
                 detail: ""
         "403":
-          description: "Refused with `forbidden`."
+          description: "Refused with `forbidden`, `forbidden_scope`."
           content:
             application/json:
               schema:
@@ -887,10 +902,12 @@ paths:
       tags:
         - admin
       summary: See the updates of the services
-      description: "Without `updates_dir` in `server.cfg` the answer is `{\"enabled\": false}`. Role admin."
+      description: "Without `updates_dir` in `server.cfg` the answer is `{\"enabled\": false}`. Role admin. Scope `admin:updates` if the token is limited by scopes."
       x-role: admin
+      x-scope: "admin:updates"
       x-error-codes:
         - forbidden
+        - forbidden_scope
         - unauthorized
       responses:
         "200":
@@ -909,7 +926,7 @@ paths:
                 error: unauthorized
                 detail: ""
         "403":
-          description: "Refused with `forbidden`."
+          description: "Refused with `forbidden`, `forbidden_scope`."
           content:
             application/json:
               schema:
@@ -923,10 +940,12 @@ paths:
       tags:
         - admin
       summary: Ask the helper to look for the latest releases
-      description: Role admin.
+      description: "Role admin. Scope `admin:updates` if the token is limited by scopes."
       x-role: admin
+      x-scope: "admin:updates"
       x-error-codes:
         - forbidden
+        - forbidden_scope
         - unauthorized
         - update_refused
         - updates_off
@@ -949,7 +968,7 @@ paths:
                 error: unauthorized
                 detail: ""
         "403":
-          description: "Refused with `forbidden`."
+          description: "Refused with `forbidden`, `forbidden_scope`."
           content:
             application/json:
               schema:
@@ -981,11 +1000,13 @@ paths:
       tags:
         - admin
       summary: Ask the helper to update components
-      description: "The helper installs a release only when it is signed by one of the allowed signers of the machine. The request it finds carries `allow_unsigned`, the value of the switch `update_allow_unsigned` of the security page (false by default); when it is true a release that publishes no signature may be installed by its hash alone. Role admin."
+      description: "The helper installs a release only when it is signed by one of the allowed signers of the machine. The request it finds carries `allow_unsigned`, the value of the switch `update_allow_unsigned` of the security page (false by default); when it is true a release that publishes no signature may be installed by its hash alone. Role admin. Scope `admin:updates` if the token is limited by scopes."
       x-role: admin
+      x-scope: "admin:updates"
       x-error-codes:
         - bad_request
         - forbidden
+        - forbidden_scope
         - machines_busy
         - unauthorized
         - update_refused
@@ -1028,7 +1049,7 @@ paths:
                 error: unauthorized
                 detail: ""
         "403":
-          description: "Refused with `forbidden`."
+          description: "Refused with `forbidden`, `forbidden_scope`."
           content:
             application/json:
               schema:
@@ -1060,11 +1081,13 @@ paths:
       tags:
         - admin
       summary: Ask the helper to put back the previous version
-      description: Role admin.
+      description: "Role admin. Scope `admin:updates` if the token is limited by scopes."
       x-role: admin
+      x-scope: "admin:updates"
       x-error-codes:
         - bad_request
         - forbidden
+        - forbidden_scope
         - machines_busy
         - unauthorized
         - update_refused
@@ -1106,7 +1129,7 @@ paths:
                 error: unauthorized
                 detail: ""
         "403":
-          description: "Refused with `forbidden`."
+          description: "Refused with `forbidden`, `forbidden_scope`."
           content:
             application/json:
               schema:
@@ -1138,10 +1161,12 @@ paths:
       tags:
         - admin
       summary: Ask the helper to empty its history
-      description: Role admin.
+      description: "Role admin. Scope `admin:updates` if the token is limited by scopes."
       x-role: admin
+      x-scope: "admin:updates"
       x-error-codes:
         - forbidden
+        - forbidden_scope
         - unauthorized
         - update_refused
         - updates_off
@@ -1164,7 +1189,7 @@ paths:
                 error: unauthorized
                 detail: ""
         "403":
-          description: "Refused with `forbidden`."
+          description: "Refused with `forbidden`, `forbidden_scope`."
           content:
             application/json:
               schema:
@@ -8786,10 +8811,12 @@ paths:
       tags:
         - auth
       summary: See the switches of security
-      description: "What Studio shows in its security page: the values of the switches in `server.cfg` and which of them deserve attention. No secret is ever in it. Role admin."
+      description: "What Studio shows in its security page: the values of the switches in `server.cfg` and which of them deserve attention. No secret is ever in it. Role admin. Scope `admin:policy` if the token is limited by scopes."
       x-role: admin
+      x-scope: "admin:policy"
       x-error-codes:
         - forbidden
+        - forbidden_scope
         - unauthorized
       responses:
         "200":
@@ -8808,7 +8835,7 @@ paths:
                 error: unauthorized
                 detail: ""
         "403":
-          description: "Refused with `forbidden`."
+          description: "Refused with `forbidden`, `forbidden_scope`."
           content:
             application/json:
               schema:
@@ -8821,12 +8848,14 @@ paths:
       tags:
         - auth
       summary: Change a switch of security while the server runs
-      description: "One switch at a time, answering the new policy. Only the keys in `editable` can change; the others need a restart. A value looser than recommended (`safe: false`) changes nothing unless the body says `confirm_weak: true`. Every change is in the audit with the old and the new value. Role admin."
+      description: "One switch at a time, answering the new policy. Only the keys in `editable` can change; the others need a restart. A value looser than recommended (`safe: false`) changes nothing unless the body says `confirm_weak: true`. Every change is in the audit with the old and the new value. Role admin. Scope `admin:policy` if the token is limited by scopes."
       x-role: admin
+      x-scope: "admin:policy"
       x-error-codes:
         - bad_policy
         - bad_request
         - forbidden
+        - forbidden_scope
         - storage
         - unauthorized
         - weak_confirm_required
@@ -8868,7 +8897,7 @@ paths:
                 error: unauthorized
                 detail: ""
         "403":
-          description: "Refused with `forbidden`."
+          description: "Refused with `forbidden`, `forbidden_scope`."
           content:
             application/json:
               schema:
@@ -8935,10 +8964,12 @@ paths:
       tags:
         - auth
       summary: The identifiers of the keys and the fingerprint of the certificate
-      description: "The tokens of programs by id, name, role and age, and the SHA-256 fingerprint of the certificate named by `tls_cert_file`. No secret is ever in it. Role admin."
+      description: "The tokens of programs by id, name, role and age, and the SHA-256 fingerprint of the certificate named by `tls_cert_file`. No secret is ever in it. Role admin. Scope `admin:tokens` if the token is limited by scopes."
       x-role: admin
+      x-scope: "admin:tokens"
       x-error-codes:
         - forbidden
+        - forbidden_scope
         - unauthorized
       responses:
         "200":
@@ -8957,7 +8988,7 @@ paths:
                 error: unauthorized
                 detail: ""
         "403":
-          description: "Refused with `forbidden`."
+          description: "Refused with `forbidden`, `forbidden_scope`."
           content:
             application/json:
               schema:
@@ -8971,10 +9002,12 @@ paths:
       tags:
         - admin
       summary: Read the audit
-      description: "Reads `audit.jsonl` and the older copy it was set aside as, the newest first. Role admin."
+      description: "Reads `audit.jsonl` and the older copy it was set aside as, the newest first. Role admin. Scope `admin:policy` if the token is limited by scopes."
       x-role: admin
+      x-scope: "admin:policy"
       x-error-codes:
         - forbidden
+        - forbidden_scope
         - unauthorized
       parameters:
         - name: since
@@ -9026,7 +9059,7 @@ paths:
                 error: unauthorized
                 detail: ""
         "403":
-          description: "Refused with `forbidden`."
+          description: "Refused with `forbidden`, `forbidden_scope`."
           content:
             application/json:
               schema:

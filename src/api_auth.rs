@@ -177,6 +177,7 @@ async fn list_sessions(
     let all = q.all.unwrap_or(false);
     if all {
         crate::api::need(&who, Role::Admin)?;
+        crate::api::need_scope(&who, "admin:users")?;
     }
     let auth = s.auth.locked();
     let mine = auth.session_of(&token).map(|i| i.id);
@@ -229,6 +230,7 @@ fn switch(key: &str, value: Value, safe: bool) -> Value {
 /// The switches of security of `server.cfg` with their values (never a secret), and which of them are looser than the recommended value.
 async fn policy(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
     crate::api::need(&who, Role::Admin)?;
+    crate::api::need_scope(&who, "admin:policy")?;
     let c = &s.cfg;
     let h = s.policy.get();
     let needs_setup = s.auth.locked().needs_setup();
@@ -365,6 +367,7 @@ async fn change_policy(
     ApiJson(b): ApiJson<PolicyChange>,
 ) -> ApiResult {
     crate::api::need(&who, Role::Admin)?;
+    crate::api::need_scope(&who, "admin:policy")?;
     let outcome = s.policy.change(&b.key, &b.value, b.confirm_weak);
     match outcome {
         Ok((before, after)) => {
@@ -420,6 +423,7 @@ pub fn pem_fingerprint(pem: &str) -> Option<String> {
 /// name it. The server does not terminate TLS itself.
 async fn keys(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
     crate::api::need(&who, Role::Admin)?;
+    crate::api::need_scope(&who, "admin:tokens")?;
     let at = now();
     let tokens: Vec<Value> = s
         .auth
@@ -470,6 +474,7 @@ async fn audit_lines(
     Query(q): Query<AuditQuery>,
 ) -> ApiResult {
     crate::api::need(&who, Role::Admin)?;
+    crate::api::need_scope(&who, "admin:policy")?;
     let limit = q.limit.unwrap_or(100).clamp(1, 1000);
     let path = s.audit.path().to_path_buf();
     let enabled = s.cfg.audit_file;

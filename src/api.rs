@@ -525,6 +525,7 @@ async fn change_password(
 /// The updates of the installed services: what is installed, what the last check found and what the helper is doing.
 async fn updates_view(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
     need(&who, Role::Admin)?;
+    need_scope(&who, "admin:updates")?;
     Ok(Json(match &s.updates {
         Some(u) => u.view(),
         None => {
@@ -549,6 +550,7 @@ fn updates_fail(e: String) -> ApiError {
 
 async fn updates_check(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
     need(&who, Role::Admin)?;
+    need_scope(&who, "admin:updates")?;
     updates_of(&s)?
         .request("check", &[])
         .map_err(updates_fail)?;
@@ -589,6 +591,7 @@ async fn updates_apply(
     ApiJson(b): ApiJson<ApplyBody>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
+    need_scope(&who, "admin:updates")?;
     no_job_running(&s)?;
     updates_of(&s)?
         .request_with("apply", &b.components, s.policy.get().update_allow_unsigned)
@@ -610,6 +613,7 @@ async fn updates_undo(
     ApiJson(b): ApiJson<ApplyBody>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
+    need_scope(&who, "admin:updates")?;
     no_job_running(&s)?;
     updates_of(&s)?
         .request("undo", &b.components)
@@ -627,6 +631,7 @@ async fn updates_undo(
 /// Empties the list of what the helper did before.
 async fn updates_clear_history(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
     need(&who, Role::Admin)?;
+    need_scope(&who, "admin:updates")?;
     updates_of(&s)?
         .request("clear_history", &[])
         .map_err(updates_fail)?;
@@ -636,6 +641,7 @@ async fn updates_clear_history(State(s): State<Shared>, Authed(who, _): Authed) 
 
 async fn list_users(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
     need(&who, Role::Admin)?;
+    need_scope(&who, "admin:users")?;
     let users: Vec<Value> = s
         .auth
         .locked()
@@ -659,6 +665,7 @@ async fn add_user(
     ApiJson(b): ApiJson<NewUser>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
+    need_scope(&who, "admin:users")?;
     let audit = s.clone();
     let (name, role) = (b.name.clone(), b.role);
     tokio::task::spawn_blocking(move || s.auth.locked().add_user(&b.name, b.role, &b.password))
@@ -687,6 +694,7 @@ async fn update_user(
     ApiJson(b): ApiJson<UserChange>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
+    need_scope(&who, "admin:users")?;
     let audit = s.clone();
     let shown = name.clone();
     let what = format!(
@@ -721,6 +729,7 @@ async fn delete_user(
     Path(name): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
+    need_scope(&who, "admin:users")?;
     s.auth.locked().delete_user(&name)?;
     note(&s, "user_delete", &who, &[("user", &name)]);
     Ok(Json(json!({ "ok": true })))
@@ -728,6 +737,7 @@ async fn delete_user(
 
 async fn list_tokens(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
     need(&who, Role::Admin)?;
+    need_scope(&who, "admin:tokens")?;
     let tokens: Vec<Value> = s
         .auth
         .locked()
@@ -764,6 +774,21 @@ async fn add_token(
     ApiJson(b): ApiJson<NewToken>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
+    need_scope(&who, "admin:tokens")?;
+    // a token limited to some scopes makes tokens limited to some of the same ones, never a looser one that would take it out of its limits
+    if let Some(mine) = &who.scopes {
+        let inside = b
+            .scopes
+            .as_ref()
+            .is_some_and(|list| list.iter().all(|s| mine.contains(s)));
+        if !inside {
+            return Err(ApiError::new(
+                StatusCode::FORBIDDEN,
+                "forbidden_scope",
+                "a token limited to some scopes can only make tokens limited to some of the same scopes",
+            ));
+        }
+    }
     let days = b.days.or(Some(s.cfg.token_default_days).filter(|d| *d > 0));
     let (id, secret) = s.auth.locked().create_token_with(
         &b.name,
@@ -800,6 +825,7 @@ async fn rotate_token(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
+    need_scope(&who, "admin:tokens")?;
     let secret = s.auth.locked().rotate_token(&id)?;
     note(&s, "token_rotate", &who, &[("token", &id)]);
     Ok(Json(json!({ "id": id, "token": secret })))
@@ -811,6 +837,7 @@ async fn delete_token(
     Path(id): Path<String>,
 ) -> ApiResult {
     need(&who, Role::Admin)?;
+    need_scope(&who, "admin:tokens")?;
     s.auth.locked().delete_token(&id)?;
     note(&s, "token_delete", &who, &[("token", &id)]);
     Ok(Json(json!({ "ok": true })))

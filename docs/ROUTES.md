@@ -33,14 +33,14 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/artifacts/:id/shares` | POST | operator + `artifacts:write` | Share an artifact for reading |
 | `/api/v1/artifacts/:id/shares/:who` | DELETE | operator + `artifacts:write` | Take the sharing of an artifact back |
 | `/api/v1/artifacts/verify` | POST | admin + `artifacts:read` | Read every blob again against its hash |
-| `/api/v1/audit` | GET | admin | Read the audit |
+| `/api/v1/audit` | GET | admin + `admin:policy` | Read the audit |
 | `/api/v1/auth/apps` | GET | any login or token | The applications the server accepts |
-| `/api/v1/auth/keys` | GET | admin | The identifiers of the keys and the fingerprint of the certificate |
+| `/api/v1/auth/keys` | GET | admin + `admin:tokens` | The identifiers of the keys and the fingerprint of the certificate |
 | `/api/v1/auth/login` | POST | none | Log in for an application |
 | `/api/v1/auth/logout` | POST | any login or token | End the login |
 | `/api/v1/auth/logout-all` | POST | a person | End every login of the caller |
-| `/api/v1/auth/policy` | GET | admin | See the switches of security |
-| `/api/v1/auth/policy` | PUT | admin | Change a switch of security while the server runs |
+| `/api/v1/auth/policy` | GET | admin + `admin:policy` | See the switches of security |
+| `/api/v1/auth/policy` | PUT | admin + `admin:policy` | Change a switch of security while the server runs |
 | `/api/v1/auth/refresh` | POST | a person | Renew the login |
 | `/api/v1/auth/session` | GET | any login or token | The claims of the login |
 | `/api/v1/auth/sessions` | GET | any login or token | List the open logins of the caller |
@@ -109,23 +109,23 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/tasks/:id/cancel` | POST | operator + `tasks:run` | Cancel a task |
 | `/api/v1/tasks/kinds` | GET | viewer + `tasks:read` | The kinds of task and whether this build has an engine for each |
 | `/api/v1/tickets` | POST | any login or token | Make a ticket for the camera or the websocket |
-| `/api/v1/tokens` | GET | admin | List the tokens of programs |
-| `/api/v1/tokens` | POST | admin | Make a token for a program |
-| `/api/v1/tokens/:id` | DELETE | admin | Revoke a token |
-| `/api/v1/tokens/:id/rotate` | POST | admin | Give a token a new secret |
-| `/api/v1/updates` | GET | admin | See the updates of the services |
-| `/api/v1/updates/apply` | POST | admin | Ask the helper to update components |
-| `/api/v1/updates/check` | POST | admin | Ask the helper to look for the latest releases |
-| `/api/v1/updates/clear-history` | POST | admin | Ask the helper to empty its history |
-| `/api/v1/updates/undo` | POST | admin | Ask the helper to put back the previous version |
+| `/api/v1/tokens` | GET | admin + `admin:tokens` | List the tokens of programs |
+| `/api/v1/tokens` | POST | admin + `admin:tokens` | Make a token for a program |
+| `/api/v1/tokens/:id` | DELETE | admin + `admin:tokens` | Revoke a token |
+| `/api/v1/tokens/:id/rotate` | POST | admin + `admin:tokens` | Give a token a new secret |
+| `/api/v1/updates` | GET | admin + `admin:updates` | See the updates of the services |
+| `/api/v1/updates/apply` | POST | admin + `admin:updates` | Ask the helper to update components |
+| `/api/v1/updates/check` | POST | admin + `admin:updates` | Ask the helper to look for the latest releases |
+| `/api/v1/updates/clear-history` | POST | admin + `admin:updates` | Ask the helper to empty its history |
+| `/api/v1/updates/undo` | POST | admin + `admin:updates` | Ask the helper to put back the previous version |
 | `/api/v1/uploads` | POST | operator + `artifacts:write` | Begin an upload in parts |
 | `/api/v1/uploads/:id` | PUT | operator + `artifacts:write` | Send a part of an upload |
 | `/api/v1/uploads/:id` | DELETE | operator + `artifacts:write` | Throw an upload away |
 | `/api/v1/uploads/:id/complete` | POST | operator + `artifacts:write` | Finish an upload and make its artifact |
-| `/api/v1/users` | GET | admin | List the users |
-| `/api/v1/users` | POST | admin | Create a user |
-| `/api/v1/users/:name` | PUT | admin | Change a user |
-| `/api/v1/users/:name` | DELETE | admin | Delete a user |
+| `/api/v1/users` | GET | admin + `admin:users` | List the users |
+| `/api/v1/users` | POST | admin + `admin:users` | Create a user |
+| `/api/v1/users/:name` | PUT | admin + `admin:users` | Change a user |
+| `/api/v1/users/:name` | DELETE | admin + `admin:users` | Delete a user |
 | `/api/v1/work/jobs` | GET | viewer + `machines:view` | List the jobs of the generic queue, newest first |
 | `/api/v1/work/jobs` | POST | operator + `jobs:prepare` | Prepare a job on a machine of any plugin |
 | `/api/v1/work/jobs/:id` | GET | viewer + `machines:view` | Read a job with its history |

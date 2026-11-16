@@ -22,7 +22,7 @@ The exact shape of every request and answer, with the roles, the scopes and the 
 ## What every route has
 
 * **A named operation** in the OpenAPI contract, which a test compares with the router: a route that is not described, or a description with no route, fails the build.
-* **Roles and scopes.** The three roles (viewer reads, operator prepares, starts and writes, administrator manages) and, for a token of a program, the scopes that narrow the role: `projects:read`, `projects:write`, `catalog:read`, `catalog:write`, `machines:view`, `machines:manage`, `jobs:prepare`, `jobs:start`, `jobs:cancel`. A scope narrows a role and never widens it.
+* **Roles and scopes.** The three roles (viewer reads, operator prepares, starts and writes, administrator manages) and, for a token of a program, the scopes that narrow the role: `projects:read`, `projects:write`, `catalog:read`, `catalog:write`, `machines:view`, `machines:manage`, `jobs:prepare`, `jobs:start`, `jobs:cancel`, and for the administration `admin:users`, `admin:tokens`, `admin:policy` and `admin:updates`. A scope narrows a role and never widens it.
 * **Stable error codes**, the same catalog for the whole server (`docs/error-codes.json`), each with its status; the clients turn them into a sentence of their language.
 * **Limits in `server.cfg`**, none in the code: file and project sizes, number of files, versions kept, lock time, page sizes, queue length, clients of the stream, lockout and passwords. `server.cfg.example` explains every key.
 * **Audit.** Every change of the services writes a line (who, what, which project, machine or job) to the console and to `audit.jsonl`; no password, token or file content is ever written.
