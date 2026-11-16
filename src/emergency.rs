@@ -21,7 +21,7 @@ const TURN: Duration = Duration::from_millis(25);
 pub const REAL_TIME_STOP: [u8; 2] = [b'!', 0x18];
 
 /// The feed hold alone: the machine stops moving but keeps its state, and the job can go on after it.
-pub const REAL_TIME_HOLD: [u8; 1] = [b'!'];
+pub const REAL_TIME_HOLD: [u8; 1] = *b"!";
 
 /// The link the thread of the job uses.
 pub struct SharedLink<T: LineTransport> {
