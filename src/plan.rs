@@ -725,12 +725,15 @@ fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, Pl
     // the holes, in mm from the file's zero, and the tool table
     let mut holes: Vec<HoleIn> = Vec::new();
     let mut tool_rows: Vec<DrillToolIn> = Vec::new();
+    // a drill file that does not say its unit is read as mils: the view says so (`units_supposed`)
+    let mut units_supposed = false;
     match (&req.files, &req.holes) {
         (Some(files), None) => {
             let file = ncd::parse(&files.ncd).map_err(|e| PlanError {
                 code: "bad_ncd",
                 detail: format!("{e:?}"),
             })?;
+            units_supposed = !file.units_declared;
             let unit = settings.as_ref().map_or(MIL_MM, |m| m.unit.mm());
             let scale = settings.as_ref().map_or((1.0, 1.0), |m| m.scale);
             let sorting = sorting_of(req.sorting.as_deref(), settings.as_ref())?;
@@ -914,6 +917,9 @@ fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, Pl
         holes.len(),
     )?;
     warnings.extend(decision.warnings);
+    if units_supposed {
+        warnings.push(rack_warning("units_supposed", "", Vec::new()));
+    }
     let tools = job_tools
         .iter()
         .map(|t| ToolView {
@@ -1268,6 +1274,30 @@ mod tests {
             .holes
             .iter()
             .any(|h| (h.x_mm - 25.4).abs() < 1e-9 && (h.y_mm - 50.8).abs() < 1e-9));
+        assert!(
+            planned
+                .view
+                .warnings
+                .iter()
+                .all(|w| w.code != "units_supposed"),
+            "a file that says its unit is not warned"
+        );
+        // a file with no unit in its header is read as mils and the view says so
+        let bare = "%
+T1
+X1000Y1000
+X2000Y1000
+";
+        let request =
+            serde_json::json!({"kind": "drill", "files": {"ncd": bare, "dtd": dtd}}).to_string();
+        let planned = plan(&machine(), &serde_json::from_str(&request).unwrap()).unwrap();
+        let codes: Vec<&str> = planned
+            .view
+            .warnings
+            .iter()
+            .map(|w| w.code.as_str())
+            .collect();
+        assert!(codes.contains(&"units_supposed"), "{codes:?}");
         let bad = serde_json::json!({"kind": "drill", "files": {"ncd": ncd, "dtd": dtd}, "sorting": "diagonal"}).to_string();
         assert_eq!(
             plan(&machine(), &serde_json::from_str(&bad).unwrap())
