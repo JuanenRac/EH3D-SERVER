@@ -707,6 +707,13 @@ fn plan_gcode(machine: &MachineRecord, req: &GcodeRequest) -> Result<Planned, Pl
     })
 }
 
+/// Whether the header of a drill file says its unit (`METRIC`, `INCH`, `M71` or `M72`): when it does not, its numbers are read as mils.
+fn declares_unit(text: &str) -> bool {
+    text.lines()
+        .map(str::trim)
+        .any(|l| l.starts_with("METRIC") || l.starts_with("INCH") || l == "M71" || l == "M72")
+}
+
 fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, PlanError> {
     let settings = settings_of(&machine.dcf);
     let connection = machine.connection_config().map_err(|e| PlanError {
@@ -733,7 +740,7 @@ fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, Pl
                 code: "bad_ncd",
                 detail: format!("{e:?}"),
             })?;
-            units_supposed = !file.units_declared;
+            units_supposed = !declares_unit(&files.ncd);
             let unit = settings.as_ref().map_or(MIL_MM, |m| m.unit.mm());
             let scale = settings.as_ref().map_or((1.0, 1.0), |m| m.scale);
             let sorting = sorting_of(req.sorting.as_deref(), settings.as_ref())?;
