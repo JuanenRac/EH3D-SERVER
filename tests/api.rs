@@ -3089,6 +3089,40 @@ async fn the_stop_of_a_machine_ends_the_job_that_runs_on_it_whoever_asks_and_a_v
 }
 
 #[tokio::test]
+async fn a_stop_of_a_machine_without_work_is_harmless_so_a_stop_of_every_listed_machine_is_safe() {
+    let s = server("stop-idle");
+    let boss = admin(&s).await;
+    let operator = user_with_role(&s, &boss, "op1", "operator").await;
+    demo_machine(&s, &boss, "m1").await;
+    demo_machine(&s, &boss, "m2").await;
+    // a machine with no work answers that nothing was stopped, every time, and has no job afterwards
+    for _ in 0..2 {
+        let (status, body) = post(&s, &operator, "/api/v1/machines/m2/stop", None).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            (body["stopped"].clone(), body["job"].clone()),
+            (json!(false), json!(null))
+        );
+    }
+    // the work of another machine is not touched by it
+    let (_, job) = post(&s, &operator, "/api/v1/machines/m1/jobs", Some(drill_job())).await;
+    let id = job["id"].as_str().unwrap().to_string();
+    post(&s, &operator, &format!("/api/v1/jobs/{id}/start"), None).await;
+    wait_for(&s, &operator, &id, &["waiting_operator"], false).await;
+    let (_, idle) = post(&s, &operator, "/api/v1/machines/m2/stop", None).await;
+    assert_eq!(idle["stopped"], false);
+    wait_for(&s, &operator, &id, &["waiting_operator"], false).await;
+    // a stop sent to every listed machine ends the work of the one that has it and says nothing was stopped on the other
+    let (_, first) = post(&s, &operator, "/api/v1/machines/m1/stop", None).await;
+    let (_, second) = post(&s, &operator, "/api/v1/machines/m2/stop", None).await;
+    assert_eq!(
+        (first["stopped"].clone(), second["stopped"].clone()),
+        (json!(true), json!(false))
+    );
+    wait_for(&s, &operator, &id, &["cancelled"], false).await;
+}
+
+#[tokio::test]
 async fn the_health_check_says_little_to_everybody_and_more_to_who_is_logged_in() {
     let s = server("health");
     let (status, open) = call(&s, Method::GET, "/api/v1/health", None, None).await;

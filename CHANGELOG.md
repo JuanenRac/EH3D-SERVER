@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **A stop of a machine with no work is covered by a test as harmless:** it answers that nothing was stopped, leaves the work of other machines alone, and a stop sent to every listed machine ends only the work that exists.
+
 - **A drill file with no unit in its header is warned about:** the view of a drilling job planned from files carries the warning `units_supposed` when the file has no `METRIC`, `INCH`, `M71` or `M72`, because its numbers are then read as mils and a file in inches written without a header would come out ten times larger. Tested with a file that says its unit and one that does not.
 
 - **Invented names can no longer crowd the block of a real user out of the table of wrong passwords, and the design program has a limit of runs at the same time:** the wrong passwords for names that are not users go to a table of their own (they are slowed down the same way, so the answer does not tell which names exist) and a real user is always counted; `design_max_parallel` (1 by default, 1 to 64) is how many runs of the design program may go on at once, and one more is refused with `429 queue_full`. Tests cover the full table, the unknown name and the limit.
