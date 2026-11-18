@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.1.8] - Scopes for the machines and for administration, private files of the account and an update helper that refuses to go back
+
 - **A stop of a machine with no work is covered by a test as harmless:** it answers that nothing was stopped, leaves the work of other machines alone, and a stop sent to every listed machine ends only the work that exists.
 
 - **A drill file with no unit in its header is warned about:** the view of a drilling job planned from files carries the warning `units_supposed` when the file has no `METRIC`, `INCH`, `M71` or `M72`, because its numbers are then read as mils and a file in inches written without a header would come out ten times larger. Tested with a file that says its unit and one that does not.
@@ -18,6 +20,7 @@ All notable changes to this project are documented here.
 - **The update helper refuses to go back to an older version:** a signed release of an old version that is published again as the latest is no longer installed over a newer one; `--allow-downgrade` or `allow_downgrade` in the settings of the helper allows going back on purpose. Four more tests of the helper.
 - **The update helper no longer writes through links in the shared folder:** the folder belongs to the account of the server and the helper runs as root, so a link left in the place of `status.json.tmp` (or of any other file the helper writes) made it write through the link. The temporary file is now created new (an existing link is removed, never followed), files are read without following links, and a request with an action other than check, apply, undo or clear_history is refused without copying its text into the history.
 - **The first administrator is made from this computer by default once the network is open:** `local_until_setup` now applies by itself, while the server has no user, whenever `network_open` is on or `listen` names an address that is not this computer, so nobody else on the network can make the first administrator. The switch stays: `local_until_setup = false` in `server.cfg` turns it off on purpose, and `local_until_setup = true` applies it always. The security page and the health detail show the value in force.
+
 ## [0.1.7] - The release files are attached again and a shift with failures is tested
 
 - **The release files are attached again:** version 0.1.6 was published without its packages, so the update of the server said that the release had no `eh3d-server-0.1.6-linux-aarch64.tar.gz`. This version is built and attached from its own commit by the release workflow, with the names the update helper looks for (`eh3d-server-<version>-linux-<x86_64|aarch64>.tar.gz` and its `.sha256`), and the Windows and macOS packages beside them.
