@@ -113,7 +113,7 @@ async fn the_plugins_and_their_machines_are_listed_and_managed_by_an_administrat
     assert_eq!(again["error"], "machine_exists");
     for (body, code) in [
         (
-            json!({"id": "x", "name": "X", "plugin": "laser"}),
+            json!({"id": "x", "name": "X", "plugin": "no_such_plugin"}),
             "unknown_plugin",
         ),
         (
