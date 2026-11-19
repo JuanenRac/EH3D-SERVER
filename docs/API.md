@@ -345,7 +345,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `internal` | 500 | A task of the server failed; the server is still up. |
 | `job_active` | 409 | The job is running: stop it first. |
 | `jog_while_running` | 409 | A job is running or held on the machine: stop it before a jog. |
-| `laser_estop_latched` | 409 | An emergency stop latched the laser machine: nothing is prepared or started on it until a job of the kind rearm has run. |
+| `laser_estop_latched` | 409 | An emergency stop latched the laser machine: nothing is prepared or started on it until an administrator releases it. |
 | `laser_feed_limit` | 422 | A line of the G-code program asks for a cutting feed over max_feed_mm_min of the laser machine. |
 | `laser_power_limit` | 422 | The job asks for more power (S) than the limit of the laser machine (power_limit_pct of max_s) and the machine is set to reject it. |
 | `last_admin` | 409 | The last administrator cannot be deleted, disabled or demoted. |

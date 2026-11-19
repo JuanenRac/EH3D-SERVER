@@ -321,7 +321,7 @@
   },
   {
     "code": "laser_estop_latched",
-    "description": "An emergency stop latched the laser machine: nothing is prepared or started on it until a job of the kind rearm has run.",
+    "description": "An emergency stop latched the laser machine: nothing is prepared or started on it until an administrator releases it.",
     "status": 409
   },
   {

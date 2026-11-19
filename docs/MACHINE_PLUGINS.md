@@ -12,7 +12,7 @@ A machine plugin is a value of a type that implements `MachinePlugin` (`src/plug
 
 | Operation | What it does |
 |---|---|
-| `kind`, `title` | the short name (`bungard`, `demo`, `laser`, `pnp`, `pcb`) that `plugin` says in machines and jobs, and a line of text |
+| `kind`, `title` | the short name (`bungard`, `demo`, `laser`, `pnp`, `pcb`, `cnc`, `gerber`, `cam`, `printer3d`) that `plugin` says in machines and jobs, and a line of text |
 | `capabilities` | what the machines can do: the kinds of request they take, whether they can be held, how progress is counted |
 | `machines` | the machines of this kind, with their state (`idle` or `busy`) |
 | `prepare` | checks a request and makes a job ready on a machine; nothing moves. Gives the id the plugin knows the job by and what a client draws of it |
@@ -21,8 +21,14 @@ A machine plugin is a value of a type that implements `MachinePlugin` (`src/plug
 | `discard` | a job that was prepared and will not start: the plugin lets go of what it kept |
 | `manages_machines`, `check_settings` | whether the machines of the plugin are made with `POST /work/machines`, and what their settings may be |
 | `detail` | what a client sees of a machine besides its state (the latch of a laser, the feeders of a pick-and-place machine...); optional |
+| `routes`, `operation` | the routes a kind adds under `/work/machines/{id}/` (a jog, a test fire, the heaters of a printer), each with its verb, its role and its scope, and the work they do; optional |
+| `auto_start` | whether the queue starts the next job of a free machine by itself; a switch of the machine, off unless the machine says so |
 
 To add a plugin: write the type, add it to `Registry::standard()` and describe it in `docs/openapi.yaml` through `tools/make_openapi.py`. The generic layer, the history, the events, the notifications, the roles and the audit come with it.
+
+**A file named in a request.** A request that has `artifact` (or `job` in a `place` request) names an artifact of the store: the server gives the plugin its text as `artifact_text`, if the caller sees that artifact and it is text up to 64 MiB. A text the caller puts in `artifact_text` himself is thrown away. A plugin that reads a file (G-code, Gerber, Excellon, a list of placements) takes it from there, or from the data of the request.
+
+**Keys in the settings.** The key of the API of a printer (`connection.api_key`) is kept in the settings of its machine, because the server needs it to reach the printer, and is shown as `********` wherever the settings are shown. A change of settings that sends the stars back keeps the key.
 
 ### `bungard`
 
@@ -40,24 +46,36 @@ Laser machines for the laser programs. It is a **simulator**: the jobs are check
 
 | Setting | Meaning |
 |---|---|
-| `bed_x_mm`, `bed_y_mm` | the bed, 10 to 5000 (400 by default) |
-| `max_s` | the value of `S` that is full power, 1 to 65535 (1000) |
-| `power_limit_pct` | the most power a job may ask, in percent of `max_s`, 1 to 100 (**40**) |
-| `over_limit` | `reject` (default) refuses a job that asks for more; `clamp` cuts every `S` to the limit |
-| `max_feed_mm_min`, `rapid_mm_min` | the fastest cutting feed (6000) and the speed of a rapid move (12000) |
-| `latch_on_stop` | an emergency stop latches the machine (true) |
-| `test_fire_max_s` | the longest test fire, 0.01 to 10 seconds (1) |
-| `sim_rate` | how many times faster than real time the simulation works, 0 to 100000 (1; 0 is no waiting) |
+| `bed_x_mm` | width of the bed, 10 to 5000 (400 by default) |
+| `bed_y_mm` | depth of the bed, 10 to 5000 (400 by default) |
+| `max_s` | the value of S that is full power, 1 to 65535 (1000 by default) |
+| `power_limit_pct` | the most power a job may ask, in percent of max_s, 1 to 100 (40 by default) |
+| `over_limit` | `reject` (default) refuses a job that asks for more power than the limit, `clamp` cuts it to the limit |
+| `max_feed_mm_min` | the fastest cutting feed, 1 to 100000 (6000 by default) |
+| `rapid_mm_min` | the speed of a rapid move, 1 to 100000 (12000 by default) |
+| `latch_on_stop` | an emergency stop latches the machine until an administrator releases it (true by default) |
+| `test_fire_max_s` | the longest test fire, 0.01 to 10 seconds (1 by default) |
+| `test_fire_max_pct` | the most power of a test fire, in percent of max_s, 0 to 10 (1 by default) |
+| `require_enclosure_closed` | no job and no test fire while the enclosure input says open (true by default) |
+| `enclosure_closed` | the input of the enclosure: true when it is closed (true by default; the simulator takes it from here) |
+| `require_air_assist` | no job and no test fire while the air assist input says off (true by default) |
+| `air_assist_on` | the input of the air assist: true when it blows (true by default) |
+| `focus_check` | no job while the focus input says the head is not focused (true by default; a test fire does not need it) |
+| `focused` | the input of the focus: true when the head is focused (true by default) |
+| `latch_on_door_open` | the enclosure opened while a job runs ends the job and latches the machine (true by default) |
+| `sim_rate` | how many times faster than real time the simulated machine works, 0 to 100000 (1 by default; 0 is no waiting) |
 
-Raising `power_limit_pct`, switching `over_limit` to `clamp` or `latch_on_stop` off loosens a protection; they are the settings of the machine and only an administrator changes them.
+Raising `power_limit_pct` or `test_fire_max_pct`, switching `over_limit` to `clamp`, `latch_on_stop`, `latch_on_door_open`, a `require_*` or `focus_check` off loosens a protection; they are the settings of the machine and only an administrator changes them. The inputs of the enclosure, of the air assist and of the focus (`enclosure_closed`, `air_assist_on`, `focused`) are settings in the simulator, where a real machine will bring them from its pins.
 
-A job is one of three kinds:
+A job is one of three kinds (the old kind `rearm` is gone: the latch is released by an administrator, see below):
 
 * `{"kind": "gcode", "text": "...", "power_scale_pct": 50}` is a G-code program. It is read word by word and written again from the words that were understood (comments and anything else are dropped; `$` lines, real-time characters, `G28`, `G92`, tool changes and expressions are refused with `422 bad_gcode`). Every `S` is held to the power limit (`422 laser_power_limit`, or cut when the machine clamps), every feed to `max_feed_mm_min` (`422 laser_feed_limit`), every move and every arc to the bed (`422 outside_course`), and a rapid move with the beam on in constant mode (`M3`) is refused. A program that ends with the beam on gets an `M5`. `power_scale_pct` (1 to 100) lowers every `S` before the limit is looked at. The `view` has the number of lines, the length of the cut and of all the moves, the estimate in seconds, the highest `S`, how many were cut, the box of the cut and a drawing of at most 2000 points. The head starts where the machine left it.
-* `{"kind": "test_fire", "power_pct": 10, "seconds": 0.5}` is a short pulse to focus, with the same limits as a program.
-* `{"kind": "rearm"}` says that a person looked at the machine after an emergency stop.
+* `{"kind": "vector", "paths": [{"layer": "cut", "points": [[10, 10], [30, 10]], "closed": true}], "operations": [{"layer": "cut", "mode": "cut", "power_pct": 40, "speed": 600, "passes": 2}]}` makes a G-code program from the paths and the operations (`mode` is `cut` or `engrave`, `speed` in mm/min) and reads it like any other, so the limits of power, feed and bed hold. The paths and the operations may be the JSON of an artifact (`artifact`). A bad operation is `422 bad_operation`. The formats of a vector drawing (SVG, DXF) are not read yet.
+* `{"kind": "test_fire", "power_pct": 1, "seconds": 0.5}` is a short pulse to focus, with the limits of a program and of `test_fire_max_pct` (`422 test_fire_refused` above it).
 
-**The emergency stop** is `POST /work/jobs/{id}/cancel` on a job that runs or is held: the job ends at once, the beam goes off and, unless `latch_on_stop` is off, the machine is **latched**. A latched machine refuses to prepare or start any job but `rearm` (`409 laser_estop_latched`) until a `rearm` job has run. A job can be held and resumed (the beam is off while it is held). Progress is counted in lines. `GET /work/machines/{id}` has `detail`: `estop_latched`, `position_mm`, `beam_on`, the power in force and the bed.
+**The emergency stop** is `POST /work/jobs/{id}/cancel` on a job that runs or is held: the job ends at once, the beam goes off and, unless `latch_on_stop` is off, the machine is **latched**. A latched machine refuses to prepare or start any job (`409 laser_estop_latched`) until an administrator releases it with `POST /work/machines/{id}/laser/release` (an operator cannot). An enclosure opened while a job runs ends the job and latches the machine too (`latch_on_door_open`). A job can be held and resumed (the beam is off while it is held). Progress is counted in lines. `GET /work/machines/{id}` has `detail`: `estop_latched`, `position_mm`, `beam_on`, the power in force and the bed.
+
+**The routes of the laser.** `POST /work/machines/{id}/laser/test-fire` (operator, `jobs:start`) fires a pulse `{"power_pct", "seconds"}` at once, with no job: refused while a job runs (`409 machine_busy`), while the machine is latched, and while the enclosure input says open (`409 enclosure_open`) or the air assist input says off (`409 air_assist_off`) when the machine requires them. A program or a vector job is refused the same way, and also when the focus input says the head is not focused (`409 focus_not_checked`). `POST /work/machines/{id}/laser/release` (administrator, `machines:manage`) releases the latch.
 
 ### `pnp`
 
@@ -65,6 +83,8 @@ Pick-and-place machines for the pick-and-place program. A **simulator**; nothing
 
 * `{"kind": "load_feeders", "feeders": [{"slot": 1, "part": "R_0603_10k", "count": 150}], "replace": false}` says what is in the slots, as a person put it there; `replace: true` empties the slots that are not in the list (an empty list with `replace: true` empties them all).
 * `{"kind": "place", "placements": [{"ref": "R1", "part": "R_0603_10k", "x": 20, "y": 30, "rot": 90, "side": "top"}], "offset": {"x": 0, "y": 0}}` places parts. It is checked when it is prepared: the references are different, every place (moved by the offset) is on the bed (`422 outside_course`), and every part is in a feeder with enough left (`409 pnp_feeder_short`; a machine with `require_stock` off lets a job start whose feeders hold too few, and the job fails when one runs dry). The parts are taken from the first slot that has some left. The `view` has the placements with their slot, the count of each part, the travel and the estimate.
+
+The placements may be an artifact of the store: `{"kind": "place", "job": "<artifact id>"}`, a JSON list (or an object with `placements`) or a CSV with a header row whose columns are `ref` (or `designator`), `part` (or `val`, `value`), `x` (or `posx`), `y` (or `posy`) and, if they are there, `rot` and `side`; one that does not read is `422 bad_placement_list`. A request does not bring the placements as data and as an artifact at once.
 
 The simulated head takes the part off its feeder when it picks, so a feeder that is empty stops the job as `failed` (`feeder 3 is empty at R12`), and a machine with `sim_fail_pick_every` set to N loses the vacuum at the Nth placement of a job (the part is gone and the job fails there) to try how a program deals with it. The feeders are looked at again when the job starts, so a table changed in between is not trusted. `detail` has the `feeders` (with where each is picked from), the `head`, `placed_total` and `failed_picks`. Progress is counted in placements.
 
@@ -78,6 +98,115 @@ Board stations that make reports and checks and move nothing. A **simulator** of
 * `inspect`: `{"measurements": [{"name", "nominal", "tolerance", "value"}]}` each judged against its tolerance.
 
 The report is in the `view` of the job as soon as it is prepared; the job then runs for the time the station takes to go over its items. A job whose report has errors ends `done` with the verdict `fail`, unless the station has `fail_on_violation`, and then it ends `failed`. `detail` has how many jobs were done, the kind and the verdict of the last one and the rules in force. Progress is counted in items.
+
+### `cnc`
+
+CNC machines: routers, mills and engravers driven by G-code. A **simulator**: the program is read against the machine and run in a model, and nothing has been tried on a real machine. The machines are made with `POST /work/machines` (`"plugin": "cnc"`). The settings are checked, and a key that is not one of these is refused:
+
+| Setting | Meaning |
+|---|---|
+| `connection` | how the machine is reached: {"kind": "demo"} (the simulator, the default); `grbl` and `node` are not served yet |
+| `travel_x_mm` | the travel of X, 0 to 5000: a move outside 0 to this is refused (not set: the check is off and the job says so) |
+| `travel_y_mm` | the travel of Y, 0 to 5000: a move outside 0 to this is refused (not set: the check is off) |
+| `travel_z_mm` | the travel of Z, 0 to 5000: a move outside minus this to plus this is refused (not set: the check is off) |
+| `reject_out_of_travel` | a program that leaves the travel is refused (true by default); false lets it in and the job lists the lines |
+| `jog_max_mm` | the longest jog, 0.01 to 500 (50 by default) |
+| `jog_max_feed` | the fastest jog feed in mm/min, 1 to 30000 (1000 by default) |
+| `spindle_max_rpm` | the most turns a program may ask of the spindle, 0 to 65535 (12000 by default) |
+| `rapid_mm_min` | the speed of a rapid move for the estimate, 1 to 100000 (3000 by default) |
+| `latch_on_stop` | an emergency stop latches the machine until an administrator releases it (true by default) |
+| `step_ms` | the milliseconds one line takes in the simulator, 0 to 3600000 (20 by default; 0 ends a job as soon as it runs) |
+
+A job is `{"kind": "gcode", "text": "...", "skip": 0, "restore_outputs": false}` or `{"kind": "file", "artifact": "<id>"}` (a G-code artifact of the store). The program is cleaned by the same reader the `bungard` plugin uses (`422 bad_gcode`, `422 too_big`, `422 no_work`), then every move is looked at against the travel: an axis with its travel set is held to `0` to the travel (Z from minus the travel to the travel), an arc is looked at along its whole way and not only at its ends, and a move outside is `422 out_of_travel` (or listed in the job when `reject_out_of_travel` is off). `S` above `spindle_max_rpm` is `422 spindle_limit`. `G28`, `G30`, `G10` and `G92` are refused, because the server cannot follow where they put the coordinates. The job can be held and resumed, a stop ends it (feed hold and reset) and does not latch the machine. Progress is counted in lines, each taking `step_ms` in the simulator. The `view` has the number of lines, the moves, the box, the travel, the estimate, the highest feed and turns, and a drawing of at most 2000 points.
+
+**The routes of the CNC machine.** `GET /work/machines/{id}/position` (viewer, `machines:view`): the machine and work position, the state word (`Idle`, `Run`, `Alarm`), the turns of the spindle and the overrides. `POST /work/machines/{id}/jog` (operator, `jobs:start`): `{"axis", "distance_mm", "feed"}`, inside `jog_max_mm` and `jog_max_feed` and inside the travel, refused while a job runs (`409 jog_while_running`) and while the machine is latched. `POST /work/machines/{id}/emergency-stop` (operator, `jobs:cancel`, no body): the job that runs ends at once, the spindle goes off and the machine is latched. A latched machine refuses to prepare, start or jog (`409 machine_alarm`) until `POST /work/machines/{id}/release` (administrator, `machines:manage`). The connections `grbl` and `node` are not served yet; the machine is the simulator.
+
+### `gerber`
+
+Workers that read Gerber and drill files and check a board; they move nothing. A **simulator** of the time of the checks; the reports are made from the files the job brings. The machines are made with `POST /work/machines` (`"plugin": "gerber"`):
+
+| Setting | Meaning |
+|---|---|
+| `min_track_mm` | the narrowest track, 0.01 to 5 (0.15 by default) |
+| `min_clearance_mm` | the least gap between two pads of one layer, 0.01 to 5 (0.15 by default) |
+| `min_hole_mm` | the smallest hole, 0.1 to 10 (0.3 by default) |
+| `min_annular_ring_mm` | the least ring of copper around a hole, 0.01 to 2 (0.15 by default) |
+| `edge_distance_mm` | the least distance from a hole or a piece of copper to the edge of the board, 0 to 10 (0.3 by default) |
+| `max_findings` | the most findings a report lists, 1 to 10000 (500 by default) |
+| `max_input_mib` | the most text a job may bring, 1 to 64 MiB (64 by default) |
+| `item_ms` | the milliseconds one check takes in the simulator, 0 to 3600000 (0 by default: the job ends as soon as it runs) |
+
+The files come in the request (`"files": [{"name": "board.gtl", "text": "..."}]`, up to 64) or are one artifact (`"artifact"`). The readers are small: RS-274X with its format, units, apertures (`C`, `R`, `O`, `P`), draws, flashes, regions and `%TF.FileFunction`, and Excellon with its tools and hits; the function of a file comes from its attribute or from its name (`.gtl`, `-F_Cu.gbr`, `-Edge_Cuts.gbr`, `.drl`...). An arc is taken as the straight line between its ends and an aperture made by a macro has no size, so the checks that need a size skip it. A file that does not read is `422 bad_gerber` with its name, one that uses coordinates before it says its units is `422 unit_unknown`, and a check with no copper layer or a job with no file is `422 missing_layer`.
+
+* `{"kind": "load", ...}` lists the layers (function, units, box, apertures, tracks, pads, regions, holes, tools) and the size of the board.
+* `{"kind": "drc", ..., "rules": {...}}` goes over the rules (the request may put its own over the worker's; one out of its range is `422 bad_rules`): `track_width`, `clearance` (between pads of one layer), `hole_small`, `hole_outside`, `hole_edge`, `annular_ring` (against the pad at the same place), `copper_edge`, and the warnings `no_outline` and `clearance_skipped`. The verdict is `pass` or `fail`; findings past `max_findings` are counted and the list says it is cut.
+* `{"kind": "report", ..., "format": "text" | "json"}` is both, with the text or the data of the report in the `view`.
+
+Progress counts the checks done (one for `load`, six for the others), each taking `item_ms`. The result is in the `view` of the job; the files are not kept.
+
+### `cam`
+
+Workers that make G-code and check a program; they move nothing. The machines are made with `POST /work/machines` (`"plugin": "cam"`):
+
+| Setting | Meaning |
+|---|---|
+| `max_depth_mm` | the deepest cut a job may ask, 0.01 to 20 (3 by default) |
+| `max_feed_mm_min` | the fastest feed a job may ask, 1 to 30000 (3000 by default) |
+| `max_spindle_rpm` | the most turns a job may ask, 0 to 65535 (30000 by default) |
+| `max_safe_z_mm` | the highest safe height a job may ask, 0.1 to 100 (50 by default) |
+| `travel_x_mm` | the travel of X, 0 to 5000: the work has to fit 0 to this (not set: not checked) |
+| `travel_y_mm` | the travel of Y, 0 to 5000 (not set: not checked) |
+| `max_gcode_lines` | the most lines of G-code a job may make or check, 100 to 1000000 (200000 by default) |
+| `max_grid_cells` | the most cells of the grid of an isolation, 10000 to 20000000 (4000000 by default) |
+| `max_input_mib` | the most text a job may bring, 1 to 64 MiB (64 by default) |
+| `item_ms` | the milliseconds one step takes in the simulator, 0 to 3600000 (0 by default: the job ends as soon as it runs) |
+
+Everything a job asks is held to the limits of the worker and a request over one is `422 bad_params`, never cut down. The files are read as in `gerber` (inline or an artifact). `params` take `depth_mm`, `feed_mm_min`, `spindle_rpm` and `safe_z_mm` in every kind.
+
+* `{"kind": "drill", ..., "params": {"peck_mm", "offset_x_mm", "offset_y_mm", "tool_change": "pause" | "none"}}` drills the holes of the Excellon file, tool by tool from the smallest, nearest hole first, with an `M0` to change the drill; the box of the holes has to fit the travel (`422 out_of_travel`).
+* `{"kind": "outline", ..., "params": {"tool_dia_mm", "pass_depth_mm"}}` cuts the outside of a board whose outline layer is a rectangle (any other shape is `422 bad_params`), in passes.
+* `{"kind": "isolate", "layer": "...", ..., "params": {"tool_dia_mm", "passes", "overlap_pct", "resolution_mm"}}` puts the copper of the layer on a grid, grows it by the radius of the tool and follows the edge of what it grew to: the path keeps at least the radius of the tool from the copper, and is a few cells farther than that. A layer with copper pours or with pads made by a macro is refused, because the grid would leave them out; a grid over `max_grid_cells` is `422 too_big`.
+* `{"kind": "verify", "text": "..."}` reads a program that somebody else made (`artifact` for a G-code artifact) and reports its box, its moves, its feed and turns, and the findings `feed_over_limit`, `rpm_over_limit`, `too_deep`, `rapid_into_material`, `cut_with_spindle_off`, `out_of_travel`, `no_program_end` and `spindle_left_on`, with the verdict.
+
+The G-code and the report are in the `view` (`gcode`, `result`). `GET /work/machines/{id}/tools` (viewer) lists what the worker has built in. A CAM job can be cancelled and not held.
+
+### `printer3d`
+
+3D printers: a queue of prints that a person starts, the limits of temperature of each model, the heaters watched while they work, and an emergency stop that latches. The printer behind a machine is the **simulator** (a first-order model of the heaters that can be made to fail), **Klipper through Moonraker** or **OctoPrint**; the last two have only been tried against servers that live in memory and a socket of the computer the tests run on, never against a real printer. The machines are made with `POST /work/machines` (`"plugin": "printer3d"`):
+
+| Setting | Meaning |
+|---|---|
+| `model` | the model: generic (the default), bambu_a1, bambu_a1_mini or bambu_p1s; its profile gives the limits of temperature |
+| `connection` | how the printer is reached: {"kind": "demo"} (the simulator, the default), {"kind": "moonraker", "url": "http://host:7125", "api_key": "..."} or {"kind": "octoprint", "url": ..., "api_key": ...}; the key is never shown again; bambu_lan is a sheet only |
+| `hotend_max_c` | the hottest the hotend may be asked, 0 to 450 (the profile of the model by default) |
+| `bed_max_c` | the hottest the bed may be asked, 0 to 150 (the profile by default) |
+| `chamber_max_c` | the hottest the chamber may be asked, 0 to 100 (the profile by default; 0 is a printer with no chamber heater) |
+| `heat_timeout_s` | a heater that does not get to its target in this time stops the job, 30 to 3600 (900 by default) |
+| `temp_deviation_c` | a heater this far from its target for deviation_s latches the machine, 1 to 50 (15 by default) |
+| `deviation_s` | how long the deviation lasts before it latches, 1 to 120 (10 by default) |
+| `min_temp_c` | a reading below this is a broken sensor, -50 to 50 (5 by default) |
+| `max_feed_mm_s` | the fastest feed a program may ask, 1 to 500 (200 by default) |
+| `bed_x_mm` | the bed along X, 10 to 2000: a program that goes past it is refused (not set: not checked) |
+| `bed_y_mm` | the bed along Y, 10 to 2000 (not set: not checked) |
+| `bed_z_mm` | the height of the printer, 10 to 2000 (not set: not checked) |
+| `preheat_default_hotend_c` | the hotend target of a preheat that names none, 0 to 450 (200 by default) |
+| `preheat_default_bed_c` | the bed target of a preheat that names none, 0 to 150 (60 by default) |
+| `poll_ms` | how often the printer is asked, 200 to 10000 (1000 by default) |
+| `auto_start_queue` | the next queued job starts by itself when the printer is free (false by default: a person starts every print) |
+| `compat` | the answers shaped like another program's (GET .../compat/moonraker and .../compat/octoprint): off (the default), moonraker, octoprint or both |
+| `step_ms` | the milliseconds one line of a program takes in the simulator, 0 to 3600000 (20 by default) |
+| `sim_rate` | how many times faster than real time the simulator works, 0 to 100000 (1 by default; 0 is no waiting) |
+| `sim_fault` | makes the simulator fail: none (the default), thermal_runaway, sensor_lost or disconnect |
+
+The profiles are the limits of temperature the makers give: `generic` 260 C hotend, 100 C bed, 60 C chamber (the conservative limits of the server), `bambu_a1` 300/100/none, `bambu_a1_mini` 300/80/none and `bambu_p1s` 300/100/none. They are the numbers as the project knows them and should be checked against the maker's sheet of the printer one owns; the settings `hotend_max_c`, `bed_max_c` and `chamber_max_c` change them up to a hard maximum (450, 150 and 100 C). The connection `bambu_lan` is a sheet only (an experiment that is not served) and the cloud of Bambu is not there at all.
+
+A job is `{"kind": "print", "text": "...", "preheat": false}` (or `"artifact"`), `{"kind": "preheat", "hotend_c": 200, "bed_c": 60}` (no number names the defaults) or `{"kind": "gcode", "text": "M104 S150"}` (a short list of up to 50 commands). A program is read before it is accepted: a temperature (`M104`, `M109`, `M140`, `M190`, `M141`, `M191`) over a limit refuses the whole program (`422 program_over_limit`), so does a feed over `max_feed_mm_s`; `M112` is `422 bad_gcode` (the emergency stop is a route), a move past the bed is `422 out_of_travel`. Layers are counted from `;LAYER_CHANGE` and `;LAYER:` comments. A print is **queued** and a person starts it; the queue starts the next job of a free printer by itself only when the machine has `auto_start_queue` (off by default). A print can be held, resumed and stopped (the print is cancelled and the heaters go off); progress is the percent of the program. States are `idle` and `busy` (a latched machine is `busy` with `detail.latched`).
+
+**The heaters are watched** every time the printer is asked (every half second while a job runs): a reading below `min_temp_c` is a broken sensor (`sensor_fault`), a reading past the limit by more than 10 C or a heater `temp_deviation_c` from its target for `deviation_s` after it had got there is `thermal_runaway`, a target the printer has past the limit (set from outside the server) is switched off, and each of those stops the printer, fails the job and latches the machine. A heater that does not get to its target in `heat_timeout_s` fails the job (`heater_timeout`) without latching. A printer that does not answer three polls in a row fails the job (`printer_disconnected`). The simulator takes the faults `thermal_runaway`, `sensor_lost` and `disconnect` from the setting `sim_fault`.
+
+**The routes of the printer.** `GET /work/machines/{id}/temperatures` (viewer): each heater with its reading, target, power and limit, and a short history. `PUT /work/machines/{id}/temperatures` (operator, `jobs:start`): `{"heater", "target_c"}`, `422 temperature_over_limit` above the limit whoever asks and `422 bad_heater` for a heater that does not exist. `GET /work/machines/{id}/layer` (viewer): the layer, the layers, the height and an estimate of the time left. `POST /work/machines/{id}/emergency-stop` (operator, `jobs:cancel`, no body): heaters off and motors released at once, the job ends, the machine is latched; the answer says whether the printer was reached. A latched machine refuses to prepare, start or heat (`409 printer_latched`) until `POST /work/machines/{id}/release` (administrator, `machines:manage`), which also tells the printer to start again (Klipper restarts its firmware).
+
+**Answers shaped like Moonraker's and OctoPrint's.** With `compat` set to `moonraker`, `octoprint` or `both` (off by default), `GET /work/machines/{id}/compat/moonraker` gives the state in the shape of `GET /printer/objects/query` and `GET /work/machines/{id}/compat/octoprint` the printer and the job of `GET /api/printer` and `GET /api/job`, so that a program that reads those shapes can be pointed at the server's own routes. The server does not answer at the root paths of Moonraker and OctoPrint, and does not take their uploads: that needs a way for those programs to log in that the server does not have yet.
 
 ## The machines
 
@@ -132,11 +261,13 @@ Operations that move a machine are the operator's and need `jobs:prepare`, `jobs
 
 ## Planned plugins
 
-Of these plugins, `pnp`, `laser` and `pcb` have a first version that the server serves today (the sections above): simulators that use only the generic routes. They are narrower than their sheets and differ from them in places, so what follows for those three says what the plugin will be and not what it is: for `laser`, the requests `vector`, the enclosure, air-assist and focus switches, the routes `test-fire` and `release` (the first version has the test fire and the release as the job kinds `test_fire` and `rearm`, and anybody who may prepare a job may rearm), `power_limit_pct` with a default of 40 in place of `power_max_pct`, and the codes named here; for `pnp`, the placement list as an artifact, `calibrate`, the routes of feeders and vision, the dialogs of the operator and `dry_run_default` (the first version takes the placements and the feeders in the request, and `load_feeders` declares the feeders); for `pcb`, the jobs that run on a worker over a project of the store (the first version only checks and reports on the data that the request brings). The other sheets are untouched. Each sheet says what the plugin will be, so that it can be built in one round without inventing the contract; nothing else below is served by the server today. The order of work is `cnc`, `pnp`, `laser`, `cam`, `gerber`, `pcb`, `printer3d`. Every plugin follows the same rules: it is a value of a type that implements `MachinePlugin` and is added to `Registry::standard()`; it has a simulator that needs no hardware (`connection.kind = "demo"` or its own `sim`) so that every route is tested; its routes are described through `tools/make_openapi.py` (so `docs/openapi.*`, `docs/ROUTES.md` and `docs/API.md` carry them); its refusals are codes of `docs/error-codes.json` with their texts in the eight languages of the suite (en, es, it, de, fr, pt of Portugal, zh, ja); its settings have a range and a conservative default and are checked by `check_settings`; whatever is a safety limit is a setting, never a constant; and its job requests that move a machine are the operator's (`jobs:prepare`, `jobs:start`, `jobs:cancel`). A machine that can move has a stop that does not wait for the queue (`POST /machines/{id}/stop` of the machine family, as `bungard` has).
+Of these plugins every one has a first version that the server serves today (the sections above): simulators that run on the generic routes and, for `cnc`, `laser` and `printer3d`, a few routes of their own. They are narrower than their sheets and differ from them in places, so each sheet says what the plugin will be and the line in italics under its title says how the first version differs. The first versions of `laser`, `pnp` and `pcb` were narrower than their sheets and have been brought nearer to them; `pcb` is still the first version (the jobs that run on a worker over a project of the store are not served). The order of work was `cnc`, `pnp`, `laser`, `cam`, `gerber`, `pcb`, `printer3d`. Every plugin follows the same rules: it is a value of a type that implements `MachinePlugin` and is added to `Registry::standard()`; it has a simulator that needs no hardware (`connection.kind = "demo"` or its own `sim`) so that every route is tested; its routes are described through `tools/make_openapi.py` (so `docs/openapi.*`, `docs/ROUTES.md` and `docs/API.md` carry them); its refusals are codes of `docs/error-codes.json` with their texts in the eight languages of the suite (en, es, it, de, fr, pt of Portugal, zh, ja); its settings have a range and a conservative default and are checked by `check_settings`; whatever is a safety limit is a setting, never a constant; and its job requests that move a machine are the operator's (`jobs:prepare`, `jobs:start`, `jobs:cancel`). A machine that can move has a stop that does not wait for the queue (`POST /machines/{id}/stop` of the machine family, as `bungard` has; `emergency-stop` for `cnc` and `printer3d`).
 
 The generic routes (`/work/machines`, `/work/jobs`, the events and the notifications) serve every plugin. A plugin adds only what they cannot say: its `request` kinds, its `detail` and, where the plugin needs a read that is not a job, a route under `/api/v1/work/machines/{id}/...` with the role and scope written in its sheet.
 
 ### `cnc`
+
+*First version: served (see the section `cnc`). The connections `grbl` and `node` are not served, only `demo`; `file` and `gcode` are; the state `alarm` and the route `unlock` are not (an emergency stop latches the machine and an administrator releases it with `release`); `resume_safe_z_mm` is not a setting yet (a held job goes on from its line, the simulator does not move the head); the settings `rapid_mm_min` and `latch_on_stop` are added. The six codes of the sheet are served.*
 
 For PHOENIX-CNC and any router, mill or engraver driven by G-code. Request kinds: `gcode` (`{"kind": "gcode", "text": "...", "skip": 0, "restore_outputs": false}`, the request PHOENIX-CNC already sends to `/machines/{id}/jobs`) and `file` (`{"kind": "file", "artifact": "<id>"}`, a G-code artifact of the store). Machines (`POST /work/machines`, `"plugin": "cnc"`) have a connection `grbl` (serial), `node` (a node of the suite) or `demo` (the simulator). The plugin plans nothing: it checks the program against the travel of the machine (`reject_out_of_travel`), counts lines for the progress and sends it through the same G-code runner `bungard` uses, so a held job resumes from its line. The job can be held and resumed, and a stop sends the controller's feed hold and reset.
 * Routes: the generic ones, plus `GET /work/machines/{id}/position` (viewer, `machines:view`: the machine and work position, the state word of the controller, the override values) and `POST /work/machines/{id}/jog` (operator, `jobs:start`: `{"axis", "distance_mm", "feed"}`, refused while a job runs).
@@ -146,6 +277,8 @@ For PHOENIX-CNC and any router, mill or engraver driven by G-code. Request kinds
 
 ### `pnp`
 
+*First version: served (see the section `pnp`) with the requests `load_feeders` and `place`; the list of placements may be an artifact (`job`, CSV or JSON). `calibrate`, the routes of the feeders and of the vision, the state `waiting` with the dialogs of the operator and `dry_run_default` are not served. Of the codes of the sheet, `bad_placement_list` is served (`pnp_feeder_short` stands for `feeder_empty`).*
+
 For PHOENIX-PNP, a pick-and-place machine. Request kinds: `place` (`{"kind": "place", "job": "<artifact id of the placement list>", "board": {...}, "options": {"dry_run": true}}`) and `calibrate` (`{"kind": "calibrate", "what": "nozzle|camera|feeder", "target": "..."}`). A placement list is an artifact of the store (`csv` or `json`, the positions, rotations, packages and feeders). The plugin checks the list against the feeders and nozzles the machine has declared, makes the job ready with the count of components (`total`) and runs it step by step: pick, check, place; progress counts components. The job can be held and resumed between two components.
 * Routes: the generic ones, plus `GET /work/machines/{id}/feeders` (viewer: each feeder with its component, remaining count and state), `PUT /work/machines/{id}/feeders/{feeder}` (operator, `jobs:prepare`: declare or refill) and `GET /work/machines/{id}/vision/last` (viewer: the last picture check, as the artifact id of the picture and the verdict).
 * States: `idle`, `busy`, `waiting` (a dialog of the operator: a feeder is empty, a component failed its check).
@@ -153,6 +286,8 @@ For PHOENIX-PNP, a pick-and-place machine. Request kinds: `place` (`{"kind": "pl
 * Codes to add: `bad_placement_list`, `unknown_feeder`, `feeder_empty`, `no_nozzle`, `vision_failed`, `component_missing`.
 
 ### `laser`
+
+*First version: served (see the section `laser`) with the requests `gcode`, `vector` and `test_fire`, the routes `laser/test-fire` and `laser/release`, the switches of the enclosure, of the air assist and of the focus, and the latch on a door opened during a job. Differences: the limit is `power_limit_pct` (40 by default and rejecting) and not `power_max_pct`; the test fire is limited by `test_fire_max_pct` and `test_fire_max_s` (not `test_fire_ms`); `vector` takes paths and operations as data or as the JSON of an artifact, not a drawing file; the codes are `laser_power_limit`, `laser_estop_latched`, `enclosure_open`, `air_assist_off`, `bad_operation` and `test_fire_refused`, plus `focus_not_checked`.*
 
 For PHOENIX-LASER, a laser cutter or engraver. Request kinds: `gcode` and `vector` (`{"kind": "vector", "artifact": "<id>", "operations": [{"layer", "mode": "cut|engrave", "power_pct", "speed", "passes"}]}`). The plugin enforces power limits in the server (a request above `power_max_pct` is refused, never clamped silently), keeps an emergency stop latched until an administrator releases it, and reports the limits in force in `detail`.
 * Routes: the generic ones, plus `POST /work/machines/{id}/laser/test-fire` (operator, `jobs:start`: a short pulse at `power_pct` no higher than `test_fire_max_pct`, refused while a job runs, never when the enclosure input says open) and `POST /work/machines/{id}/laser/release` (administrator, `machines:manage`: releases a latched stop).
@@ -162,12 +297,16 @@ For PHOENIX-LASER, a laser cutter or engraver. Request kinds: `gcode` and `vecto
 
 ### `cam`
 
+*First version: served (see the section `cam`), but not as the sheet says: the worker runs nothing outside the server, so the kinds are `drill`, `outline`, `isolate` and `verify` (`stencil`, `autolevel` and `inspect` are not served), the result is in the `view` of the job and not an artifact of the store, `GET .../tools` lists what is built in, and the settings are those of the section (`max_concurrent`, `timeout_s`, `keep_results` and `sandbox_dir` are not needed). The codes `tool_not_installed`, `cam_failed` and `cam_timeout` are not used; `bad_params` and `input_too_large` are.*
+
 For ISOCAM, STENCILCAM, AUTOLEVEL, CAM-DEBUGGER and VISION: the programs that turn a design into toolpaths or check a result. It does not move a machine: it is a plugin of computed jobs, with machines of the kind `worker` (the CM5 itself, or a node that runs a tool). Request kinds: `isolate` (`{"kind": "isolate", "artifact": "<gerber>", "params": {...}}`), `stencil`, `autolevel` (a probe map from a run) and `inspect` (`{"kind": "inspect", "artifact": "<picture or toolpath>"}`); each makes an artifact of the store as its result (`result_type`), reusing the tasks and artifacts of `docs/PROJECT_STORE.md`. Progress is the share of the algorithm done. A job can be cancelled, not held.
 * Routes: the generic ones, plus `GET /work/machines/{id}/tools` (viewer: which of the kinds the worker has installed and their versions).
 * Settings: `max_concurrent` (1, 1 to 4), `timeout_s` (600, 10 to 86400), `max_input_mib` (64, 1 to 512), `keep_results` (50, 1 to 1000), `sandbox_dir` (the folder the tool may write in).
 * Codes to add: `tool_not_installed`, `bad_params`, `input_too_large`, `cam_failed`, `cam_timeout`.
 
 ### `gerber`
+
+*First version: served (see the section `gerber`) with `load`, `drc` and `report`. The files come inline or as one artifact; the layers and the findings are in the `view` of the job (the routes `GET /work/jobs/{id}/layers` and `.../findings` are not served) and the report is not an artifact. The checks are the track width, the gap between pads, the size of the holes, the ring around a hole and the distance to the edge; the gap between tracks and the copper pours are not looked at. `too_many_findings` is not a code (the list says it is cut).*
 
 A viewer and checker of Gerber and drill files, with no movement at all (no machine, no stop): the machines are `worker`s as in `cam`. Request kinds: `load` (`{"kind": "load", "artifact": "<id>"}`: reads the files, lists the layers with their function, the units, the bounding box and the apertures), `drc` (a basic design rule check against the rules of the job: minimum track, clearance, hole size, annular ring, board edge distance) and `report` (a text or JSON report as an artifact). Progress counts the checks done.
 * Routes: the generic ones, plus `GET /work/jobs/{id}/layers` (viewer: the layers of a finished `load`) and `GET /work/jobs/{id}/findings` (viewer: the findings of a finished `drc`, each with its layer, position and rule).
@@ -183,6 +322,8 @@ For PHOENIX-PCB: the design-to-board jobs that the server runs on a worker, as `
 
 ### `printer3d`
 
+*First version: served (see the section `printer3d`) with the connections `demo`, `moonraker` and `octoprint` (`marlin` is not served, `bambu_lan` is a sheet only), the requests `print`, `preheat` and `gcode`, the routes `temperatures`, `layer`, `emergency-stop`, `release` and the optional `compat/...` answers, and the eight codes of the sheet. Differences: the states are `idle` and `busy`; the setting `max_accel_mm_s2` of the sheet is not served, and `model`, `auto_start_queue`, `compat`, `sim_rate` and `sim_fault` are added; the limits of temperature come from the profile of the model.*
+
 For PHOENIX-3DP (a new application, `3dp` among the names of `auth_known_apps`), a 3D printer driven by G-code with Klipper (Moonraker), Marlin (serial) or the simulator. Machines have a connection `moonraker` (`{"url": "http://host:7125", "api_key": "..."}`, the key kept like the token of a node: never shown), `marlin` (serial port and baud rate) or `demo`. Request kinds: `print` (`{"kind": "print", "artifact": "<gcode>", "preheat": true}`), `preheat` (`{"kind": "preheat", "bed_c", "hotend_c"}`) and `gcode` (a short manual command list, operator). A print can be held and resumed (pause at a layer change), cancelled, and the progress is the share of the file sent; the layer is read from the `;LAYER:` comments or from the controller's report when it gives it.
 * Routes: the generic ones, plus `GET /work/machines/{id}/temperatures` (viewer: for each heater `current_c`, `target_c`, `power_pct` and the `limit_c` in force; a short history), `PUT /work/machines/{id}/temperatures` (operator, `jobs:start`: `{"heater", "target_c"}`, refused above the limit), `GET /work/machines/{id}/layer` (viewer: `layer`, `layers`, `z_mm`, `eta_s` when known) and `POST /work/machines/{id}/emergency-stop` (operator, `jobs:cancel`: heaters off and motors released at once, the machine latched until `POST /work/machines/{id}/release` by an administrator).
 * States: `idle`, `busy`, `waiting` (a held print or a filament change), `latched` (after an emergency stop or a thermal fault, shown as `busy` with `detail.latched`).
@@ -193,4 +334,4 @@ For PHOENIX-3DP (a new application, `3dp` among the names of `auth_known_apps`),
 
 ## What has been tried
 
-Everything above runs in the tests against the `demo` plugin, the simulator of the `bungard` plugin and the simulators `laser`, `pnp` and `pcb`. Nothing has been tried with a second kind of real machine: the evidence of the three new plugins is `simulator`, and the `bungard` plugin has run on a real machine only as far as the old routes have. The jobs of `demo`, `laser`, `pnp` and `pcb` live in memory: one that was open when the server stopped is marked as failed.
+Everything above runs in the tests against the `demo` plugin, the simulator of the `bungard` plugin and the simulators `laser`, `pnp`, `pcb`, `cnc`, `gerber`, `cam` and `printer3d`. Nothing has been tried with a second kind of real machine: the evidence of the new plugins is `simulator`, and the `bungard` plugin has run on a real machine only as far as the old routes have. The drivers for Moonraker and OctoPrint were tried against servers that live in memory and against a socket of the computer of the tests, not against a real Klipper or a real OctoPrint, and the limits of temperature of the models are the makers' figures as the project knows them. The jobs of `demo`, `laser`, `pnp`, `pcb`, `cnc`, `gerber`, `cam` and `printer3d` live in memory: one that was open when the server stopped is marked as failed.

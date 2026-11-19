@@ -30,7 +30,7 @@
 |---|---|
 | バージョン | `0.1.8` |
 | 成熟度 | 機能する |
-| テスト | 446 |
+| テスト | 546 |
 | 技術スタック | Rust (axum, tokio) |
 | 実機での動作 | いいえ：シミュレーターでテスト済み。サーバー経由で実機を動かしたことはまだありません |
 
@@ -45,7 +45,7 @@
 | 領域 | 状態 | ここでの意味 |
 |---|---|---|
 | ソフトウェア | 🟡 | Rust サーバー（axum）がユーザー、機械、ジョブを保持し、EH3D-DRILLPRO と EH3D-ROUTEPRO のライブラリでドリル／ルーティングのジョブを計画し、プレビューを表示して、オペレーターのダイアログと停止付きで実行します。 |
-| テスト | 🟡 | 446 件のテストが通ります（`cargo test`）：モジュール内 255 件、シミュレーターでジョブを動かすインターフェースのエンドツーエンド 191 件（`tests/api.rs` に 41 件、実プログラムを使う `tests/programs.rs` に 7 件）。 |
+| テスト | 🟡 | 546 件のテストが通ります（`cargo test`）：モジュール内 348 件、シミュレーターでジョブを動かすインターフェースのエンドツーエンド 198 件（`tests/api.rs` に 41 件、実プログラムを使う `tests/programs.rs` に 7 件）。 |
 | クライアント向けインターフェース（API） | 🟡 | REST リクエストと WebSocket イベントは `docs/API.md` とルートの OpenAPI 契約 `docs/openapi.yaml` に記載され、テストで網羅されています。現時点で使っているのはプログラム自身のサーバー接続だけです。 |
 | 共通サービス | 🟠 | プロジェクトストア、共有カタログ、キューとイベントを持つマシンプラグイン、共通ログインは、コンピューター上のテストで動きます。まだどのアプリケーションも使っておらず、キュー経由で実機が動いたことはなく、カタログには各プログラムの実データを読み込んでいません。 |
 | クライアント | 🔴 | EH3D-STUDIO はこれを使います（実機では未試験）。Android アプリと機械の横のタッチ パネルはまだ存在しません。 |
@@ -97,7 +97,7 @@ EH3D-SERVER は EH3D ファミリーの中心です。プログラムはジョ�
 * **ヘッドのカメラによる品質チェック：** サーバーが LED リングを点灯し、ノードから画像を取得して工房のアナライザーで判定し（プロファイルは機械ごとにサーバーが保持）、リングで結果（緑、または赤の点滅）を示し、最新のチェックを保持して機械横の画面とスマートフォンに表示します：`GET/POST .../head/light`、`GET .../head/snapshot`、`POST/GET .../head/inspect`、`GET/PUT .../head/inspect/profile`、`POST .../head/inspect/calibrate`。
 * **機械のスピンドル：** `GET` と `PUT /api/v1/machines/:id/spindle` は、機械が搭載しているスピンドル（`original` または `vfd`）とその限界（回転数、切削送り、突っ込み送り、最大のビット径）を示します。これを超える要求のジョブは `spindle_limit` で拒否されます（安全スイッチ `guard` の既定は `reject`。`warn` ではジョブは通り、回転数はスピンドルの最大値に抑えられ、超過は `spindle_warnings` に列挙されます）。
 * **版を持つプロジェクトストア：** ファイルは決して上書きされず、書き込みのたびに SHA-256 付きの新しい版になります。既存ファイルへの書き込みは、どの版から作ったかを示さなければならず（`If-Match`）、バイト列は読み出しのたびにハッシュと照合され、フォルダの外へ出うる名前や Windows の予約名は拒否されます。
-* **プラグインの背後の機械：** Bungard の機械は `bungard` プラグイン（同じ機械、同じジョブ、同じ従来のルート）で、ハードウェアなしの `demo` プラグインがテストに使われ、シミュレーターの `laser`（出力と送りの上限、ロックされる非常停止）、`pnp`（フィーダーと実装ジョブ）、`pcb`（チェックとレポート）がレーザー、ピックアンドプレース、基板のプログラムに使われます。汎用キューが各ジョブの履歴を保持し、イベントのストリーム（`GET /api/v1/events/stream`）により、クライアントは `Last-Event-ID` で何も失わずに再接続できます。
+* **プラグインの背後の機械：** Bungard の機械は `bungard` プラグイン（同じ機械、同じジョブ、同じ従来のルート）で、ハードウェアなしの `demo` プラグインがテストに使われ、シミュレーターの `laser`（出力と送りの上限、ロックされる非常停止）、`pnp`（フィーダーと実装ジョブ）、`pcb`（チェックとレポート）がレーザー、ピックアンドプレース、基板のプログラムに使われます。`cnc`（移動範囲に制限されるプログラム、上限付きのジョグ、管理者が解除するまでロックされる非常停止）、`gerber` と `cam`（Gerber のチェック、穴あけ・外形・アイソレーション用の G コード）、`printer3d`（機種ごとの温度上限、監視されるヒーター、Moonraker と OctoPrint のドライバー）が、CNC・基板ツール・3D プリントのプログラムに同様に使われます。汎用キューが各ジョブの履歴を保持し、イベントのストリーム（`GET /api/v1/events/stream`）により、クライアントは `Last-Event-ID` で何も失わずに再接続できます。
 * **すべてのアプリケーション共通のログイン：** ログインはどのアプリケーション向けかを示し、各人は自分の開いているセッションを見て終了でき、管理者は誰のものでも扱えます。パスワードとロックアウトは設定に従い、監査にはログイン、拒否、終了が残り、秘密は決して残りません。`GET /api/v1/auth/policy` は Studio にセキュリティのスイッチを示します。
 
 ## 🔒 セキュリティと安全
@@ -177,7 +177,7 @@ python -I tools/ci_validate.py
 
 ## 🧪 テスト
 
-テストは 437 件です（`cargo test`、CI では COMMON, DRILLPRO と ROUTEPRO をサーバーの隣に取得して Windows と Linux で実行）。モジュール内 251 件（設定とその範囲、ユーザー、権限、トークン、誤ったパスワードの遅延、ファイルとジョブ台帳、計画）、実際のルーターを通すインターフェースのエンドツーエンド 41 件（`tests/api.rs`）、クライアントが読む応答の例を保つ 2 件（`tests/examples.rs`）、実プログラムが実サーバーへ実ポートでジョブを送り機械はシミュレーターという 7 件（`tests/programs.rs`）です。`tests/` の他のファイルにはさらに 119 件あります（4 つの共通サービスとそのドキュメント、アーティファクト、計算タスク、共有、イベント、エラーカタログ、API ドキュメントのルート、シグナルによる停止とパニック）。CI は `cargo fmt --all --check`、警告をエラーとする `cargo clippy`、`python -I tools/ci_validate.py` も実行します。実際のノードや機械に対するテストはありません。 更新を行うヘルパーには専用のテストがさらに 33 件あります（`python -I tests/test_update_helper.py`、GitHub と systemd は代役に置き換え）。 さらに 2 つのテストファイルが、ロックを汚染する panic でもサーバーが止まらないこと（`tests/poison.rs`）と、実バイナリーが SIGTERM で停止すること（`tests/sigterm.rs`、Linux）を確認します。バックアップとデプロイ用ファイルにはそれぞれ 7 件と 8 件の専用テストがあります（`tests/test_backup.py`、`tests/test_deploy_files.py`）。 さらに 2 つのテストファイルが、実際のソケット上のイベント用 websocket（`tests/events.rs`、3 件）と、サーバーのソースに対するエラーコード一覧（`tests/errors.rs`、3 件）を確認します。 ルートの契約はルーターに対して `tests/openapi.rs`（6 件）と `python -I tools/check_openapi.py` で検査され、後者は CI でも実行されます。
+テストは 537 件です（`cargo test`、CI では COMMON, DRILLPRO と ROUTEPRO をサーバーの隣に取得して Windows と Linux で実行）。モジュール内 344 件（設定とその範囲、ユーザー、権限、トークン、誤ったパスワードの遅延、ファイルとジョブ台帳、計画）、実際のルーターを通すインターフェースのエンドツーエンド 41 件（`tests/api.rs`）、クライアントが読む応答の例を保つ 2 件（`tests/examples.rs`）、実プログラムが実サーバーへ実ポートでジョブを送り機械はシミュレーターという 7 件（`tests/programs.rs`）です。`tests/` の他のファイルにはさらに 126 件あります（4 つの共通サービスとそのドキュメント、アーティファクト、計算タスク、共有、イベント、エラーカタログ、API ドキュメントのルート、シグナルによる停止とパニック）。CI は `cargo fmt --all --check`、警告をエラーとする `cargo clippy`、`python -I tools/ci_validate.py` も実行します。実際のノードや機械に対するテストはありません。 更新を行うヘルパーには専用のテストがさらに 33 件あります（`python -I tests/test_update_helper.py`、GitHub と systemd は代役に置き換え）。 さらに 2 つのテストファイルが、ロックを汚染する panic でもサーバーが止まらないこと（`tests/poison.rs`）と、実バイナリーが SIGTERM で停止すること（`tests/sigterm.rs`、Linux）を確認します。バックアップとデプロイ用ファイルにはそれぞれ 7 件と 8 件の専用テストがあります（`tests/test_backup.py`、`tests/test_deploy_files.py`）。 さらに 2 つのテストファイルが、実際のソケット上のイベント用 websocket（`tests/events.rs`、3 件）と、サーバーのソースに対するエラーコード一覧（`tests/errors.rs`、3 件）を確認します。 ルートの契約はルーターに対して `tests/openapi.rs`（6 件）と `python -I tools/check_openapi.py` で検査され、後者は CI でも実行されます。
 
 ## 🏗️ ビルドとリリース
 
@@ -195,37 +195,39 @@ python -I tools/ci_validate.py
 ```text
 EH3D-SERVER/
 ├── src/
-│   ├── api.rs                                           REST ルートと WebSocket
-│   ├── auth.rs                                          ユーザー、権限、トークン、誤ったパスワードの遅延
-│   ├── plan.rs                                          リクエストから機械が実行する項目まで
-│   ├── jobs.rs state.rs                                 ジョブと、実行中のサーバーの構成要素
-│   ├── audit.rs errors.rs panic.rs                      監査、ジョブ記録、エラーコード、パニック終了
-│   ├── machines.rs store.rs                             機械と、一時ファイル経由で書かれるファイル
-│   ├── config.rs lib.rs main.rs                         設定ファイル、ライブラリのルート、プログラム
-│   ├── updates.rs  head.rs                              サービスの更新
-│   ├── inspect.rs                                       ヘッドのカメラによる品質チェック
-│   ├── gcode.rs gcode_run.rs                            自由な G コード：整形、解析、シミュレーターまたは GRBL での実行
-│   ├── spindle.rs                                       機械のスピンドル、その限界、安全スイッチ
-│   ├── pstore.rs api_pstore.rs                          プロジェクトストア：版、ロック、コンテナ
-│   ├── catalogs.rs api_catalogs.rs                      共有カタログ：材料、工具、ライブラリ
-│   ├── plugins.rs work.rs feed.rs api_work.rs           マシンプラグイン、ジョブキュー、イベント、通知
-│   ├── laser.rs pnp.rs pcb.rs plugin_*.rs simclock.rs   シミュレートされたレーザー・ピックアンドプレース・基板マシンとその時計
-│   └── apps.rs api_auth.rs                              アプリケーションと、全アプリ共通のログイン
-├── tests/                                               シミュレーター上のインターフェースのエンドツーエンドと、実サーバーに対する実プログラム
-├── docs/                                                API、その OpenAPI 契約、サーバー運用の手引き、2 つの図のデータ
-├── deploy/                                              systemd ユニットとサービスのヘルパー
-├── server.cfg.example                                   すべてのキーに説明を付けた設定ファイル
-├── tools/                                               CI と README のチェック、OpenAPI、スクリプトのパネル、図のツール
-├── images/                                              バナーとアーキテクチャ・リポジトリ構成の図
-├── .github/                                             CI とリリースのワークフロー、Issue と PR のテンプレート
-├── build.sh build.bat                                   ライブ パネルでリリース バイナリをビルド
-├── run.sh run.bat                                       サーバーを起動（必要なら先にビルド）
-├── eh3d.project.json                                    マニフェスト：バージョン、役割、成熟度、ビルドコマンド
-├── Cargo.toml Cargo.lock                                Rust パッケージ、依存関係、2 つのプログラムのライブラリ
-├── rust-toolchain.toml                                  固定されたRustツールチェーン
-├── CHANGELOG.md                                         各バージョンの変更点
-├── SECURITY.md SUPPORT.md                               脆弱性の報告方法と問い合わせ先
-└── CONTRIBUTING.md CODE_OF_CONDUCT.md LICENSE           貢献方法、行動規範、ライセンス
+│   ├── api.rs                                                              REST ルートと WebSocket
+│   ├── auth.rs                                                             ユーザー、権限、トークン、誤ったパスワードの遅延
+│   ├── plan.rs                                                             リクエストから機械が実行する項目まで
+│   ├── jobs.rs state.rs                                                    ジョブと、実行中のサーバーの構成要素
+│   ├── audit.rs errors.rs panic.rs                                         監査、ジョブ記録、エラーコード、パニック終了
+│   ├── machines.rs store.rs                                                機械と、一時ファイル経由で書かれるファイル
+│   ├── config.rs lib.rs main.rs                                            設定ファイル、ライブラリのルート、プログラム
+│   ├── updates.rs  head.rs                                                 サービスの更新
+│   ├── inspect.rs                                                          ヘッドのカメラによる品質チェック
+│   ├── gcode.rs gcode_run.rs                                               自由な G コード：整形、解析、シミュレーターまたは GRBL での実行
+│   ├── spindle.rs                                                          機械のスピンドル、その限界、安全スイッチ
+│   ├── pstore.rs api_pstore.rs                                             プロジェクトストア：版、ロック、コンテナ
+│   ├── catalogs.rs api_catalogs.rs                                         共有カタログ：材料、工具、ライブラリ
+│   ├── plugins.rs work.rs feed.rs api_work.rs                              マシンプラグイン、ジョブキュー、イベント、通知
+│   ├── laser.rs pnp.rs pcb.rs plugin_*.rs                                  シミュレートされたレーザー・ピックアンドプレース・基板マシン
+│   ├── cnc.rs gerber.rs cam.rs                                             シミュレートされたCNCマシンとGerber・CAMワーカー
+│   ├── printer3d.rs printer_drivers.rs simjobs.rs simclock.rs secrets.rs   3Dプリンター、そのドライバー、シミュレーションの共有部分
+│   └── apps.rs api_auth.rs                                                 アプリケーションと、全アプリ共通のログイン
+├── tests/                                                                  シミュレーター上のインターフェースのエンドツーエンドと、実サーバーに対する実プログラム
+├── docs/                                                                   API、その OpenAPI 契約、サーバー運用の手引き、2 つの図のデータ
+├── deploy/                                                                 systemd ユニットとサービスのヘルパー
+├── server.cfg.example                                                      すべてのキーに説明を付けた設定ファイル
+├── tools/                                                                  CI と README のチェック、OpenAPI、スクリプトのパネル、図のツール
+├── images/                                                                 バナーとアーキテクチャ・リポジトリ構成の図
+├── .github/                                                                CI とリリースのワークフロー、Issue と PR のテンプレート
+├── build.sh build.bat                                                      ライブ パネルでリリース バイナリをビルド
+├── run.sh run.bat                                                          サーバーを起動（必要なら先にビルド）
+├── eh3d.project.json                                                       マニフェスト：バージョン、役割、成熟度、ビルドコマンド
+├── Cargo.toml Cargo.lock                                                   Rust パッケージ、依存関係、2 つのプログラムのライブラリ
+├── rust-toolchain.toml                                                     固定されたRustツールチェーン
+├── CHANGELOG.md                                                            各バージョンの変更点
+├── SECURITY.md SUPPORT.md                                                  脆弱性の報告方法と問い合わせ先
+└── CONTRIBUTING.md CODE_OF_CONDUCT.md LICENSE                              貢献方法、行動規範、ライセンス
 ```
 
 </details>

@@ -217,17 +217,45 @@
         },
         {
           "desc": {
-            "en": "the simulated laser, pick-and-place and board machines and their clock",
-            "es": "las máquinas simuladas de láser, pick-and-place y placa, y su reloj",
-            "de": "die simulierten Laser-, Bestückungs- und Platinenmaschinen und ihre Uhr",
-            "fr": "les machines simulées de laser, de placement de composants et de carte, et leur horloge",
-            "it": "le macchine simulate di laser, pick-and-place e scheda, e il loro orologio",
-            "ja": "シミュレートされたレーザー・ピックアンドプレース・基板マシンとその時計",
-            "zh": "模拟的激光、贴片和电路板机床及其时钟",
-            "pt": "as máquinas simuladas de laser, pick-and-place e placa, e o seu relógio"
+            "en": "the simulated laser, pick-and-place and board machines",
+            "es": "las máquinas simuladas de láser, pick-and-place y placa",
+            "de": "die simulierten Laser-, Bestückungs- und Platinenmaschinen",
+            "fr": "les machines simulées de laser, de placement et de carte",
+            "it": "le macchine simulate di laser, pick-and-place e scheda",
+            "ja": "シミュレートされたレーザー・ピックアンドプレース・基板マシン",
+            "zh": "模拟的激光、贴片和电路板机床",
+            "pt": "as máquinas simuladas de laser, pick-and-place e placa"
           },
           "name": "laser.rs  pnp.rs  pcb.rs",
-          "tree_name": "laser.rs pnp.rs pcb.rs plugin_*.rs simclock.rs"
+          "tree_name": "laser.rs pnp.rs pcb.rs plugin_*.rs"
+        },
+        {
+          "desc": {
+            "en": "the simulated CNC machine and the Gerber and CAM workers",
+            "es": "la máquina CNC simulada y los trabajadores Gerber y CAM",
+            "de": "die simulierte CNC-Maschine und die Gerber- und CAM-Worker",
+            "fr": "la machine CNC simulée et les workers Gerber et FAO",
+            "it": "la macchina CNC simulata e i worker Gerber e CAM",
+            "ja": "シミュレートされたCNCマシンとGerber・CAMワーカー",
+            "zh": "模拟的 CNC 机床以及 Gerber 和 CAM 工作进程",
+            "pt": "a máquina CNC simulada e os workers Gerber e CAM"
+          },
+          "name": "cnc.rs  gerber.rs  cam.rs",
+          "tree_name": "cnc.rs gerber.rs cam.rs"
+        },
+        {
+          "desc": {
+            "en": "the 3D printers, their drivers and what the simulations share",
+            "es": "las impresoras 3D, sus controladores y lo que comparten las simulaciones",
+            "de": "die 3D-Drucker, ihre Treiber und was die Simulationen teilen",
+            "fr": "les imprimantes 3D, leurs pilotes et ce que les simulations partagent",
+            "it": "le stampanti 3D, i loro driver e ciò che le simulazioni condividono",
+            "ja": "3Dプリンター、そのドライバー、シミュレーションの共有部分",
+            "zh": "3D 打印机、其驱动以及各模拟共用的部分",
+            "pt": "as impressoras 3D, os seus controladores e o que as simulações partilham"
+          },
+          "name": "printer3d.rs  simjobs.rs",
+          "tree_name": "printer3d.rs printer_drivers.rs simjobs.rs simclock.rs secrets.rs"
         },
         {
           "desc": {
