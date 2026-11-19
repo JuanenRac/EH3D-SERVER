@@ -6,7 +6,7 @@
 //! plugin every half second by a thread of the server, and again whenever somebody asks for it.
 //!
 //! The jobs and the machines of the plugins are kept in the data folder (`work-jobs.json`, `work-machines.json`); the notifications are not (they are for the people who
-//! are there). A job of a plugin that lives in memory (`demo`, `laser`, `pnp`, `pcb`) that was not finished when the server stopped is marked as failed.
+//! are there). A job of a plugin that lives in memory (`demo`, `laser`, `pnp`, `pcb`, `cnc`, `gerber`, `cam`, `printer3d`) that was not finished when the server stopped is marked as failed.
 
 use std::collections::VecDeque;
 use std::io;
@@ -26,6 +26,9 @@ use crate::plugins::{PluginError, PluginStatus, WorkState};
 use crate::state::AppState;
 use crate::store;
 use crate::sync::Locked;
+
+/// The biggest artifact a job request may bring in by naming it (as text), in bytes.
+const MAX_ARTIFACT_TEXT: u64 = 64 * 1024 * 1024;
 
 /// The longest history a job keeps.
 const MAX_HISTORY: usize = 200;
@@ -145,7 +148,7 @@ impl WorkMachine {
     pub fn view(&self) -> Value {
         json!({
             "id": self.id, "name": self.name, "plugin": self.plugin,
-            "settings": self.settings, "created": self.created,
+            "settings": crate::secrets::mask_settings(&self.settings), "created": self.created,
         })
     }
 }
@@ -668,7 +671,8 @@ impl AppState {
         if self.work.jobs.locked().queued_count() >= self.cfg.work_queue_max {
             return Err(WError::QueueFull.into());
         }
-        let prepared = plugin.prepare(self, machine, request, &who.name)?;
+        let request = self.work_resolve_artifact(who, request)?;
+        let prepared = plugin.prepare(self, machine, &request, &who.name)?;
         let at = now();
         let name = name
             .map(str::to_string)
@@ -708,6 +712,56 @@ impl AppState {
         self.work.jobs.locked().add(job.clone())?;
         self.announce_job("job.created", &job);
         Ok(job)
+    }
+
+    /// A request that names an artifact of the store (`artifact`, or `job` in a `place` request) is given the text of that artifact in `artifact_text`, for the plugins that read
+    /// a file (G-code, Gerber, Excellon, a placement list). The artifact has to be one the caller can see; a text the caller put in `artifact_text` himself is thrown away.
+    fn work_resolve_artifact(&self, who: &Identity, request: &Value) -> Result<Value, Fail> {
+        let mut request = request.clone();
+        let Some(map) = request.as_object_mut() else {
+            return Ok(request);
+        };
+        map.remove("artifact_text");
+        let place = map.get("kind").and_then(Value::as_str) == Some("place");
+        let key = if map.get("artifact").is_some_and(Value::is_string) {
+            "artifact"
+        } else if place && map.get("job").is_some_and(Value::is_string) {
+            "job"
+        } else {
+            return Ok(request);
+        };
+        let id = map
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let bytes = {
+            let store = self.artifacts.store.locked();
+            let record = store
+                .get(&id)
+                .filter(|r| self.artifact_visible(r, who))
+                .cloned()
+                .ok_or_else(|| {
+                    Fail::Plugin(PluginError::Bad(
+                        "the artifact is not there or you cannot see it".into(),
+                    ))
+                })?;
+            if record.size > MAX_ARTIFACT_TEXT {
+                return Err(Fail::Plugin(PluginError::Bad(format!(
+                    "the artifact is bigger than {} MiB",
+                    MAX_ARTIFACT_TEXT / (1024 * 1024)
+                ))));
+            }
+            store.read_blob(&record.blob_sha256).map_err(|_| {
+                Fail::Plugin(PluginError::Failed(
+                    "the bytes of the artifact cannot be read".into(),
+                ))
+            })?
+        };
+        let text = String::from_utf8(bytes)
+            .map_err(|_| Fail::Plugin(PluginError::Bad("the artifact is not text".into())))?;
+        map.insert("artifact_text".into(), Value::String(text));
+        Ok(request)
     }
 
     fn work_job(&self, id: &str) -> Result<WorkJob, WError> {
@@ -883,6 +937,46 @@ impl AppState {
             .collect();
         for id in ids {
             self.work_refresh_one(&id);
+        }
+        self.work_auto_start();
+    }
+
+    /// The machines whose plugin says that the queue starts by itself (a switch of the machine, off by default) take the oldest queued job when they are free.
+    fn work_auto_start(self: &Arc<Self>) {
+        let waiting: Vec<(String, String, String, String)> = {
+            let book = self.work.jobs.locked();
+            let mut seen: Vec<String> = Vec::new();
+            let mut out = Vec::new();
+            for j in book.list().iter().filter(|j| j.state == WorkState::Queued) {
+                if seen.contains(&j.machine) || book.active_on(&j.machine).is_some() {
+                    continue;
+                }
+                seen.push(j.machine.clone());
+                out.push((
+                    j.id.clone(),
+                    j.machine.clone(),
+                    j.plugin.clone(),
+                    j.native.clone(),
+                ));
+            }
+            out
+        };
+        for (id, machine, kind, native) in waiting {
+            let Some(plugin) = self.plugins.get(&kind) else {
+                continue;
+            };
+            if !plugin.auto_start(self, &machine) {
+                continue;
+            }
+            if plugin.start(self, &machine, &native, "queue").is_ok() {
+                let _ = self.work_moved(
+                    &id,
+                    WorkState::Queued,
+                    WorkState::Running,
+                    "queue",
+                    "started by the queue",
+                );
+            }
         }
     }
 

@@ -8,10 +8,16 @@ use serde_json::{json, Map, Value};
 
 use crate::laser::{LaserConfig, LaserEngine, MAX_LINES, SETTINGS_HELP};
 use crate::plugins::{
-    work_machine_ids, work_machine_settings, MachineInfo, MachinePlugin, PluginError, PluginResult,
-    PluginStatus, Prepared,
+    work_machine_ids, work_machine_settings, MachineInfo, MachinePlugin, MachineRoute, PluginError,
+    PluginResult, PluginStatus, Prepared,
 };
 use crate::state::AppState;
+
+/// The routes the plugin adds under `/api/v1/work/machines/{id}/`.
+const ROUTES: &[MachineRoute] = &[
+    MachineRoute::new("POST", "laser/test-fire", "operator", "jobs:start"),
+    MachineRoute::new("POST", "laser/release", "admin", "machines:manage"),
+];
 
 /// The laser machines of the server.
 #[derive(Default)]
@@ -42,16 +48,20 @@ impl MachinePlugin for LaserPlugin {
             settings.insert((*key).to_string(), json!(help));
         }
         json!({
-            "requests": ["gcode", "test_fire", "rearm"],
+            "requests": ["gcode", "vector", "test_fire"],
             "pause": "all",
             "confirm": false,
             "stop": true,
-            "stop_is": "emergency stop: the job ends at once and the machine is latched until a rearm job runs",
+            "stop_is": "emergency stop: the job ends at once and the machine is latched until an administrator releases it (POST .../laser/release)",
             "progress": "lines",
             "settings": settings,
             "limits": { "lines": MAX_LINES },
             "evidence": "simulator",
         })
+    }
+
+    fn routes(&self) -> &'static [MachineRoute] {
+        ROUTES
     }
 
     fn manages_machines(&self) -> bool {
@@ -98,11 +108,13 @@ impl MachinePlugin for LaserPlugin {
 
     fn start(
         &self,
-        _st: &Arc<AppState>,
+        st: &Arc<AppState>,
         machine: &str,
         native_id: &str,
         _by: &str,
     ) -> PluginResult<()> {
+        let cfg = Self::config(st, machine)?;
+        self.engine.check_start(native_id, &cfg)?;
         self.engine.start(machine, native_id)
     }
 
@@ -126,14 +138,35 @@ impl MachinePlugin for LaserPlugin {
 
     fn status(
         &self,
-        _st: &Arc<AppState>,
-        _machine: &str,
+        st: &Arc<AppState>,
+        machine: &str,
         native_id: &str,
     ) -> PluginResult<PluginStatus> {
+        if let Ok(cfg) = Self::config(st, machine) {
+            self.engine.door_opened(native_id, &cfg);
+        }
         self.engine.status(native_id)
     }
 
     fn discard(&self, _st: &Arc<AppState>, _machine: &str, native_id: &str, _by: &str) {
         self.engine.discard(native_id);
+    }
+
+    fn operation(
+        &self,
+        st: &Arc<AppState>,
+        machine: &str,
+        route: &str,
+        body: &Value,
+        _by: &str,
+    ) -> PluginResult<Value> {
+        let cfg = Self::config(st, machine)?;
+        match route {
+            "laser/test-fire" => self.engine.test_fire(machine, &cfg, body),
+            "laser/release" => Ok(self.engine.release(machine)),
+            _ => Err(PluginError::NotSupported(
+                "the machine has no such operation",
+            )),
+        }
     }
 }

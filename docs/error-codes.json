@@ -1,5 +1,10 @@
 [
   {
+    "code": "air_assist_off",
+    "description": "The air assist input of the laser machine says off and the machine requires it on.",
+    "status": 409
+  },
+  {
     "code": "artifact_in_use",
     "description": "A task still works on this artifact or made it: remove the task first.",
     "status": 409
@@ -17,6 +22,11 @@
   {
     "code": "bad_artifact",
     "description": "The description of an artifact does not fit (name, format, result_type, inputs or params).",
+    "status": 422
+  },
+  {
+    "code": "bad_axis",
+    "description": "The axis of a jog is not one of x, y or z.",
     "status": 422
   },
   {
@@ -60,6 +70,11 @@
     "status": 422
   },
   {
+    "code": "bad_feed",
+    "description": "The feed of a jog is not a number above 0 and up to jog_max_feed of the machine.",
+    "status": 422
+  },
+  {
     "code": "bad_filename",
     "description": "The name of a file is not safe: empty, absolute, with .. or a drive, with control characters, a reserved name of Windows, too long, or the same as another in other letter case.",
     "status": 422
@@ -67,6 +82,16 @@
   {
     "code": "bad_gcode",
     "description": "A line of the G-code program cannot be sent (control characters, a $ line that is not allowed, a line too long).",
+    "status": 422
+  },
+  {
+    "code": "bad_gerber",
+    "description": "A Gerber or Excellon file cannot be read: the format, a coordinate or a command is wrong, or the file holds no data.",
+    "status": 422
+  },
+  {
+    "code": "bad_heater",
+    "description": "The heater is not hotend, bed or chamber.",
     "status": 422
   },
   {
@@ -95,6 +120,11 @@
     "status": 422
   },
   {
+    "code": "bad_operation",
+    "description": "An operation of a vector job for a laser is not valid: its layer, its mode (cut or engrave), its power, its speed or its passes.",
+    "status": 422
+  },
+  {
     "code": "bad_params",
     "description": "The parameters of a task do not fit its engine, are not an object, or the idempotency key is not valid.",
     "status": 422
@@ -108,6 +138,11 @@
     "code": "bad_picture",
     "description": "The picture the camera of the drill head sent cannot be read.",
     "status": 502
+  },
+  {
+    "code": "bad_placement_list",
+    "description": "A list of placements that came as an artifact cannot be read as JSON or as CSV with the columns ref, part, x and y.",
+    "status": 422
   },
   {
     "code": "bad_plugin_request",
@@ -133,6 +168,11 @@
     "code": "bad_request",
     "description": "The body of the request does not read as the request needs.",
     "status": 400
+  },
+  {
+    "code": "bad_rules",
+    "description": "The rules of a check are not an object of known rules with values inside their ranges.",
+    "status": 422
   },
   {
     "code": "bad_samples",
@@ -205,6 +245,11 @@
     "status": 501
   },
   {
+    "code": "enclosure_open",
+    "description": "The enclosure input of the laser machine says open and the machine requires it closed.",
+    "status": 409
+  },
+  {
     "code": "engine_missing",
     "description": "The kind of task is known but this build has no engine for it.",
     "status": 422
@@ -213,6 +258,11 @@
     "code": "file_too_big",
     "description": "The file is bigger than project_max_file_mb.",
     "status": 413
+  },
+  {
+    "code": "focus_not_checked",
+    "description": "The focus input of the laser machine says the head is not focused and the machine requires it to be.",
+    "status": 409
   },
   {
     "code": "forbidden",
@@ -240,9 +290,19 @@
     "status": 502
   },
   {
+    "code": "heater_timeout",
+    "description": "A heater did not get to its target in heat_timeout_s: the job stops and the heaters go off.",
+    "status": 409
+  },
+  {
     "code": "idempotency_conflict",
     "description": "The idempotency key was already used by this caller for a request with another body.",
     "status": 409
+  },
+  {
+    "code": "input_too_large",
+    "description": "The files of a job are bigger than max_input_mib of the worker.",
+    "status": 413
   },
   {
     "code": "internal",
@@ -252,6 +312,11 @@
   {
     "code": "job_active",
     "description": "The job is running: stop it first.",
+    "status": 409
+  },
+  {
+    "code": "jog_while_running",
+    "description": "A job is running or held on the machine: stop it before a jog.",
     "status": 409
   },
   {
@@ -285,6 +350,11 @@
     "status": 423
   },
   {
+    "code": "machine_alarm",
+    "description": "The machine is latched by an emergency stop (or in alarm): nothing is prepared, started or jogged until an administrator releases it.",
+    "status": 409
+  },
+  {
     "code": "machine_busy",
     "description": "A job is running on the machine.",
     "status": 409
@@ -298,6 +368,11 @@
     "code": "machines_busy",
     "description": "A job is running: the update would restart the server and stop it.",
     "status": 409
+  },
+  {
+    "code": "missing_layer",
+    "description": "The job brings no file, or the check needs a copper layer and none of the files is one.",
+    "status": 422
   },
   {
     "code": "no_head",
@@ -370,6 +445,11 @@
     "status": 422
   },
   {
+    "code": "out_of_travel",
+    "description": "A move of the program or of a jog goes outside the travel of the machine (the machine's switch is on reject).",
+    "status": 422
+  },
+  {
     "code": "outside_course",
     "description": "The work goes past the course of an axis (the machine's switch is on reject).",
     "status": 422
@@ -395,6 +475,21 @@
     "status": 428
   },
   {
+    "code": "printer_disconnected",
+    "description": "The printer does not answer.",
+    "status": 502
+  },
+  {
+    "code": "printer_latched",
+    "description": "An emergency stop or a fault of a heater latched the printer: nothing is prepared, started or heated on it until an administrator releases it.",
+    "status": 409
+  },
+  {
+    "code": "program_over_limit",
+    "description": "A program for a 3D printer asks for a temperature or a feed over a limit of the machine, so the whole program is refused.",
+    "status": 422
+  },
+  {
     "code": "project_quota",
     "description": "The project, the application or the store would pass its limit (project_max_mb, project_max_files, project_max_projects).",
     "status": 507
@@ -408,6 +503,11 @@
     "code": "quota",
     "description": "The caller already has as many tasks waiting or running as one user may (tasks_per_user).",
     "status": 429
+  },
+  {
+    "code": "sensor_fault",
+    "description": "A heater reads below min_temp_c, which is a broken sensor: the printer was stopped and the machine is latched until an administrator releases it.",
+    "status": 409
   },
   {
     "code": "shares_off",
@@ -450,6 +550,21 @@
     "status": 501
   },
   {
+    "code": "temperature_over_limit",
+    "description": "A target of temperature is over the limit of the heater (the profile of the model of the printer, or the limit set for the machine).",
+    "status": 422
+  },
+  {
+    "code": "test_fire_refused",
+    "description": "A test fire asks for more power than test_fire_max_pct of the laser machine.",
+    "status": 422
+  },
+  {
+    "code": "thermal_runaway",
+    "description": "A heater is far from its target for too long or is past its limit: the printer was stopped and the machine is latched until an administrator releases it.",
+    "status": 409
+  },
+  {
     "code": "throttled",
     "description": "Too many wrong passwords, or too many tickets waiting: try again later.",
     "status": 429
@@ -473,6 +588,11 @@
     "code": "unauthorized",
     "description": "The token is missing, not valid or has expired.",
     "status": 401
+  },
+  {
+    "code": "unit_unknown",
+    "description": "A Gerber or Excellon file uses coordinates before it says its units.",
+    "status": 422
   },
   {
     "code": "unknown_artifact",

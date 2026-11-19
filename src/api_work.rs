@@ -40,6 +40,35 @@ pub fn routes() -> Router<Shared> {
             "/api/v1/work/machines/:id",
             get(get_machine).put(change_machine).delete(remove_machine),
         )
+        .route("/api/v1/work/machines/:id/position", get(op_position))
+        .route("/api/v1/work/machines/:id/jog", post(op_jog))
+        .route(
+            "/api/v1/work/machines/:id/emergency-stop",
+            post(op_emergency_stop),
+        )
+        .route("/api/v1/work/machines/:id/release", post(op_release))
+        .route(
+            "/api/v1/work/machines/:id/laser/test-fire",
+            post(op_test_fire),
+        )
+        .route(
+            "/api/v1/work/machines/:id/laser/release",
+            post(op_laser_release),
+        )
+        .route("/api/v1/work/machines/:id/tools", get(op_tools))
+        .route(
+            "/api/v1/work/machines/:id/temperatures",
+            get(op_temperatures).put(op_set_temperature),
+        )
+        .route("/api/v1/work/machines/:id/layer", get(op_layer))
+        .route(
+            "/api/v1/work/machines/:id/compat/moonraker",
+            get(op_compat_moonraker),
+        )
+        .route(
+            "/api/v1/work/machines/:id/compat/octoprint",
+            get(op_compat_octoprint),
+        )
         .route("/api/v1/work/jobs", get(list_jobs).post(create_job))
         .route("/api/v1/work/jobs/:id", get(get_job).delete(remove_job))
         .route("/api/v1/work/jobs/:id/start", post(start_job))
@@ -222,7 +251,10 @@ async fn change_machine(
         None => None,
     };
     let settings = match b.settings {
-        Some(v) => Some(settings_of(&s, &current.plugin, Some(v))?),
+        Some(mut v) => {
+            crate::secrets::keep_masked(&current.settings, &mut v);
+            Some(settings_of(&s, &current.plugin, Some(v))?)
+        }
         None => None,
     };
     let machine = s.work.machines.locked().edit(&id, name, settings)?;
@@ -260,6 +292,100 @@ async fn remove_machine(
     s.announce_machine("machine.removed", &id, &name);
     Ok(Json(json!({ "ok": true })))
 }
+
+// ---- what a plugin adds to its machines -------------------------------------------------------------------------------------------------
+
+fn role_of(name: &str) -> Role {
+    match name {
+        "admin" => Role::Admin,
+        "operator" => Role::Operator,
+        _ => Role::Viewer,
+    }
+}
+
+/// Does one of the routes a plugin adds under `/work/machines/{id}/`: the machine has to be of a plugin that has the route, and the caller has the role and the scope that
+/// the plugin names for it. The body is JSON, or nothing (an emergency stop must not need a body).
+async fn machine_op(
+    s: &Shared,
+    who: &Identity,
+    id: &str,
+    method: &'static str,
+    route: &'static str,
+    raw: &[u8],
+) -> ApiResult {
+    let state = s.clone();
+    let wanted = id.to_string();
+    let plugin = run(move || {
+        state
+            .work_find(&wanted)
+            .ok_or(Fail::Work(WError::UnknownMachine))
+    })
+    .await?;
+    let spec = plugin
+        .routes()
+        .iter()
+        .find(|r| r.method == method && r.path == route)
+        .ok_or(PluginError::NotSupported(
+            "this kind of machine has no such operation",
+        ))?;
+    crate::api::need(who, role_of(spec.role))?;
+    crate::api::need_scope(who, spec.scope)?;
+    let body: Value = if raw.iter().all(u8::is_ascii_whitespace) {
+        Value::Null
+    } else {
+        serde_json::from_slice(raw).map_err(|_| {
+            ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "bad_request",
+                "the body is not JSON",
+            )
+        })?
+    };
+    // a write with no body is an empty object (an emergency stop does not need a body); a read has none
+    let body = if method != "GET" && body.is_null() {
+        json!({})
+    } else {
+        body
+    };
+    let state = s.clone();
+    let (machine, by) = (id.to_string(), who.name.clone());
+    let answer = run(move || {
+        plugin
+            .operation(&state, &machine, route, &body, &by)
+            .map_err(Fail::Plugin)
+    })
+    .await?;
+    if method != "GET" {
+        crate::api::note(s, "work_machine_op", who, &[("machine", id), ("op", route)]);
+    }
+    Ok(Json(answer))
+}
+
+macro_rules! machine_op {
+    ($name:ident, $method:literal, $route:literal) => {
+        async fn $name(
+            State(s): State<Shared>,
+            Authed(who, _): Authed,
+            Path(id): Path<String>,
+            body: axum::body::Bytes,
+        ) -> ApiResult {
+            machine_op(&s, &who, &id, $method, $route, &body).await
+        }
+    };
+}
+
+machine_op!(op_position, "GET", "position");
+machine_op!(op_jog, "POST", "jog");
+machine_op!(op_emergency_stop, "POST", "emergency-stop");
+machine_op!(op_release, "POST", "release");
+machine_op!(op_test_fire, "POST", "laser/test-fire");
+machine_op!(op_laser_release, "POST", "laser/release");
+machine_op!(op_tools, "GET", "tools");
+machine_op!(op_temperatures, "GET", "temperatures");
+machine_op!(op_set_temperature, "PUT", "temperatures");
+machine_op!(op_layer, "GET", "layer");
+machine_op!(op_compat_moonraker, "GET", "compat/moonraker");
+machine_op!(op_compat_octoprint, "GET", "compat/octoprint");
 
 // ---- the queue --------------------------------------------------------------------------------------------------------------------------
 

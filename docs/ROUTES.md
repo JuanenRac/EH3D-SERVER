@@ -139,3 +139,15 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/work/machines/:id` | GET | viewer + `machines:view` | Read a machine of a plugin |
 | `/api/v1/work/machines/:id` | PUT | admin + `machines:manage` | Change a machine made through the plugins |
 | `/api/v1/work/machines/:id` | DELETE | admin + `machines:manage` | Remove a machine made through the plugins |
+| `/api/v1/work/machines/:id/compat/moonraker` | GET | viewer + `machines:view` | The state of a 3D printer shaped as Moonraker answers it |
+| `/api/v1/work/machines/:id/compat/octoprint` | GET | viewer + `machines:view` | The state of a 3D printer shaped as OctoPrint answers it |
+| `/api/v1/work/machines/:id/emergency-stop` | POST | operator + `jobs:cancel` | Stop a CNC machine or a 3D printer at once and latch it |
+| `/api/v1/work/machines/:id/jog` | POST | operator + `jobs:start` | Jog a CNC machine |
+| `/api/v1/work/machines/:id/laser/release` | POST | admin + `machines:manage` | Release the latch of an emergency stop of a laser machine |
+| `/api/v1/work/machines/:id/laser/test-fire` | POST | operator + `jobs:start` | Fire a laser machine for a moment, to focus |
+| `/api/v1/work/machines/:id/layer` | GET | viewer + `machines:view` | The layer a 3D printer is at |
+| `/api/v1/work/machines/:id/position` | GET | viewer + `machines:view` | Where a CNC machine is |
+| `/api/v1/work/machines/:id/release` | POST | admin + `machines:manage` | Release the latch of an emergency stop of a CNC machine or a 3D printer |
+| `/api/v1/work/machines/:id/temperatures` | GET | viewer + `machines:view` | The heaters of a 3D printer |
+| `/api/v1/work/machines/:id/temperatures` | PUT | operator + `jobs:start` | Set the target of a heater of a 3D printer |
+| `/api/v1/work/machines/:id/tools` | GET | viewer + `machines:view` | What a CAM worker has built in |

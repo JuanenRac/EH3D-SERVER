@@ -53,7 +53,7 @@ fn after_first_argument(text: &str) -> &str {
     ""
 }
 
-/// Every code the source can answer with: the second argument of `ApiError::new`, the first of `fail(`, a `code: "..."` and the answers of the `fn code(` of the errors.
+/// Every code the source can answer with: the second argument of `ApiError::new`, the first of `fail(` and of `Coded(`, a `code: "..."` and the answers of the `fn code(` of the errors.
 fn used() -> BTreeSet<String> {
     let mut found = BTreeSet::new();
     for (_, text) in sources() {
@@ -69,6 +69,11 @@ fn used() -> BTreeSet<String> {
                 continue;
             }
             if let Some(code) = literal(&text[i + "fail(".len()..]) {
+                found.insert(code);
+            }
+        }
+        for (i, _) in text.match_indices("Coded(") {
+            if let Some(code) = literal(&text[i + "Coded(".len()..]) {
                 found.insert(code);
             }
         }

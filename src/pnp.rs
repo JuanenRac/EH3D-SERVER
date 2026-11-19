@@ -253,6 +253,115 @@ pub fn parse_load(request: &Value, cfg: &PnpConfig) -> PluginResult<(FeederList,
 }
 
 /// The placements of a `place` request.
+/// The fields of one line of a CSV list, with the quotes taken off (a field may hold the separator inside quotes).
+fn csv_fields(line: &str, separator: char) -> Vec<String> {
+    let (mut out, mut field, mut quoted) = (Vec::new(), String::new(), false);
+    for c in line.chars() {
+        match c {
+            '"' => quoted = !quoted,
+            c if c == separator && !quoted => {
+                out.push(std::mem::take(&mut field).trim().to_string())
+            }
+            c => field.push(c),
+        }
+    }
+    out.push(field.trim().to_string());
+    out
+}
+
+/// The placements of a list that came as an artifact: JSON (a list, or an object that has `placements`) or CSV with a header row whose names are `ref` (or `designator`),
+/// `part` (or `val`, `value`), `x` (or `posx`), `y` (or `posy`), `rot` (or `rotation`) and `side` (or `layer`). Gives the same objects the request would carry in `placements`.
+pub fn placements_from_text(text: &str) -> PluginResult<Vec<Value>> {
+    let wrong = |why: String| PluginError::Coded("bad_placement_list", why);
+    let trimmed = text.trim_start_matches('\u{feff}').trim();
+    if trimmed.starts_with('[') || trimmed.starts_with('{') {
+        let value: Value = serde_json::from_str(trimmed)
+            .map_err(|e| wrong(format!("the list is not JSON that reads: {e}")))?;
+        let list = match value {
+            Value::Array(a) => a,
+            Value::Object(mut o) => match o.remove("placements") {
+                Some(Value::Array(a)) => a,
+                _ => return Err(wrong("the JSON object has no list `placements`".into())),
+            },
+            _ => return Err(wrong("the list is not a JSON list".into())),
+        };
+        return Ok(list);
+    }
+    let mut lines = trimmed
+        .lines()
+        .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'));
+    let header_line = lines
+        .next()
+        .ok_or_else(|| wrong("the list has no header row".into()))?;
+    let separator = if header_line.matches(';').count() > header_line.matches(',').count() {
+        ';'
+    } else {
+        ','
+    };
+    let header: Vec<String> = csv_fields(header_line, separator)
+        .iter()
+        .map(|h| h.trim_start_matches('#').trim().to_ascii_lowercase())
+        .collect();
+    let column = |names: &[&str]| header.iter().position(|h| names.contains(&h.as_str()));
+    let (Some(c_ref), Some(c_part), Some(c_x), Some(c_y)) = (
+        column(&["ref", "designator", "reference"]),
+        column(&["part", "val", "value"]),
+        column(&["x", "posx", "pos x", "mid x"]),
+        column(&["y", "posy", "pos y", "mid y"]),
+    ) else {
+        return Err(wrong(
+            "the header needs the columns ref, part, x and y (rot and side are optional)".into(),
+        ));
+    };
+    let c_rot = column(&["rot", "rotation"]);
+    let c_side = column(&["side", "layer"]);
+    let mut out = Vec::new();
+    for (n, line) in lines.enumerate() {
+        let f = csv_fields(line, separator);
+        let get = |c: usize| f.get(c).map(String::as_str).unwrap_or("");
+        let number = |c: usize, what: &str| -> PluginResult<f64> {
+            get(c)
+                .trim_end_matches("mm")
+                .parse::<f64>()
+                .ok()
+                .filter(|v| v.is_finite())
+                .ok_or_else(|| wrong(format!("row {}: {what} is not a number", n + 1)))
+        };
+        let mut item = serde_json::Map::new();
+        item.insert("ref".into(), json!(get(c_ref)));
+        item.insert("part".into(), json!(get(c_part)));
+        item.insert("x".into(), json!(number(c_x, "x")?));
+        item.insert("y".into(), json!(number(c_y, "y")?));
+        if let Some(c) = c_rot {
+            item.insert("rot".into(), json!(number(c, "rot")?));
+        }
+        if let Some(c) = c_side {
+            item.insert("side".into(), json!(get(c).to_ascii_lowercase()));
+        }
+        out.push(Value::Object(item));
+        if out.len() > 100_000 {
+            return Err(wrong("the list has more than 100000 rows".into()));
+        }
+    }
+    if out.is_empty() {
+        return Err(wrong("the list has no rows".into()));
+    }
+    Ok(out)
+}
+
+/// The request of a `place` job with the list of an artifact (`job`, or `artifact`) turned into `placements`.
+fn with_artifact_list(request: &Value) -> PluginResult<Value> {
+    let Some(text) = request.get("artifact_text").and_then(Value::as_str) else {
+        return Ok(request.clone());
+    };
+    if request.get("placements").is_some() {
+        return bad("a place request brings the placements as data or names an artifact, not both");
+    }
+    let mut out = request.clone();
+    out["placements"] = Value::Array(placements_from_text(text)?);
+    Ok(out)
+}
+
 pub fn parse_place(request: &Value, cfg: &PnpConfig) -> PluginResult<Vec<Placement>> {
     let list = match request.get("placements") {
         Some(Value::Array(a)) => a,
@@ -611,7 +720,8 @@ impl PnpEngine {
                 (JobKind::Load { feeders, replace }, view)
             }
             Some("place") => {
-                let placements = parse_place(request, cfg)?;
+                let request = with_artifact_list(request)?;
+                let placements = parse_place(&request, cfg)?;
                 let (feeders, start) = {
                     let machines = self.machines.locked();
                     let m = machines.get(machine).cloned().unwrap_or_default();
@@ -1250,5 +1360,84 @@ mod tests {
         assert_eq!(p.view["rows"].as_array().unwrap().len(), 2000);
         assert_eq!(p.view["rows_cut"], true);
         assert_eq!(p.view["placements"], 2500);
+    }
+
+    #[test]
+    fn a_placement_list_as_csv_or_json_gives_the_placements_of_a_request() {
+        let kicad = "Ref,Val,Package,PosX,PosY,Rot,Side\n\"R1\",\"R_0603_10k\",R_0603,20.0,30.0,90,top\nR2,R_0603_10k,R_0603,25,30,0,Bottom\n";
+        let list = placements_from_text(kicad).unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(
+            list[0],
+            json!({"ref": "R1", "part": "R_0603_10k", "x": 20.0, "y": 30.0, "rot": 90.0, "side": "top"})
+        );
+        assert_eq!(list[1]["side"], "bottom");
+        let semi = "designator;part;x;y\nC1;C_0603_100n;5,5;6\n";
+        assert_eq!(
+            placements_from_text(semi).unwrap_err().code(),
+            "bad_placement_list",
+            "a decimal comma is not read"
+        );
+        let semi_ok = "designator;part;x;y\nC1;C_0603_100n;5.5;6\n";
+        assert_eq!(placements_from_text(semi_ok).unwrap()[0]["x"], 5.5);
+        let as_list = r#"[{"ref": "R1", "part": "P", "x": 1, "y": 2}]"#;
+        assert_eq!(placements_from_text(as_list).unwrap().len(), 1);
+        let as_object = r#"{"placements": [{"ref": "R1", "part": "P", "x": 1, "y": 2}]}"#;
+        assert_eq!(placements_from_text(as_object).unwrap().len(), 1);
+        for bad in [
+            "",
+            "ref,part\nR1,P\n",
+            "ref,part,x,y\n",
+            "ref,part,x,y\nR1,P,a,2\n",
+            "[1,",
+            "{\"a\": 1}",
+            "\"text\"",
+        ] {
+            assert_eq!(
+                placements_from_text(bad).unwrap_err().code(),
+                "bad_placement_list",
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_place_job_can_name_the_artifact_that_holds_its_list() {
+        let e = PnpEngine::default();
+        let cfg = quick();
+        load(
+            &e,
+            &cfg,
+            json!([{"slot": 1, "part": "R_0603_10k", "count": 10}]),
+            true,
+        );
+        let csv = "ref,part,x,y,rot\nR1,R_0603_10k,20,30,90\nR2,R_0603_10k,25,30,0\n";
+        let p = e
+            .prepare(
+                "p1",
+                &cfg,
+                &json!({"kind": "place", "job": "a-1", "artifact_text": csv}),
+            )
+            .unwrap();
+        assert_eq!(p.view["placements"], 2);
+        let both = e
+            .prepare(
+                "p1",
+                &cfg,
+                &json!({"kind": "place", "artifact_text": csv, "placements": two_parts()}),
+            )
+            .err()
+            .unwrap();
+        assert_eq!(both.code(), "bad_plugin_request");
+        let broken = e
+            .prepare(
+                "p1",
+                &cfg,
+                &json!({"kind": "place", "artifact_text": "ref,part\n"}),
+            )
+            .err()
+            .unwrap();
+        assert_eq!(broken.code(), "bad_placement_list");
+        assert_eq!(broken.status(), 422);
     }
 }

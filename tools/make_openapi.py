@@ -589,7 +589,7 @@ SCHEMAS.update({
     "WorkMachineInfo": obj({
         "id": s(), "name": s(), "plugin": s(), "state": {"type": "string", "enum": ["idle", "busy"]}, "job": nullable(S),
         "capabilities": {"type": "object", "additionalProperties": True},
-        "detail": {"type": "object", "additionalProperties": True, "description": "What the plugin says of the machine besides its state; only the plugins that have something to say send it: `laser` (`estop_latched`, `position_mm`, `beam_on`, `power`, `bed_mm`...), `pnp` (`feeders`, `head`, `placed_total`, `failed_picks`...) and `pcb` (`jobs_done`, `last_kind`, `last_verdict`, `rules`...)."},
+        "detail": {"type": "object", "additionalProperties": True, "description": "What the plugin says of the machine besides its state; only the plugins that have something to say send it: `laser` (`estop_latched`, `position_mm`, `beam_on`, `power`, `bed_mm`...), `pnp` (`feeders`, `head`, `placed_total`, `failed_picks`...) and `pcb` (`jobs_done`, `last_kind`, `last_verdict`, `rules`...), `cnc` (`latched`, `position_mm`, `spindle_rpm`, `travel_mm`...) and `printer3d` (`model`, `online`, `latched`, `limits_c`, `temperatures`...)."},
     }, ["id", "name", "plugin", "state"], description="`job` is the job of the generic queue that has the machine, when there is one."),
     "WorkMachineList": obj({"machines": arr(ref("WorkMachineInfo"))}, ["machines"]),
     "NewWorkMachine": obj({"id": s("Lowercase letters, digits and hyphens, up to 32."), "name": s(minLength=1, maxLength=80), "plugin": s(),
@@ -598,7 +598,7 @@ SCHEMAS.update({
                              ["id", "name", "plugin", "settings"]),
     "WorkMachineChange": obj({"name": s(minLength=1, maxLength=80), "settings": {"type": "object", "additionalProperties": True}}),
     "NewWorkJob": obj({
-        "machine": s("The id of a machine of any plugin."), "request": {"type": "object", "additionalProperties": True, "description": "What the plugin of the machine takes: for `bungard` a drill, route or gcode request (`JobRequest`), for `demo` `{\"kind\": \"demo\", \"steps\": 10}`, for `laser` `gcode`, `test_fire` or `rearm`, for `pnp` `place` or `load_feeders` and for `pcb` `rules_check`, `drill_report`, `bom_report` or `inspect` (`GET /plugins` says what each takes)."},
+        "machine": s("The id of a machine of any plugin."), "request": {"type": "object", "additionalProperties": True, "description": "What the plugin of the machine takes: for `bungard` a drill, route or gcode request (`JobRequest`), for `demo` `{\"kind\": \"demo\", \"steps\": 10}`, for `laser` `gcode`, `vector` or `test_fire`, for `pnp` `place` or `load_feeders`, for `pcb` `rules_check`, `drill_report`, `bom_report` or `inspect`, for `cnc` `gcode` or `file`, for `gerber` `load`, `drc` or `report`, for `cam` `drill`, `outline`, `isolate` or `verify` and for `printer3d` `print`, `preheat` or `gcode` (`GET /plugins` says what each takes). A request that names an artifact (`artifact`, or `job` in a `place` request) is given the text of that artifact by the server."},
         "name": s(maxLength=80), "app": s("The application that asks; the default is the one of the login."),
     }, ["machine", "request"]),
     "WorkState": WORK_STATE,
@@ -616,16 +616,20 @@ SCHEMAS.update({
     "NotificationList": obj({"notifications": arr(ref("Notification"))}, ["notifications"]),
     "ReadNotifications": obj({"ids": arr(I), "all": B}, description="The ones named, or all of those the caller sees."),
     "Marked": obj({"marked": I}, ["marked"]),
+    "MachineOperation": {"type": "object", "additionalProperties": True, "description": "What the operation of the plugin answers; each route says what it has."},
+    "JogRequest": obj({"axis": s("`x`, `y` or `z`."), "distance_mm": N, "feed": N}, ["axis", "distance_mm"], description="The distance is signed and at most `jog_max_mm`; the feed at most `jog_max_feed` (mm/min)."),
+    "TestFireRequest": obj({"power_pct": N, "seconds": N}, ["power_pct"], description="At most `test_fire_max_pct` of the full power and `test_fire_max_s` seconds."),
+    "TemperatureRequest": obj({"heater": s("`hotend`, `bed` or `chamber`."), "target_c": N}, ["heater", "target_c"], description="Refused above the limit of the heater, whoever asks."),
 })
 
 W_READ = dict(scope="machines:view")
 op("GET", "/plugins", "work", "viewer", "List the machine plugins", ok=(200, "PluginList", "application/json"), **W_READ,
-   desc="`bungard` (the machines of DRILLPRO and ROUTEPRO, the same as `/machines`), `demo` (a machine with no hardware) and the simulators `laser`, `pnp` and `pcb`, with what each can do and the settings of its machines.")
+   desc="`bungard` (the machines of DRILLPRO and ROUTEPRO, the same as `/machines`), `demo` (a machine with no hardware) and the simulators `laser`, `pnp`, `pcb`, `cnc`, `gerber`, `cam` and `printer3d`, with what each can do and the settings of its machines. `cnc`, `gerber`, `cam` and `printer3d` are simulators too; `gerber` and `cam` move nothing.")
 op("GET", "/work/machines", "work", "viewer", "List the machines of every plugin", ok=(200, "WorkMachineList", "application/json"), **W_READ,
    desc="The machines of `/machines` appear here as machines of the `bungard` plugin, with their state; the ones of the other plugins are made with `POST /work/machines`.")
 op("POST", "/work/machines", "work", "admin", "Make a machine of a plugin", scope="machines:manage", body="NewWorkMachine", ok=(201, "WorkMachineRecord", "application/json"),
    errors=["bad_id", "bad_name", "unknown_plugin", "not_supported", "bad_plugin_request", "machine_exists"],
-   desc="Only for a plugin that keeps its machines here (`demo`, `laser`, `pnp`, `pcb`); for `bungard` use `POST /machines`. The id cannot be one of any other machine. The settings are checked by the plugin and a key it does not know is refused.",
+   desc="Only for a plugin that keeps its machines here (`demo`, `laser`, `pnp`, `pcb`, `cnc`, `gerber`, `cam`, `printer3d`); for `bungard` use `POST /machines`. The id cannot be one of any other machine. The settings are checked by the plugin and a key it does not know is refused.",
    example={"id": "demo-1", "name": "Demo machine", "plugin": "demo", "settings": {"step_ms": 20}})
 op("GET", "/work/machines/{id}", "work", "viewer", "Read a machine of a plugin", ok=(200, "WorkMachineInfo", "application/json"), errors=MACHINE_ERR, **W_READ)
 op("PUT", "/work/machines/{id}", "work", "admin", "Change a machine made through the plugins", scope="machines:manage", body="WorkMachineChange", ok=(200, "WorkMachineRecord", "application/json"),
@@ -639,23 +643,27 @@ op("GET", "/work/jobs", "work", "viewer", "List the jobs of the generic queue, n
    desc="The jobs that are open are read from their plugins first.")
 op("POST", "/work/jobs", "work", "operator", "Prepare a job on a machine of any plugin", scope="jobs:prepare", body="NewWorkJob", ok=(201, "WorkJob", "application/json"),
    errors=["unknown_machine", "bad_plugin_request", "bad_app", "queue_full", "plugin_failed", "bad_gcode", "no_work", "too_big", "outside_course",
-           "laser_power_limit", "laser_feed_limit", "laser_estop_latched", "pnp_feeder_short"],
+           "laser_power_limit", "laser_feed_limit", "laser_estop_latched", "pnp_feeder_short", "out_of_travel", "machine_alarm", "spindle_limit",
+           "bad_gerber", "bad_rules", "missing_layer", "unit_unknown", "input_too_large", "bad_params", "enclosure_open", "air_assist_off", "focus_not_checked",
+           "test_fire_refused", "bad_operation", "bad_placement_list", "temperature_over_limit", "program_over_limit", "printer_latched", "printer_disconnected"],
    desc="The plugin of the machine checks the request and makes the job ready (`queued`); nothing moves until a person starts it. At most `work_queue_max` jobs wait. "
-        "A laser job is held to the power, the feed and the bed of its machine (`laser_power_limit`, `laser_feed_limit`, `outside_course`) and nothing but a `rearm` job is prepared on a laser that an emergency stop latched (`laser_estop_latched`); "
+        "A laser job is held to the power, the feed and the bed of its machine (`laser_power_limit`, `laser_feed_limit`, `outside_course`) and nothing is prepared on a laser that an emergency stop latched until an administrator releases it (`laser_estop_latched`); "
         "a placement job needs its parts in the feeders of the machine (`pnp_feeder_short`).",
    example={"machine": "demo-1", "request": {"kind": "demo", "steps": 10}, "name": "test run", "app": "studio"})
 op("GET", "/work/jobs/{id}", "work", "viewer", "Read a job with its history", ok=(200, "WorkJob", "application/json"), errors=["unknown_job"], **W_READ,
    desc="The state is read from the plugin first.")
 op("DELETE", "/work/jobs/{id}", "work", "operator", "Remove a finished job", scope="jobs:cancel", errors=["unknown_job", "job_active"])
 op("POST", "/work/jobs/{id}/start", "work", "operator", "Start a queued job", scope="jobs:start", ok=(200, "WorkJob", "application/json"),
-   errors=WJOB_ERR + ["not_ready", "machine_busy", "unknown_machine", "bad_plugin_request", "laser_estop_latched", "pnp_feeder_short"], desc="One job at a time on a machine.")
+   errors=WJOB_ERR + ["not_ready", "machine_busy", "unknown_machine", "bad_plugin_request", "laser_estop_latched", "pnp_feeder_short", "machine_alarm", "printer_latched",
+                                                    "printer_disconnected", "enclosure_open", "air_assist_off", "focus_not_checked"],
+   desc="One job at a time on a machine. A queue does not start by itself unless the machine is set to (`auto_start_queue` of a `printer3d` machine, off by default).")
 op("POST", "/work/jobs/{id}/pause", "work", "operator", "Hold a running job", scope="jobs:start", ok=(200, "WorkJob", "application/json"),
    errors=WJOB_ERR + ["not_in_state", "not_supported"], desc="A `bungard` machine holds only free G-code jobs (`not_supported` otherwise).")
 op("POST", "/work/jobs/{id}/resume", "work", "operator", "Let a held job go on", scope="jobs:start", ok=(200, "WorkJob", "application/json"),
    errors=WJOB_ERR + ["not_in_state", "not_supported"])
 op("POST", "/work/jobs/{id}/cancel", "work", "operator", "Cancel a queued job or stop a running one", scope="jobs:cancel", ok=(200, "WorkJob", "application/json"),
    errors=WJOB_ERR + ["not_cancellable", "not_in_state"],
-   desc="For a `laser` machine the stop of a job that runs or is held is the emergency stop: the job ends at once and, unless the machine's `latch_on_stop` is off, the machine is latched until a `rearm` job has run.")
+   desc="For a `laser` machine the stop of a job that runs or is held is the emergency stop: the job ends at once and, unless the machine's `latch_on_stop` is off, the machine is latched until an administrator releases it (`POST /work/machines/{id}/laser/release`).")
 op("GET", "/events/stream", "work", "viewer", "Open the stream of events (server-sent events)", security=SECURITY_OPEN, ok=(200, S, "text/event-stream"),
    errors=["too_many_clients"],
    query=[q("machine", S, "Only the events about this machine."), q("project", S, "Only the events about this project."), q("job", S, "Only the events about this job."),
@@ -672,6 +680,36 @@ op("GET", "/notifications", "work", "viewer", "List the notifications of the cal
    desc="A job that ended, failed, is held or waits for the operator makes a notification for the person who asked for it (the administrators see all). Kept in memory, the last `notifications_keep`.")
 op("POST", "/notifications/read", "work", "viewer", "Mark notifications as read", body="ReadNotifications", ok=(200, "Marked", "application/json"), **W_READ,
    example={"all": True})
+
+MOP = dict(ok=(200, "MachineOperation", "application/json"))
+OP_ERR = MACHINE_ERR + ["not_supported", "machine_alarm"]
+op("GET", "/work/machines/{id}/position", "work", "viewer", "Where a CNC machine is", scope="machines:view", errors=MACHINE_ERR + ["not_supported"], **MOP,
+   desc="Only for a machine of the `cnc` plugin: the machine and the work position, the state word (`Idle`, `Run`, `Alarm`), the turns of the spindle and the values of the overrides.")
+op("POST", "/work/machines/{id}/jog", "work", "operator", "Jog a CNC machine", scope="jobs:start", body="JogRequest", errors=OP_ERR + ["bad_axis", "bad_feed", "jog_while_running", "out_of_travel", "bad_plugin_request"], **MOP,
+   desc="One move along an axis inside the travel of the machine, refused while a job runs or is held and while the machine is latched.", example={"axis": "x", "distance_mm": 5, "feed": 600})
+op("POST", "/work/machines/{id}/emergency-stop", "work", "operator", "Stop a CNC machine or a 3D printer at once and latch it", scope="jobs:cancel", errors=MACHINE_ERR + ["not_supported", "printer_disconnected"], **MOP,
+   desc="The job that runs ends at once, the spindle or the heaters go off and the machine is latched (`machine_alarm`, `printer_latched`) until an administrator releases it. It needs no body and does not wait for the queue.")
+op("POST", "/work/machines/{id}/release", "work", "admin", "Release the latch of an emergency stop of a CNC machine or a 3D printer", scope="machines:manage", errors=MACHINE_ERR + ["not_supported"], **MOP,
+   desc="Only an administrator. A 3D printer is told to start again from the emergency stop; if it cannot be reached it is released all the same and the answer says it was not reset.")
+op("POST", "/work/machines/{id}/laser/test-fire", "work", "operator", "Fire a laser machine for a moment, to focus", scope="jobs:start", body="TestFireRequest",
+   errors=MACHINE_ERR + ["not_supported", "laser_estop_latched", "machine_busy", "enclosure_open", "air_assist_off", "laser_power_limit", "test_fire_refused", "bad_plugin_request"], **MOP,
+   desc="A short pulse with the limits of a job and of `test_fire_max_pct`; refused while a job runs, while the machine is latched and while the enclosure or the air assist input is not in its safe position.",
+   example={"power_pct": 1, "seconds": 0.1})
+op("POST", "/work/machines/{id}/laser/release", "work", "admin", "Release the latch of an emergency stop of a laser machine", scope="machines:manage", errors=MACHINE_ERR + ["not_supported"], **MOP,
+   desc="Only an administrator: the operator who stopped the machine cannot release it.")
+op("GET", "/work/machines/{id}/tools", "work", "viewer", "What a CAM worker has built in", scope="machines:view", errors=MACHINE_ERR + ["not_supported"], **MOP,
+   desc="Only for a machine of the `cam` plugin: the kinds of job and what makes each one.")
+op("GET", "/work/machines/{id}/temperatures", "work", "viewer", "The heaters of a 3D printer", scope="machines:view", errors=MACHINE_ERR + ["not_supported", "printer_disconnected"], **MOP,
+   desc="Each heater with its reading, its target, how hard it works and the limit in force, and a short history. Asking also runs the checks of the heaters.")
+op("PUT", "/work/machines/{id}/temperatures", "work", "operator", "Set the target of a heater of a 3D printer", scope="jobs:start", body="TemperatureRequest",
+   errors=MACHINE_ERR + ["not_supported", "bad_heater", "temperature_over_limit", "printer_latched", "printer_disconnected", "bad_plugin_request"], **MOP,
+   desc="Refused above the limit of the heater (the profile of the model, or the limit set for the machine).", example={"heater": "bed", "target_c": 60})
+op("GET", "/work/machines/{id}/layer", "work", "viewer", "The layer a 3D printer is at", scope="machines:view", errors=MACHINE_ERR + ["not_supported", "printer_disconnected"], **MOP,
+   desc="The layer, the layers of the program when the printer says them, the height and an estimate of the time left.")
+op("GET", "/work/machines/{id}/compat/moonraker", "work", "viewer", "The state of a 3D printer shaped as Moonraker answers it", scope="machines:view", errors=MACHINE_ERR + ["not_supported", "printer_disconnected"], **MOP,
+   desc="Only when the machine has `compat` set to `moonraker` or `both` (off by default). The shape of `GET /printer/objects/query`; the server does not answer at the root paths of Moonraker.")
+op("GET", "/work/machines/{id}/compat/octoprint", "work", "viewer", "The state of a 3D printer shaped as OctoPrint answers it", scope="machines:view", errors=MACHINE_ERR + ["not_supported", "printer_disconnected"], **MOP,
+   desc="Only when the machine has `compat` set to `octoprint` or `both` (off by default). The printer and the job of `GET /api/printer` and `GET /api/job`.")
 
 # -- the single login of every application (docs/AUTH.md)
 SCHEMAS.update({

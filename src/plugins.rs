@@ -7,8 +7,12 @@
 //!   is an adapter over what the server did before: the old routes (`/api/v1/machines`, `/api/v1/jobs`...) keep working as they were and a job made through the plugin is
 //!   the same job in the same book.
 //! * `demo`: a machine with no hardware, for the tests of the applications and of the server: a job of `steps` steps, one every `step_ms` milliseconds.
-//! * `laser`, `pnp` and `pcb`: the machines of the laser programs, of the pick-and-place program and of the board program. They are simulators: the jobs are
-//!   checked and run against a model of the machine (`src/laser.rs`, `src/pnp.rs`, `src/pcb.rs`) until a real machine is connected behind the same operations.
+//! * `laser`, `pnp`, `pcb` and `cnc`: the machines of the laser programs, of the pick-and-place program, of the board program and of the G-code machines. They are
+//!   simulators: the jobs are checked and run against a model of the machine (`src/laser.rs`, `src/pnp.rs`, `src/pcb.rs`, `src/cnc.rs`) until a real machine is connected
+//!   behind the same operations.
+//! * `gerber` and `cam`: workers that move nothing and make reports (`src/gerber.rs`, `src/cam.rs`): the reading and checking of Gerber and drill files, and the
+//!   G-code for drilling and outlines with the report of a program.
+//! * `printer3d`: 3D printers (`src/printer3d.rs`), with the simulator and the drivers `moonraker` and `octoprint`.
 //!
 //! A plugin is a value of a type that implements [`MachinePlugin`] and is added to [`Registry::standard`]; see `docs/MACHINE_PLUGINS.md`.
 
@@ -138,6 +142,33 @@ pub struct MachineInfo {
     pub state: &'static str,
 }
 
+/// A route that a plugin adds under `/api/v1/work/machines/{id}/`: the verb, the path after the id, the least role and the scope it needs. The routes themselves are
+/// registered in `src/api_work.rs`; the plugin only does the work (`MachinePlugin::operation`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MachineRoute {
+    pub method: &'static str,
+    pub path: &'static str,
+    /// `viewer`, `operator` or `admin`.
+    pub role: &'static str,
+    pub scope: &'static str,
+}
+
+impl MachineRoute {
+    pub const fn new(
+        method: &'static str,
+        path: &'static str,
+        role: &'static str,
+        scope: &'static str,
+    ) -> MachineRoute {
+        MachineRoute {
+            method,
+            path,
+            role,
+            scope,
+        }
+    }
+}
+
 pub trait MachinePlugin: Send + Sync {
     /// The short name of the kind (`bungard`, `demo`): what `plugin` says in the machines and the jobs.
     fn kind(&self) -> &'static str;
@@ -163,6 +194,31 @@ pub trait MachinePlugin: Send + Sync {
     /// What a client sees of a machine besides its state (for a laser: whether an emergency stop latched it, the power limits in force). `null` when there is nothing to add.
     fn detail(&self, _st: &Arc<AppState>, _machine: &str) -> Value {
         Value::Null
+    }
+
+    /// The routes under `/api/v1/work/machines/{id}/` this plugin answers besides the generic ones.
+    fn routes(&self) -> &'static [MachineRoute] {
+        &[]
+    }
+
+    /// Does one of its [`routes`](MachinePlugin::routes) on a machine: `route` is the path after the id, `body` the JSON of the request (`null` for a read), `by` the name of
+    /// the caller. The role and the scope were checked by the route.
+    fn operation(
+        &self,
+        _st: &Arc<AppState>,
+        _machine: &str,
+        _route: &str,
+        _body: &Value,
+        _by: &str,
+    ) -> PluginResult<Value> {
+        Err(PluginError::NotSupported(
+            "the machine has no such operation",
+        ))
+    }
+
+    /// Whether the next queued job of a machine that is free starts by itself. `false` unless the machine was set to (a safety switch, off by default).
+    fn auto_start(&self, _st: &Arc<AppState>, _machine: &str) -> bool {
+        false
     }
 
     /// Checks a request and makes a job ready for `machine`; nothing moves.
@@ -232,7 +288,10 @@ pub(crate) fn work_machine_ids(st: &Arc<AppState>, kind: &str) -> Vec<(String, S
 
 /// Whether the jobs of the plugin `kind` live in memory only: a job of such a plugin that was open when the server stopped is marked as failed.
 pub fn in_memory(kind: &str) -> bool {
-    matches!(kind, "demo" | "laser" | "pnp" | "pcb")
+    matches!(
+        kind,
+        "demo" | "laser" | "pnp" | "pcb" | "cnc" | "gerber" | "cam" | "printer3d"
+    )
 }
 
 /// The plugins of this server, by the name of their kind.
@@ -249,6 +308,10 @@ impl Registry {
                 Arc::new(crate::plugin_laser::LaserPlugin::default()),
                 Arc::new(crate::plugin_pnp::PnpPlugin::default()),
                 Arc::new(crate::plugin_pcb::PcbPlugin::default()),
+                Arc::new(crate::plugin_cnc::CncPlugin::default()),
+                Arc::new(crate::plugin_gerber::GerberPlugin::default()),
+                Arc::new(crate::plugin_cam::CamPlugin::default()),
+                Arc::new(crate::plugin_printer3d::Printer3dPlugin::default()),
             ],
         }
     }

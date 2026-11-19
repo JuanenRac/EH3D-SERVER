@@ -11103,7 +11103,7 @@
           "work"
         ],
         "summary": "List the machine plugins",
-        "description": "`bungard` (the machines of DRILLPRO and ROUTEPRO, the same as `/machines`), `demo` (a machine with no hardware) and the simulators `laser`, `pnp` and `pcb`, with what each can do and the settings of its machines. Role viewer or higher. Scope `machines:view` if the token is limited by scopes.",
+        "description": "`bungard` (the machines of DRILLPRO and ROUTEPRO, the same as `/machines`), `demo` (a machine with no hardware) and the simulators `laser`, `pnp`, `pcb`, `cnc`, `gerber`, `cam` and `printer3d`, with what each can do and the settings of its machines. `cnc`, `gerber`, `cam` and `printer3d` are simulators too; `gerber` and `cam` move nothing. Role viewer or higher. Scope `machines:view` if the token is limited by scopes.",
         "x-role": "viewer",
         "x-scope": "machines:view",
         "x-error-codes": [
@@ -11213,7 +11213,7 @@
           "work"
         ],
         "summary": "Make a machine of a plugin",
-        "description": "Only for a plugin that keeps its machines here (`demo`, `laser`, `pnp`, `pcb`); for `bungard` use `POST /machines`. The id cannot be one of any other machine. The settings are checked by the plugin and a key it does not know is refused. Role admin. Scope `machines:manage` if the token is limited by scopes.",
+        "description": "Only for a plugin that keeps its machines here (`demo`, `laser`, `pnp`, `pcb`, `cnc`, `gerber`, `cam`, `printer3d`); for `bungard` use `POST /machines`. The id cannot be one of any other machine. The settings are checked by the plugin and a key it does not know is refused. Role admin. Scope `machines:manage` if the token is limited by scopes.",
         "x-role": "admin",
         "x-scope": "machines:manage",
         "x-error-codes": [
@@ -11782,26 +11782,45 @@
           "work"
         ],
         "summary": "Prepare a job on a machine of any plugin",
-        "description": "The plugin of the machine checks the request and makes the job ready (`queued`); nothing moves until a person starts it. At most `work_queue_max` jobs wait. A laser job is held to the power, the feed and the bed of its machine (`laser_power_limit`, `laser_feed_limit`, `outside_course`) and nothing but a `rearm` job is prepared on a laser that an emergency stop latched (`laser_estop_latched`); a placement job needs its parts in the feeders of the machine (`pnp_feeder_short`). Role operator or higher. Scope `jobs:prepare` if the token is limited by scopes.",
+        "description": "The plugin of the machine checks the request and makes the job ready (`queued`); nothing moves until a person starts it. At most `work_queue_max` jobs wait. A laser job is held to the power, the feed and the bed of its machine (`laser_power_limit`, `laser_feed_limit`, `outside_course`) and nothing is prepared on a laser that an emergency stop latched until an administrator releases it (`laser_estop_latched`); a placement job needs its parts in the feeders of the machine (`pnp_feeder_short`). Role operator or higher. Scope `jobs:prepare` if the token is limited by scopes.",
         "x-role": "operator",
         "x-scope": "jobs:prepare",
         "x-error-codes": [
+          "air_assist_off",
           "bad_app",
           "bad_gcode",
+          "bad_gerber",
+          "bad_operation",
+          "bad_params",
+          "bad_placement_list",
           "bad_plugin_request",
           "bad_request",
+          "bad_rules",
+          "enclosure_open",
+          "focus_not_checked",
           "forbidden",
           "forbidden_scope",
+          "input_too_large",
           "laser_estop_latched",
           "laser_feed_limit",
           "laser_power_limit",
+          "machine_alarm",
+          "missing_layer",
           "no_work",
+          "out_of_travel",
           "outside_course",
           "plugin_failed",
           "pnp_feeder_short",
+          "printer_disconnected",
+          "printer_latched",
+          "program_over_limit",
           "queue_full",
+          "spindle_limit",
+          "temperature_over_limit",
+          "test_fire_refused",
           "too_big",
           "unauthorized",
+          "unit_unknown",
           "unknown_machine"
         ],
         "requestBody": {
@@ -11891,21 +11910,35 @@
             }
           },
           "409": {
-            "description": "Refused with `laser_estop_latched`, `pnp_feeder_short`.",
+            "description": "Refused with `air_assist_off`, `enclosure_open`, `focus_not_checked`, `laser_estop_latched`, `machine_alarm`, `pnp_feeder_short`, `printer_latched`.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
                 },
                 "example": {
-                  "error": "laser_estop_latched",
+                  "error": "air_assist_off",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Refused with `input_too_large`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "input_too_large",
                   "detail": ""
                 }
               }
             }
           },
           "422": {
-            "description": "Refused with `bad_app`, `bad_gcode`, `bad_plugin_request`, `laser_feed_limit`, `laser_power_limit`, `no_work`, `outside_course`, `too_big`.",
+            "description": "Refused with `bad_app`, `bad_gcode`, `bad_gerber`, `bad_operation`, `bad_params`, `bad_placement_list`, `bad_plugin_request`, `bad_rules`, `laser_feed_limit`, `laser_power_limit`, `missing_layer`, `no_work`, `out_of_travel`, `outside_course`, `program_over_limit`, `spindle_limit`, `temperature_over_limit`, `test_fire_refused`, `too_big`, `unit_unknown`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -11933,7 +11966,7 @@
             }
           },
           "502": {
-            "description": "Refused with `plugin_failed`.",
+            "description": "Refused with `plugin_failed`, `printer_disconnected`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -12137,18 +12170,24 @@
           "work"
         ],
         "summary": "Start a queued job",
-        "description": "One job at a time on a machine. Role operator or higher. Scope `jobs:start` if the token is limited by scopes.",
+        "description": "One job at a time on a machine. A queue does not start by itself unless the machine is set to (`auto_start_queue` of a `printer3d` machine, off by default). Role operator or higher. Scope `jobs:start` if the token is limited by scopes.",
         "x-role": "operator",
         "x-scope": "jobs:start",
         "x-error-codes": [
+          "air_assist_off",
           "bad_plugin_request",
+          "enclosure_open",
+          "focus_not_checked",
           "forbidden",
           "forbidden_scope",
           "laser_estop_latched",
+          "machine_alarm",
           "machine_busy",
           "not_ready",
           "plugin_failed",
           "pnp_feeder_short",
+          "printer_disconnected",
+          "printer_latched",
           "unauthorized",
           "unknown_job",
           "unknown_machine"
@@ -12218,14 +12257,14 @@
             }
           },
           "409": {
-            "description": "Refused with `laser_estop_latched`, `machine_busy`, `not_ready`, `pnp_feeder_short`.",
+            "description": "Refused with `air_assist_off`, `enclosure_open`, `focus_not_checked`, `laser_estop_latched`, `machine_alarm`, `machine_busy`, `not_ready`, `pnp_feeder_short`, `printer_latched`.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
                 },
                 "example": {
-                  "error": "laser_estop_latched",
+                  "error": "air_assist_off",
                   "detail": ""
                 }
               }
@@ -12246,7 +12285,7 @@
             }
           },
           "502": {
-            "description": "Refused with `plugin_failed`.",
+            "description": "Refused with `plugin_failed`, `printer_disconnected`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -12525,7 +12564,7 @@
           "work"
         ],
         "summary": "Cancel a queued job or stop a running one",
-        "description": "For a `laser` machine the stop of a job that runs or is held is the emergency stop: the job ends at once and, unless the machine's `latch_on_stop` is off, the machine is latched until a `rearm` job has run. Role operator or higher. Scope `jobs:cancel` if the token is limited by scopes.",
+        "description": "For a `laser` machine the stop of a job that runs or is held is the emergency stop: the job ends at once and, unless the machine's `latch_on_stop` is off, the machine is latched until an administrator releases it (`POST /work/machines/{id}/laser/release`). Role operator or higher. Scope `jobs:cancel` if the token is limited by scopes.",
         "x-role": "operator",
         "x-scope": "jobs:cancel",
         "x-error-codes": [
@@ -12924,6 +12963,1457 @@
                 },
                 "example": {
                   "error": "forbidden_scope",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/work/machines/{id}/position": {
+      "get": {
+        "operationId": "get_work_machines_id_position",
+        "tags": [
+          "work"
+        ],
+        "summary": "Where a CNC machine is",
+        "description": "Only for a machine of the `cnc` plugin: the machine and the work position, the state word (`Idle`, `Run`, `Alarm`), the turns of the spindle and the values of the overrides. Role viewer or higher. Scope `machines:view` if the token is limited by scopes.",
+        "x-role": "viewer",
+        "x-scope": "machines:view",
+        "x-error-codes": [
+          "forbidden_scope",
+          "not_supported",
+          "unauthorized",
+          "unknown_machine"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineOperation"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden_scope",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused with `unknown_machine`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unknown_machine",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refused with `not_supported`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "not_supported",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/work/machines/{id}/jog": {
+      "post": {
+        "operationId": "post_work_machines_id_jog",
+        "tags": [
+          "work"
+        ],
+        "summary": "Jog a CNC machine",
+        "description": "One move along an axis inside the travel of the machine, refused while a job runs or is held and while the machine is latched. Role operator or higher. Scope `jobs:start` if the token is limited by scopes.",
+        "x-role": "operator",
+        "x-scope": "jobs:start",
+        "x-error-codes": [
+          "bad_axis",
+          "bad_feed",
+          "bad_plugin_request",
+          "bad_request",
+          "forbidden",
+          "forbidden_scope",
+          "jog_while_running",
+          "machine_alarm",
+          "not_supported",
+          "out_of_travel",
+          "unauthorized",
+          "unknown_machine"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JogRequest"
+              },
+              "example": {
+                "axis": "x",
+                "distance_mm": 5,
+                "feed": 600
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused with `bad_request`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_request",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused with `unknown_machine`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unknown_machine",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Refused with `jog_while_running`, `machine_alarm`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "jog_while_running",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Refused with `bad_axis`, `bad_feed`, `bad_plugin_request`, `out_of_travel`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_axis",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refused with `not_supported`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "not_supported",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/work/machines/{id}/emergency-stop": {
+      "post": {
+        "operationId": "post_work_machines_id_emergency_stop",
+        "tags": [
+          "work"
+        ],
+        "summary": "Stop a CNC machine or a 3D printer at once and latch it",
+        "description": "The job that runs ends at once, the spindle or the heaters go off and the machine is latched (`machine_alarm`, `printer_latched`) until an administrator releases it. It needs no body and does not wait for the queue. Role operator or higher. Scope `jobs:cancel` if the token is limited by scopes.",
+        "x-role": "operator",
+        "x-scope": "jobs:cancel",
+        "x-error-codes": [
+          "forbidden",
+          "forbidden_scope",
+          "not_supported",
+          "printer_disconnected",
+          "unauthorized",
+          "unknown_machine"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineOperation"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused with `unknown_machine`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unknown_machine",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refused with `not_supported`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "not_supported",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Refused with `printer_disconnected`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "printer_disconnected",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/work/machines/{id}/release": {
+      "post": {
+        "operationId": "post_work_machines_id_release",
+        "tags": [
+          "work"
+        ],
+        "summary": "Release the latch of an emergency stop of a CNC machine or a 3D printer",
+        "description": "Only an administrator. A 3D printer is told to start again from the emergency stop; if it cannot be reached it is released all the same and the answer says it was not reset. Role admin. Scope `machines:manage` if the token is limited by scopes.",
+        "x-role": "admin",
+        "x-scope": "machines:manage",
+        "x-error-codes": [
+          "forbidden",
+          "forbidden_scope",
+          "not_supported",
+          "unauthorized",
+          "unknown_machine"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineOperation"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused with `unknown_machine`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unknown_machine",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refused with `not_supported`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "not_supported",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/work/machines/{id}/laser/test-fire": {
+      "post": {
+        "operationId": "post_work_machines_id_laser_test_fire",
+        "tags": [
+          "work"
+        ],
+        "summary": "Fire a laser machine for a moment, to focus",
+        "description": "A short pulse with the limits of a job and of `test_fire_max_pct`; refused while a job runs, while the machine is latched and while the enclosure or the air assist input is not in its safe position. Role operator or higher. Scope `jobs:start` if the token is limited by scopes.",
+        "x-role": "operator",
+        "x-scope": "jobs:start",
+        "x-error-codes": [
+          "air_assist_off",
+          "bad_plugin_request",
+          "bad_request",
+          "enclosure_open",
+          "forbidden",
+          "forbidden_scope",
+          "laser_estop_latched",
+          "laser_power_limit",
+          "machine_busy",
+          "not_supported",
+          "test_fire_refused",
+          "unauthorized",
+          "unknown_machine"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestFireRequest"
+              },
+              "example": {
+                "power_pct": 1,
+                "seconds": 0.1
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused with `bad_request`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_request",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused with `unknown_machine`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unknown_machine",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Refused with `air_assist_off`, `enclosure_open`, `laser_estop_latched`, `machine_busy`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "air_assist_off",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Refused with `bad_plugin_request`, `laser_power_limit`, `test_fire_refused`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_plugin_request",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refused with `not_supported`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "not_supported",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/work/machines/{id}/laser/release": {
+      "post": {
+        "operationId": "post_work_machines_id_laser_release",
+        "tags": [
+          "work"
+        ],
+        "summary": "Release the latch of an emergency stop of a laser machine",
+        "description": "Only an administrator: the operator who stopped the machine cannot release it. Role admin. Scope `machines:manage` if the token is limited by scopes.",
+        "x-role": "admin",
+        "x-scope": "machines:manage",
+        "x-error-codes": [
+          "forbidden",
+          "forbidden_scope",
+          "not_supported",
+          "unauthorized",
+          "unknown_machine"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineOperation"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused with `unknown_machine`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unknown_machine",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refused with `not_supported`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "not_supported",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/work/machines/{id}/tools": {
+      "get": {
+        "operationId": "get_work_machines_id_tools",
+        "tags": [
+          "work"
+        ],
+        "summary": "What a CAM worker has built in",
+        "description": "Only for a machine of the `cam` plugin: the kinds of job and what makes each one. Role viewer or higher. Scope `machines:view` if the token is limited by scopes.",
+        "x-role": "viewer",
+        "x-scope": "machines:view",
+        "x-error-codes": [
+          "forbidden_scope",
+          "not_supported",
+          "unauthorized",
+          "unknown_machine"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineOperation"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden_scope",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused with `unknown_machine`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unknown_machine",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refused with `not_supported`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "not_supported",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/work/machines/{id}/temperatures": {
+      "get": {
+        "operationId": "get_work_machines_id_temperatures",
+        "tags": [
+          "work"
+        ],
+        "summary": "The heaters of a 3D printer",
+        "description": "Each heater with its reading, its target, how hard it works and the limit in force, and a short history. Asking also runs the checks of the heaters. Role viewer or higher. Scope `machines:view` if the token is limited by scopes.",
+        "x-role": "viewer",
+        "x-scope": "machines:view",
+        "x-error-codes": [
+          "forbidden_scope",
+          "not_supported",
+          "printer_disconnected",
+          "unauthorized",
+          "unknown_machine"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineOperation"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden_scope",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused with `unknown_machine`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unknown_machine",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refused with `not_supported`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "not_supported",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Refused with `printer_disconnected`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "printer_disconnected",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_work_machines_id_temperatures",
+        "tags": [
+          "work"
+        ],
+        "summary": "Set the target of a heater of a 3D printer",
+        "description": "Refused above the limit of the heater (the profile of the model, or the limit set for the machine). Role operator or higher. Scope `jobs:start` if the token is limited by scopes.",
+        "x-role": "operator",
+        "x-scope": "jobs:start",
+        "x-error-codes": [
+          "bad_heater",
+          "bad_plugin_request",
+          "bad_request",
+          "forbidden",
+          "forbidden_scope",
+          "not_supported",
+          "printer_disconnected",
+          "printer_latched",
+          "temperature_over_limit",
+          "unauthorized",
+          "unknown_machine"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemperatureRequest"
+              },
+              "example": {
+                "heater": "bed",
+                "target_c": 60
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineOperation"
+                },
+                "example": {
+                  "heater": "bed",
+                  "target_c": 60
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused with `bad_request`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_request",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused with `unknown_machine`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unknown_machine",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Refused with `printer_latched`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "printer_latched",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Refused with `bad_heater`, `bad_plugin_request`, `temperature_over_limit`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_heater",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refused with `not_supported`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "not_supported",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Refused with `printer_disconnected`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "printer_disconnected",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/work/machines/{id}/layer": {
+      "get": {
+        "operationId": "get_work_machines_id_layer",
+        "tags": [
+          "work"
+        ],
+        "summary": "The layer a 3D printer is at",
+        "description": "The layer, the layers of the program when the printer says them, the height and an estimate of the time left. Role viewer or higher. Scope `machines:view` if the token is limited by scopes.",
+        "x-role": "viewer",
+        "x-scope": "machines:view",
+        "x-error-codes": [
+          "forbidden_scope",
+          "not_supported",
+          "printer_disconnected",
+          "unauthorized",
+          "unknown_machine"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineOperation"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden_scope",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused with `unknown_machine`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unknown_machine",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refused with `not_supported`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "not_supported",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Refused with `printer_disconnected`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "printer_disconnected",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/work/machines/{id}/compat/moonraker": {
+      "get": {
+        "operationId": "get_work_machines_id_compat_moonraker",
+        "tags": [
+          "work"
+        ],
+        "summary": "The state of a 3D printer shaped as Moonraker answers it",
+        "description": "Only when the machine has `compat` set to `moonraker` or `both` (off by default). The shape of `GET /printer/objects/query`; the server does not answer at the root paths of Moonraker. Role viewer or higher. Scope `machines:view` if the token is limited by scopes.",
+        "x-role": "viewer",
+        "x-scope": "machines:view",
+        "x-error-codes": [
+          "forbidden_scope",
+          "not_supported",
+          "printer_disconnected",
+          "unauthorized",
+          "unknown_machine"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineOperation"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden_scope",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused with `unknown_machine`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unknown_machine",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refused with `not_supported`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "not_supported",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Refused with `printer_disconnected`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "printer_disconnected",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/work/machines/{id}/compat/octoprint": {
+      "get": {
+        "operationId": "get_work_machines_id_compat_octoprint",
+        "tags": [
+          "work"
+        ],
+        "summary": "The state of a 3D printer shaped as OctoPrint answers it",
+        "description": "Only when the machine has `compat` set to `octoprint` or `both` (off by default). The printer and the job of `GET /api/printer` and `GET /api/job`. Role viewer or higher. Scope `machines:view` if the token is limited by scopes.",
+        "x-role": "viewer",
+        "x-scope": "machines:view",
+        "x-error-codes": [
+          "forbidden_scope",
+          "not_supported",
+          "printer_disconnected",
+          "unauthorized",
+          "unknown_machine"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineOperation"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden_scope",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused with `unknown_machine`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unknown_machine",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refused with `not_supported`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "not_supported",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Refused with `printer_disconnected`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "printer_disconnected",
                   "detail": ""
                 }
               }
@@ -16728,7 +18218,7 @@
           "detail": {
             "type": "object",
             "additionalProperties": true,
-            "description": "What the plugin says of the machine besides its state; only the plugins that have something to say send it: `laser` (`estop_latched`, `position_mm`, `beam_on`, `power`, `bed_mm`...), `pnp` (`feeders`, `head`, `placed_total`, `failed_picks`...) and `pcb` (`jobs_done`, `last_kind`, `last_verdict`, `rules`...)."
+            "description": "What the plugin says of the machine besides its state; only the plugins that have something to say send it: `laser` (`estop_latched`, `position_mm`, `beam_on`, `power`, `bed_mm`...), `pnp` (`feeders`, `head`, `placed_total`, `failed_picks`...) and `pcb` (`jobs_done`, `last_kind`, `last_verdict`, `rules`...), `cnc` (`latched`, `position_mm`, `spindle_rpm`, `travel_mm`...) and `printer3d` (`model`, `online`, `latched`, `limits_c`, `temperatures`...)."
           }
         },
         "required": [
@@ -16835,7 +18325,7 @@
           "request": {
             "type": "object",
             "additionalProperties": true,
-            "description": "What the plugin of the machine takes: for `bungard` a drill, route or gcode request (`JobRequest`), for `demo` `{\"kind\": \"demo\", \"steps\": 10}`, for `laser` `gcode`, `test_fire` or `rearm`, for `pnp` `place` or `load_feeders` and for `pcb` `rules_check`, `drill_report`, `bom_report` or `inspect` (`GET /plugins` says what each takes)."
+            "description": "What the plugin of the machine takes: for `bungard` a drill, route or gcode request (`JobRequest`), for `demo` `{\"kind\": \"demo\", \"steps\": 10}`, for `laser` `gcode`, `vector` or `test_fire`, for `pnp` `place` or `load_feeders`, for `pcb` `rules_check`, `drill_report`, `bom_report` or `inspect`, for `cnc` `gcode` or `file`, for `gerber` `load`, `drc` or `report`, for `cam` `drill`, `outline`, `isolate` or `verify` and for `printer3d` `print`, `preheat` or `gcode` (`GET /plugins` says what each takes). A request that names an artifact (`artifact`, or `job` in a `place` request) is given the text of that artifact by the server."
           },
           "name": {
             "type": "string",
@@ -17090,6 +18580,66 @@
           "marked"
         ],
         "additionalProperties": false
+      },
+      "MachineOperation": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "What the operation of the plugin answers; each route says what it has."
+      },
+      "JogRequest": {
+        "type": "object",
+        "properties": {
+          "axis": {
+            "type": "string",
+            "description": "`x`, `y` or `z`."
+          },
+          "distance_mm": {
+            "type": "number"
+          },
+          "feed": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "axis",
+          "distance_mm"
+        ],
+        "additionalProperties": false,
+        "description": "The distance is signed and at most `jog_max_mm`; the feed at most `jog_max_feed` (mm/min)."
+      },
+      "TestFireRequest": {
+        "type": "object",
+        "properties": {
+          "power_pct": {
+            "type": "number"
+          },
+          "seconds": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "power_pct"
+        ],
+        "additionalProperties": false,
+        "description": "At most `test_fire_max_pct` of the full power and `test_fire_max_s` seconds."
+      },
+      "TemperatureRequest": {
+        "type": "object",
+        "properties": {
+          "heater": {
+            "type": "string",
+            "description": "`hotend`, `bed` or `chamber`."
+          },
+          "target_c": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "heater",
+          "target_c"
+        ],
+        "additionalProperties": false,
+        "description": "Refused above the limit of the heater, whoever asks."
       },
       "AppLoginRequest": {
         "type": "object",

@@ -5,7 +5,8 @@
 //! words it was understood from (nothing else passes), every `S` is held to the power limit of the machine (refused, or cut to the limit when the machine says
 //! `clamp`), the feed to its limit, every move to the bed, and a rapid move with the beam on in constant mode (`M3`) is refused. A program that ends with the beam on gets
 //! an `M5`. The emergency stop (`stop` of a job that runs or is held) ends the job at once and, unless the machine is set not to, latches the machine: nothing starts on it
-//! until a job of the kind `rearm` has run, so a person has to say that the machine was looked at.
+//! until an administrator releases it (`POST .../laser/release`), so a person with that role has to say that the machine was looked at. The switches of the enclosure, of
+//! the air assist and of the focus are inputs of the machine (settings in the simulator): a job is refused while one that is required is not in its safe position.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -36,8 +37,16 @@ pub const SETTINGS_HELP: &[(&str, &str)] = &[
     ("over_limit", "`reject` (default) refuses a job that asks for more power than the limit, `clamp` cuts it to the limit"),
     ("max_feed_mm_min", "the fastest cutting feed, 1 to 100000 (6000 by default)"),
     ("rapid_mm_min", "the speed of a rapid move, 1 to 100000 (12000 by default)"),
-    ("latch_on_stop", "an emergency stop latches the machine until a `rearm` job runs (true by default)"),
+    ("latch_on_stop", "an emergency stop latches the machine until an administrator releases it (true by default)"),
     ("test_fire_max_s", "the longest test fire, 0.01 to 10 seconds (1 by default)"),
+    ("test_fire_max_pct", "the most power of a test fire, in percent of max_s, 0 to 10 (1 by default)"),
+    ("require_enclosure_closed", "no job and no test fire while the enclosure input says open (true by default)"),
+    ("enclosure_closed", "the input of the enclosure: true when it is closed (true by default; the simulator takes it from here)"),
+    ("require_air_assist", "no job and no test fire while the air assist input says off (true by default)"),
+    ("air_assist_on", "the input of the air assist: true when it blows (true by default)"),
+    ("focus_check", "no job while the focus input says the head is not focused (true by default; a test fire does not need it)"),
+    ("focused", "the input of the focus: true when the head is focused (true by default)"),
+    ("latch_on_door_open", "the enclosure opened while a job runs ends the job and latches the machine (true by default)"),
     ("sim_rate", "how many times faster than real time the simulated machine works, 0 to 100000 (1 by default; 0 is no waiting)"),
 ];
 
@@ -60,6 +69,14 @@ pub struct LaserConfig {
     pub rapid: f64,
     pub latch_on_stop: bool,
     pub test_fire_max_s: f64,
+    pub test_fire_max_pct: f64,
+    pub require_enclosure_closed: bool,
+    pub enclosure_closed: bool,
+    pub require_air_assist: bool,
+    pub air_assist_on: bool,
+    pub focus_check: bool,
+    pub focused: bool,
+    pub latch_on_door_open: bool,
     pub sim_rate: f64,
 }
 
@@ -75,6 +92,14 @@ impl Default for LaserConfig {
             rapid: 12000.0,
             latch_on_stop: true,
             test_fire_max_s: 1.0,
+            test_fire_max_pct: 1.0,
+            require_enclosure_closed: true,
+            enclosure_closed: true,
+            require_air_assist: true,
+            air_assist_on: true,
+            focus_check: true,
+            focused: true,
+            latch_on_door_open: true,
             sim_rate: 1.0,
         }
     }
@@ -122,8 +147,29 @@ impl LaserConfig {
         if let Some(n) = number_in(settings, "test_fire_max_s", 0.01, 10.0)? {
             cfg.test_fire_max_s = n;
         }
+        if let Some(n) = number_in(settings, "test_fire_max_pct", 0.0, 10.0)? {
+            cfg.test_fire_max_pct = n;
+        }
         if let Some(n) = number_in(settings, "sim_rate", 0.0, 100_000.0)? {
             cfg.sim_rate = n;
+        }
+        for (key, slot) in [
+            (
+                "require_enclosure_closed",
+                &mut cfg.require_enclosure_closed,
+            ),
+            ("enclosure_closed", &mut cfg.enclosure_closed),
+            ("require_air_assist", &mut cfg.require_air_assist),
+            ("air_assist_on", &mut cfg.air_assist_on),
+            ("focus_check", &mut cfg.focus_check),
+            ("focused", &mut cfg.focused),
+            ("latch_on_door_open", &mut cfg.latch_on_door_open),
+        ] {
+            match settings.get(key) {
+                None => {}
+                Some(Value::Bool(b)) => *slot = *b,
+                Some(_) => return Err(format!("{key} is true or false")),
+            }
         }
         match settings.get("over_limit").map(Value::as_str) {
             None => {}
@@ -137,6 +183,29 @@ impl LaserConfig {
             Some(_) => return Err("latch_on_stop is true or false".into()),
         }
         Ok(cfg)
+    }
+
+    /// Refuses what the inputs of the machine do not allow: the enclosure open, the air assist off and, for a job that cuts, the head not focused.
+    pub fn guard(&self, focus_needed: bool) -> Result<(), LaserError> {
+        if self.require_enclosure_closed && !self.enclosure_closed {
+            return fail(
+                "enclosure_open",
+                "the enclosure input says open: close it first".into(),
+            );
+        }
+        if self.require_air_assist && !self.air_assist_on {
+            return fail(
+                "air_assist_off",
+                "the air assist input says off: switch it on first".into(),
+            );
+        }
+        if focus_needed && self.focus_check && !self.focused {
+            return fail(
+                "focus_not_checked",
+                "the focus input says the head is not focused: focus it first".into(),
+            );
+        }
+        Ok(())
     }
 
     /// The highest value of `S` a job may ask.
@@ -703,6 +772,146 @@ pub fn analyze(
     })
 }
 
+/// The most points a vector job may have.
+pub const MAX_POINTS: usize = 100_000;
+
+/// G-code from the paths and the operations of a vector request: `paths` are `{layer, points: [[x, y], ...], closed}` and each operation is `{layer, mode: cut|engrave,
+/// power_pct, speed (mm/min), passes}`. The paths come in the request or, as the same JSON, in the text of the artifact it names. The program goes through the same reading
+/// as any other (the power limit, the feed limit, the bed), so a vector job is never looser than a G-code one.
+pub fn vector_program(request: &Value, cfg: &LaserConfig) -> Result<String, LaserError> {
+    let wrong = |code: &'static str, why: &str| LaserError {
+        code,
+        detail: why.to_string(),
+    };
+    let from_artifact: Option<Value> = request
+        .get("artifact_text")
+        .and_then(Value::as_str)
+        .map(|t| {
+            serde_json::from_str(t).map_err(|_| {
+                wrong(
+                    "bad_operation",
+                    "the artifact is not the JSON of a vector job",
+                )
+            })
+        })
+        .transpose()?;
+    let paths = request
+        .get("paths")
+        .or_else(|| from_artifact.as_ref().and_then(|a| a.get("paths")))
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            wrong(
+                "bad_operation",
+                "a vector request has `paths` (or names an artifact that has them)",
+            )
+        })?;
+    let operations = request
+        .get("operations")
+        .or_else(|| from_artifact.as_ref().and_then(|a| a.get("operations")))
+        .and_then(Value::as_array)
+        .filter(|o| !o.is_empty() && o.len() <= 64)
+        .ok_or_else(|| {
+            wrong(
+                "bad_operation",
+                "operations is a list of 1 to 64 operations",
+            )
+        })?;
+    let mut text = String::from("G21\nG90\n");
+    let mut points = 0usize;
+    for op in operations {
+        let layer = op
+            .get("layer")
+            .and_then(Value::as_str)
+            .ok_or_else(|| wrong("bad_operation", "an operation has the `layer` it works on"))?;
+        match op.get("mode").and_then(Value::as_str) {
+            Some("cut" | "engrave") => {}
+            _ => return Err(wrong("bad_operation", "mode is `cut` or `engrave`")),
+        }
+        let pct = op
+            .get("power_pct")
+            .and_then(Value::as_f64)
+            .filter(|p| *p > 0.0 && *p <= 100.0)
+            .ok_or_else(|| {
+                wrong(
+                    "bad_operation",
+                    "power_pct is a number above 0 and up to 100",
+                )
+            })?;
+        let speed = op
+            .get("speed")
+            .and_then(Value::as_f64)
+            .filter(|s| *s > 0.0 && s.is_finite())
+            .ok_or_else(|| wrong("bad_operation", "speed is a number of mm/min above 0"))?;
+        let passes = match op.get("passes") {
+            None => 1,
+            Some(v) => v
+                .as_u64()
+                .filter(|n| (1..=100).contains(n))
+                .ok_or_else(|| wrong("bad_operation", "passes is a whole number from 1 to 100"))?
+                as usize,
+        };
+        let mut used = 0usize;
+        for path in paths
+            .iter()
+            .filter(|p| p.get("layer").and_then(Value::as_str) == Some(layer))
+        {
+            let pts: Vec<(f64, f64)> = path
+                .get("points")
+                .and_then(Value::as_array)
+                .and_then(|list| {
+                    list.iter()
+                        .map(|p| {
+                            let a = p.as_array()?;
+                            Some((a.first()?.as_f64()?, a.get(1)?.as_f64()?))
+                        })
+                        .collect::<Option<Vec<_>>>()
+                })
+                .filter(|v| v.len() >= 2 && v.iter().all(|(x, y)| x.is_finite() && y.is_finite()))
+                .ok_or_else(|| {
+                    wrong(
+                        "bad_operation",
+                        "the points of a path are two or more [x, y] pairs",
+                    )
+                })?;
+            let closed = path.get("closed").and_then(Value::as_bool).unwrap_or(false);
+            used += 1;
+            points += pts.len() * passes;
+            if points > MAX_POINTS {
+                return Err(wrong(
+                    "too_big",
+                    "a vector job may have 100000 points at the most",
+                ));
+            }
+            for _ in 0..passes {
+                text.push_str(&format!(
+                    "G0 X{} Y{}\nM4 S{}\n",
+                    num(pts[0].0),
+                    num(pts[0].1),
+                    num(cfg.max_s * pct / 100.0)
+                ));
+                for (i, (x, y)) in pts.iter().enumerate().skip(1) {
+                    if i == 1 {
+                        text.push_str(&format!("G1 X{} Y{} F{}\n", num(*x), num(*y), num(speed)));
+                    } else {
+                        text.push_str(&format!("G1 X{} Y{}\n", num(*x), num(*y)));
+                    }
+                }
+                if closed {
+                    text.push_str(&format!("G1 X{} Y{}\n", num(pts[0].0), num(pts[0].1)));
+                }
+                text.push_str("M5\n");
+            }
+        }
+        if used == 0 {
+            return Err(wrong(
+                "bad_operation",
+                "no path is on the layer of an operation",
+            ));
+        }
+    }
+    Ok(text)
+}
+
 // ---- the machines and their jobs -----------------------------------------------------------------------------------------------------
 
 /// What a laser machine is at the moment.
@@ -752,7 +961,7 @@ pub struct LaserEngine {
 fn estop_latched() -> PluginError {
     PluginError::from(LaserError {
         code: "laser_estop_latched",
-        detail: "an emergency stop latched the machine: run a job of the kind rearm first".into(),
+        detail: "an emergency stop latched the machine: an administrator has to release it (POST .../laser/release)".into(),
     })
 }
 
@@ -817,9 +1026,10 @@ impl LaserEngine {
             let now = self.now.locked();
             now.get(machine).map_or((0.0, 0.0), |m| (m.x, m.y))
         };
-        if latched && kind != "rearm" {
+        if latched {
             return Err(estop_latched());
         }
+        cfg.guard(kind != "test_fire")?;
         let (kind_name, analysis): (&'static str, Analysis) =
             match kind {
                 "gcode" => {
@@ -857,30 +1067,30 @@ impl LaserEngine {
                         num(cfg.max_s * pct / 100.0),
                         num(seconds)
                     );
-                    ("test_fire", analyze(&program, &limits, start, 100.0)?)
+                    let made = analyze(&program, &limits, start, 100.0)?;
+                    if pct > cfg.test_fire_max_pct {
+                        return Err(LaserError {
+                            code: "test_fire_refused",
+                            detail: format!(
+                                "a test fire may use {} percent at the most (test_fire_max_pct)",
+                                num(cfg.test_fire_max_pct)
+                            ),
+                        }
+                        .into());
+                    }
+                    ("test_fire", made)
                 }
-                "rearm" => (
-                    "rearm",
-                    Analysis {
-                        lines: vec!["(rearm)".into()],
-                        steps: vec![Step {
-                            x: start.0,
-                            y: start.1,
-                            s: 0.0,
-                            beam: false,
-                            t: 0.0,
-                        }],
-                        total_s: 0.0,
-                        length_mm: 0.0,
-                        cut_mm: 0.0,
-                        max_s_seen: 0.0,
-                        clamped: 0,
-                        beam_off_added: false,
-                        cut_box: None,
-                    },
+                "vector" => (
+                    "vector",
+                    analyze(&vector_program(request, cfg)?, &limits, start, 100.0)?,
                 ),
+                "rearm" => {
+                    return Err(PluginError::Bad(
+                        "the latch of an emergency stop is released with POST .../laser/release (administrator)".into(),
+                    ))
+                }
                 _ => return Err(PluginError::Bad(
-                    "the request has to be {\"kind\": \"gcode\" | \"test_fire\" | \"rearm\", ...}"
+                    "the request has to be {\"kind\": \"gcode\" | \"vector\" | \"test_fire\", ...}"
                         .into(),
                 )),
             };
@@ -918,11 +1128,8 @@ impl LaserEngine {
         }
         let mut now = self.now.locked();
         let rt = now.entry(machine.to_string()).or_default();
-        if rt.latched && job.kind != "rearm" {
+        if rt.latched {
             return Err(estop_latched());
-        }
-        if job.kind == "rearm" {
-            rt.latched = false;
         }
         job.state = WorkState::Running;
         job.clock.run();
@@ -965,9 +1172,9 @@ impl LaserEngine {
         let done = job.done();
         job.clock.hold();
         job.state = WorkState::Cancelled;
-        let latch = job.latch_on_stop && job.kind != "rearm";
+        let latch = job.latch_on_stop;
         job.message = if latch {
-            "emergency stop: the machine is latched until a rearm job runs".into()
+            "emergency stop: the machine is latched until an administrator releases it".into()
         } else {
             "stopped".into()
         };
@@ -985,6 +1192,104 @@ impl LaserEngine {
             rt.latched = true;
         }
         Ok(())
+    }
+
+    /// Whether the inputs of the machine let the job start now (the enclosure may have been opened since it was prepared).
+    pub fn check_start(&self, native_id: &str, cfg: &LaserConfig) -> PluginResult<()> {
+        let kind = self.jobs.locked().get(native_id).map(|j| j.kind);
+        match kind {
+            Some(kind) => cfg.guard(kind != "test_fire").map_err(PluginError::from),
+            None => Ok(()),
+        }
+    }
+
+    /// The enclosure opened while the job runs: when the machine says so, the job ends at once and the machine is latched.
+    pub fn door_opened(&self, native_id: &str, cfg: &LaserConfig) -> bool {
+        if !(cfg.latch_on_door_open && cfg.require_enclosure_closed && !cfg.enclosure_closed) {
+            return false;
+        }
+        let mut jobs = self.jobs.locked();
+        let Some(job) = jobs.get_mut(native_id) else {
+            return false;
+        };
+        if !job.state.active() {
+            return false;
+        }
+        job.clock.hold();
+        job.state = WorkState::Cancelled;
+        job.message =
+            "the enclosure was opened: the machine is latched until an administrator releases it"
+                .into();
+        let mut now = self.now.locked();
+        let rt = now.entry(job.machine.clone()).or_default();
+        rt.s = 0.0;
+        rt.beam = false;
+        rt.latched = true;
+        true
+    }
+
+    /// An administrator looked at the machine: the latch of the emergency stop is released.
+    pub fn release(&self, machine: &str) -> Value {
+        let mut now = self.now.locked();
+        let rt = now.entry(machine.to_string()).or_default();
+        let was = rt.latched;
+        rt.latched = false;
+        json!({ "released": was, "estop_latched": false })
+    }
+
+    /// A short pulse at `power_pct` for `seconds`, to focus: refused while a job runs or the machine is latched, with the same limits as a test fire job. Nothing is left
+    /// behind: the pulse is over when the answer comes.
+    pub fn test_fire(&self, machine: &str, cfg: &LaserConfig, body: &Value) -> PluginResult<Value> {
+        if self.latched(machine) {
+            return Err(estop_latched());
+        }
+        if self.busy(machine) {
+            return Err(PluginError::Busy);
+        }
+        cfg.guard(false)?;
+        let pct = body
+            .get("power_pct")
+            .and_then(Value::as_f64)
+            .filter(|p| *p > 0.0 && *p <= 100.0)
+            .ok_or_else(|| {
+                PluginError::Bad("power_pct is a number above 0 and up to 100".into())
+            })?;
+        let seconds = match body.get("seconds") {
+            None => 0.05_f64.min(cfg.test_fire_max_s),
+            Some(v) => v
+                .as_f64()
+                .filter(|s| (0.01..=cfg.test_fire_max_s).contains(s))
+                .ok_or_else(|| {
+                    PluginError::Bad(format!(
+                        "seconds is a number from 0.01 to {} (test_fire_max_s)",
+                        num(cfg.test_fire_max_s)
+                    ))
+                })?,
+        };
+        if pct > cfg.power_limit_pct {
+            return Err(LaserError {
+                code: "laser_power_limit",
+                detail: format!(
+                    "{} percent is over the limit of the machine ({})",
+                    num(pct),
+                    num(cfg.power_limit_pct)
+                ),
+            }
+            .into());
+        }
+        if pct > cfg.test_fire_max_pct {
+            return Err(LaserError {
+                code: "test_fire_refused",
+                detail: format!(
+                    "a test fire may use {} percent at the most (test_fire_max_pct)",
+                    num(cfg.test_fire_max_pct)
+                ),
+            }
+            .into());
+        }
+        Ok(
+            json!({ "fired": true, "power_pct": pct, "seconds": seconds, "s": cfg.max_s * pct / 100.0 }),
+        )
     }
 
     pub fn status(&self, native_id: &str) -> PluginResult<PluginStatus> {
@@ -1242,6 +1547,9 @@ mod tests {
             json!({"latch_on_stop": 1}),
             json!({"sim_rate": -1}),
             json!({"test_fire_max_s": 11}),
+            json!({"test_fire_max_pct": 11}),
+            json!({"enclosure_closed": "yes"}),
+            json!({"focus_check": 1}),
         ] {
             assert!(LaserConfig::from_settings(&bad).is_err(), "{bad}");
         }
@@ -1321,7 +1629,7 @@ mod tests {
     }
 
     #[test]
-    fn the_emergency_stop_latches_the_machine_until_a_rearm_job_runs() {
+    fn the_emergency_stop_latches_the_machine_until_an_administrator_releases_it() {
         let e = LaserEngine::default();
         let slow = LaserConfig {
             sim_rate: 1.0,
@@ -1350,13 +1658,265 @@ mod tests {
         assert!(e
             .prepare("l2", &slow, &json!({"kind": "gcode", "text": "G1 X1 F60"}))
             .is_ok());
-        let re = job(&e, &slow, json!({"kind": "rearm"}));
-        e.start("l1", &re).unwrap();
+        // the old way of releasing it, a job of the kind rearm, is gone: only the release (an administrator's route) does it
+        let old = e.prepare("l1", &slow, &json!({"kind": "rearm"}));
+        assert!(matches!(
+            old,
+            Err(PluginError::Coded("laser_estop_latched", _))
+        ));
+        assert_eq!(
+            e.release("l1"),
+            json!({"released": true, "estop_latched": false})
+        );
         assert!(!e.latched("l1"));
-        assert_eq!(e.status(&re).unwrap().state, WorkState::Done);
+        assert_eq!(
+            e.release("l1"),
+            json!({"released": false, "estop_latched": false})
+        );
+        let again = e.prepare("l1", &slow, &json!({"kind": "rearm"}));
+        assert!(matches!(again, Err(PluginError::Bad(_))));
         assert!(e
             .prepare("l1", &slow, &json!({"kind": "gcode", "text": "G1 X1 F60"}))
             .is_ok());
+    }
+
+    #[test]
+    fn the_switches_of_the_enclosure_the_air_and_the_focus_refuse_a_job_that_needs_them() {
+        let e = LaserEngine::default();
+        let gcode = json!({"kind": "gcode", "text": "G1 X1 F60"});
+        let open = LaserConfig {
+            enclosure_closed: false,
+            ..engine_cfg()
+        };
+        let r = e.prepare("l1", &open, &gcode);
+        assert!(matches!(r, Err(PluginError::Coded("enclosure_open", _))));
+        let no_air = LaserConfig {
+            air_assist_on: false,
+            ..engine_cfg()
+        };
+        assert!(matches!(
+            e.prepare("l1", &no_air, &gcode),
+            Err(PluginError::Coded("air_assist_off", _))
+        ));
+        let blurred = LaserConfig {
+            focused: false,
+            ..engine_cfg()
+        };
+        assert!(matches!(
+            e.prepare("l1", &blurred, &gcode),
+            Err(PluginError::Coded("focus_not_checked", _))
+        ));
+        // a test fire is what one focuses with: it does not need the focus, but it needs the enclosure and the air
+        let fire = json!({"kind": "test_fire", "power_pct": 1, "seconds": 0.1});
+        assert!(e.prepare("l1", &blurred, &fire).is_ok());
+        assert!(matches!(
+            e.prepare("l1", &open, &fire),
+            Err(PluginError::Coded("enclosure_open", _))
+        ));
+        // a requirement that is switched off lets the job in
+        let loose = LaserConfig {
+            enclosure_closed: false,
+            require_enclosure_closed: false,
+            ..engine_cfg()
+        };
+        assert!(e.prepare("l1", &loose, &gcode).is_ok());
+        // a job prepared with the door shut does not start with the door open
+        let id = job(&e, &engine_cfg(), gcode.clone());
+        assert!(matches!(
+            e.check_start(&id, &open),
+            Err(PluginError::Coded("enclosure_open", _))
+        ));
+        assert!(e.check_start(&id, &engine_cfg()).is_ok());
+        assert!(e.check_start("nope", &open).is_ok());
+    }
+
+    #[test]
+    fn the_door_opened_during_a_job_ends_it_and_latches_the_machine() {
+        let e = LaserEngine::default();
+        let slow = LaserConfig {
+            sim_rate: 1.0,
+            ..LaserConfig::default()
+        };
+        let id = job(
+            &e,
+            &slow,
+            json!({"kind": "gcode", "text": "M4 S100\nG1 X100 F60"}),
+        );
+        e.start("l1", &id).unwrap();
+        let open = LaserConfig {
+            enclosure_closed: false,
+            ..slow.clone()
+        };
+        let stays = LaserConfig {
+            latch_on_door_open: false,
+            ..open.clone()
+        };
+        assert!(!e.door_opened(&id, &stays));
+        assert!(!e.door_opened(&id, &slow));
+        assert!(e.door_opened(&id, &open));
+        let st = e.status(&id).unwrap();
+        assert_eq!(st.state, WorkState::Cancelled);
+        assert!(st.message.contains("enclosure"));
+        assert!(e.latched("l1"));
+        assert!(
+            !e.door_opened(&id, &open),
+            "a job that has ended is not stopped twice"
+        );
+        assert!(!e.door_opened("nope", &open));
+    }
+
+    #[test]
+    fn a_test_fire_pulse_has_the_limits_of_the_job_and_never_runs_beside_a_job() {
+        let e = LaserEngine::default();
+        let cfg = engine_cfg();
+        let ok = e
+            .test_fire("l1", &cfg, &json!({"power_pct": 1, "seconds": 0.2}))
+            .unwrap();
+        assert_eq!(
+            (
+                ok["fired"].clone(),
+                ok["power_pct"].clone(),
+                ok["s"].clone()
+            ),
+            (json!(true), json!(1.0), json!(10.0))
+        );
+        assert_eq!(
+            e.test_fire("l1", &cfg, &json!({"power_pct": 1})).unwrap()["seconds"],
+            0.05
+        );
+        let refused = |body: Value| e.test_fire("l1", &cfg, &body).unwrap_err();
+        assert_eq!(refused(json!({"power_pct": 5})).code(), "test_fire_refused");
+        assert_eq!(
+            refused(json!({"power_pct": 50})).code(),
+            "laser_power_limit"
+        );
+        assert_eq!(
+            refused(json!({"power_pct": 0})).code(),
+            "bad_plugin_request"
+        );
+        assert_eq!(
+            refused(json!({"power_pct": 1, "seconds": 5})).code(),
+            "bad_plugin_request"
+        );
+        assert_eq!(refused(json!({})).code(), "bad_plugin_request");
+        let open = LaserConfig {
+            enclosure_closed: false,
+            ..engine_cfg()
+        };
+        assert_eq!(
+            e.test_fire("l1", &open, &json!({"power_pct": 1}))
+                .unwrap_err()
+                .code(),
+            "enclosure_open"
+        );
+        let slow = LaserConfig {
+            sim_rate: 1.0,
+            ..LaserConfig::default()
+        };
+        let id = job(&e, &slow, json!({"kind": "gcode", "text": "G1 X100 F60"}));
+        e.start("l1", &id).unwrap();
+        assert_eq!(
+            e.test_fire("l1", &slow, &json!({"power_pct": 1}))
+                .unwrap_err(),
+            PluginError::Busy
+        );
+        e.stop(&id).unwrap();
+        assert_eq!(
+            e.test_fire("l1", &slow, &json!({"power_pct": 1}))
+                .unwrap_err()
+                .code(),
+            "laser_estop_latched"
+        );
+    }
+
+    #[test]
+    fn a_vector_job_becomes_a_program_held_to_the_same_limits() {
+        let e = LaserEngine::default();
+        let cfg = engine_cfg();
+        let request = json!({
+            "kind": "vector",
+            "paths": [
+                {"layer": "cut", "points": [[10, 10], [30, 10], [30, 30]], "closed": true},
+                {"layer": "mark", "points": [[5, 5], [6, 5]]},
+            ],
+            "operations": [
+                {"layer": "mark", "mode": "engrave", "power_pct": 10, "speed": 3000},
+                {"layer": "cut", "mode": "cut", "power_pct": 40, "speed": 600, "passes": 2},
+            ],
+        });
+        let p = e.prepare("l1", &cfg, &request).unwrap();
+        assert_eq!(p.view["kind"], "vector");
+        assert_eq!(p.view["max_s"], 400.0);
+        // the cut layer twice round: 20 + 20 + 28.28 mm of closed triangle, each time
+        assert!(
+            (p.view["cut_mm"].as_f64().unwrap() - (1.0 + 2.0 * (20.0 + 20.0 + 800.0f64.sqrt())))
+                .abs()
+                < 0.05,
+            "{}",
+            p.view["cut_mm"]
+        );
+        let program = vector_program(&request, &cfg).unwrap();
+        assert!(
+            program.starts_with("G21\nG90\nG0 X5 Y5\nM4 S100\nG1 X6 Y5 F3000\nM5\n"),
+            "{program}"
+        );
+        assert_eq!(program.matches("M4 S400").count(), 2);
+        // more power than the limit is refused like in a G-code job, and so is a path off the bed
+        let mut hot = request.clone();
+        hot["operations"][1]["power_pct"] = json!(41);
+        assert!(matches!(
+            e.prepare("l1", &cfg, &hot),
+            Err(PluginError::Coded("laser_power_limit", _))
+        ));
+        let mut far = request.clone();
+        far["paths"][0]["points"][1] = json!([500, 10]);
+        assert!(matches!(
+            e.prepare("l1", &cfg, &far),
+            Err(PluginError::Coded("outside_course", _))
+        ));
+    }
+
+    #[test]
+    fn a_vector_job_that_does_not_fit_is_refused_with_the_code_of_the_operation() {
+        let cfg = engine_cfg();
+        let path = json!([{"layer": "a", "points": [[1, 1], [2, 2]]}]);
+        let op = |o: Value| json!({"kind": "vector", "paths": path.clone(), "operations": [o]});
+        let good = json!({"layer": "a", "mode": "cut", "power_pct": 10, "speed": 600});
+        assert!(vector_program(&op(good.clone()), &cfg).is_ok());
+        for (field, value) in [
+            ("mode", json!("burn")),
+            ("power_pct", json!(0)),
+            ("power_pct", json!("x")),
+            ("speed", json!(0)),
+            ("passes", json!(0)),
+            ("passes", json!(101)),
+            ("layer", json!("zzz")),
+        ] {
+            let mut o = good.clone();
+            o[field] = value.clone();
+            let e = vector_program(&op(o), &cfg).unwrap_err();
+            assert_eq!(e.code, "bad_operation", "{field} {value}");
+        }
+        for bad in [
+            json!({"kind": "vector", "operations": [good.clone()]}),
+            json!({"kind": "vector", "paths": path.clone(), "operations": []}),
+            json!({"kind": "vector", "paths": [{"layer": "a", "points": [[1, 1]]}], "operations": [good.clone()]}),
+            json!({"kind": "vector", "paths": [{"layer": "a", "points": [[1, "x"], [2, 2]]}], "operations": [good.clone()]}),
+        ] {
+            assert_eq!(
+                vector_program(&bad, &cfg).unwrap_err().code,
+                "bad_operation",
+                "{bad}"
+            );
+        }
+        // the paths may come from the artifact, as the same JSON
+        let artifact = json!({"kind": "vector", "artifact_text": json!({"paths": path.clone(), "operations": [good.clone()]}).to_string()});
+        assert!(vector_program(&artifact, &cfg).is_ok());
+        let junk = json!({"kind": "vector", "artifact_text": "not json"});
+        assert_eq!(
+            vector_program(&junk, &cfg).unwrap_err().code,
+            "bad_operation"
+        );
     }
 
     #[test]
@@ -1398,16 +1958,20 @@ mod tests {
         let e = LaserEngine::default();
         let cfg = engine_cfg();
         let r = |req: Value| e.prepare("l1", &cfg, &req);
-        assert!(r(json!({"kind": "test_fire", "power_pct": 10, "seconds": 0.5})).is_ok());
+        assert!(r(json!({"kind": "test_fire", "power_pct": 1, "seconds": 0.5})).is_ok());
+        assert!(matches!(
+            r(json!({"kind": "test_fire", "power_pct": 10, "seconds": 0.5})),
+            Err(PluginError::Coded("test_fire_refused", _))
+        ));
         assert!(matches!(
             r(json!({"kind": "test_fire", "power_pct": 41, "seconds": 0.5})),
             Err(PluginError::Coded("laser_power_limit", _))
         ));
         for bad in [
-            json!({"kind": "test_fire", "power_pct": 10, "seconds": 1.5}),
+            json!({"kind": "test_fire", "power_pct": 1, "seconds": 1.5}),
             json!({"kind": "test_fire", "power_pct": 0, "seconds": 0.5}),
             json!({"kind": "test_fire", "seconds": 0.5}),
-            json!({"kind": "test_fire", "power_pct": 10}),
+            json!({"kind": "test_fire", "power_pct": 1}),
             json!({"kind": "burn"}),
             json!({"text": "G1 X1"}),
             json!({"kind": "gcode"}),
