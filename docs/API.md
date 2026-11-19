@@ -332,6 +332,9 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `idempotency_conflict` | 409 | The idempotency key was already used by this caller for a request with another body. |
 | `internal` | 500 | A task of the server failed; the server is still up. |
 | `job_active` | 409 | The job is running: stop it first. |
+| `laser_estop_latched` | 409 | An emergency stop latched the laser machine: nothing is prepared or started on it until a job of the kind rearm has run. |
+| `laser_feed_limit` | 422 | A line of the G-code program asks for a cutting feed over max_feed_mm_min of the laser machine. |
+| `laser_power_limit` | 422 | The job asks for more power (S) than the limit of the laser machine (power_limit_pct of max_s) and the machine is set to reject it. |
 | `last_admin` | 409 | The last administrator cannot be deleted, disabled or demoted. |
 | `local_only` | 403 | While the server has no user, only the computer it runs on may make the first administrator. |
 | `locked` | 423 | Somebody else is editing the project (its lock has not expired). |
@@ -354,6 +357,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `out_of_table` | 422 | A hole or a path is outside the table of the machine. |
 | `outside_course` | 422 | The work goes past the course of an axis (the machine's switch is on reject). |
 | `plugin_failed` | 502 | The plugin or the machine behind it failed while doing this. |
+| `pnp_feeder_short` | 409 | A part of the placement job is in no feeder of the pick-and-place machine, or the feeders hold fewer than the job needs while the machine requires the stock. |
 | `precondition_failed` | 412 | The If-Match tag is not the one of the current version: read the file again before writing. |
 | `precondition_required` | 428 | A write over an existing file needs If-Match with the tag (SHA-256) of the version it was made from. |
 | `project_quota` | 507 | The project, the application or the store would pass its limit (project_max_mb, project_max_files, project_max_projects). |

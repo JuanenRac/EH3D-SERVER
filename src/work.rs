@@ -6,7 +6,7 @@
 //! plugin every half second by a thread of the server, and again whenever somebody asks for it.
 //!
 //! The jobs and the machines of the plugins are kept in the data folder (`work-jobs.json`, `work-machines.json`); the notifications are not (they are for the people who
-//! are there). A job of the `demo` plugin that was not finished when the server stopped is marked as failed: the demo machine lives in memory.
+//! are there). A job of a plugin that lives in memory (`demo`, `laser`, `pnp`, `pcb`) that was not finished when the server stopped is marked as failed.
 
 use std::collections::VecDeque;
 use std::io;
@@ -130,7 +130,7 @@ impl Fail {
 
 // ---- the machines of the plugins ------------------------------------------------------------------------------------------------------
 
-/// A machine that was made through the API for a plugin that keeps its machines here (`demo`). The machines of `bungard` are those of `/api/v1/machines`.
+/// A machine that was made through the API for a plugin that keeps its machines here (`demo`, `laser`, `pnp`, `pcb`). The machines of `bungard` are those of `/api/v1/machines`.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct WorkMachine {
     pub id: String,
@@ -313,7 +313,7 @@ impl WorkBook {
         let at = now();
         let mut changed = false;
         for job in &mut list {
-            if (job.plugin == "demo" || job.plugin == crate::design::PLUGIN)
+            if (crate::plugins::in_memory(&job.plugin) || job.plugin == crate::design::PLUGIN)
                 && !job.state.finished()
             {
                 job.state = WorkState::Failed;
@@ -621,10 +621,15 @@ impl AppState {
                     .locked()
                     .active_on(&m.id)
                     .map(|j| j.id.clone());
-                out.push(json!({
+                let detail = plugin.detail(self, &m.id);
+                let mut view = json!({
                     "id": m.id, "name": m.name, "plugin": plugin.kind(), "state": m.state,
                     "job": job, "capabilities": capabilities,
-                }));
+                });
+                if !detail.is_null() {
+                    view["detail"] = detail;
+                }
+                out.push(view);
             }
         }
         out

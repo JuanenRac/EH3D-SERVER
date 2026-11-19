@@ -11103,7 +11103,7 @@
           "work"
         ],
         "summary": "List the machine plugins",
-        "description": "`bungard` (the machines of DRILLPRO and ROUTEPRO, the same as `/machines`) and `demo` (a machine with no hardware), with what each can do. Role viewer or higher. Scope `machines:view` if the token is limited by scopes.",
+        "description": "`bungard` (the machines of DRILLPRO and ROUTEPRO, the same as `/machines`), `demo` (a machine with no hardware) and the simulators `laser`, `pnp` and `pcb`, with what each can do and the settings of its machines. Role viewer or higher. Scope `machines:view` if the token is limited by scopes.",
         "x-role": "viewer",
         "x-scope": "machines:view",
         "x-error-codes": [
@@ -11213,7 +11213,7 @@
           "work"
         ],
         "summary": "Make a machine of a plugin",
-        "description": "Only for a plugin that keeps its machines here (`demo`); for `bungard` use `POST /machines`. The id cannot be one of any other machine. Role admin. Scope `machines:manage` if the token is limited by scopes.",
+        "description": "Only for a plugin that keeps its machines here (`demo`, `laser`, `pnp`, `pcb`); for `bungard` use `POST /machines`. The id cannot be one of any other machine. The settings are checked by the plugin and a key it does not know is refused. Role admin. Scope `machines:manage` if the token is limited by scopes.",
         "x-role": "admin",
         "x-scope": "machines:manage",
         "x-error-codes": [
@@ -11782,17 +11782,25 @@
           "work"
         ],
         "summary": "Prepare a job on a machine of any plugin",
-        "description": "The plugin of the machine checks the request and makes the job ready (`queued`); nothing moves until a person starts it. At most `work_queue_max` jobs wait. Role operator or higher. Scope `jobs:prepare` if the token is limited by scopes.",
+        "description": "The plugin of the machine checks the request and makes the job ready (`queued`); nothing moves until a person starts it. At most `work_queue_max` jobs wait. A laser job is held to the power, the feed and the bed of its machine (`laser_power_limit`, `laser_feed_limit`, `outside_course`) and nothing but a `rearm` job is prepared on a laser that an emergency stop latched (`laser_estop_latched`); a placement job needs its parts in the feeders of the machine (`pnp_feeder_short`). Role operator or higher. Scope `jobs:prepare` if the token is limited by scopes.",
         "x-role": "operator",
         "x-scope": "jobs:prepare",
         "x-error-codes": [
           "bad_app",
+          "bad_gcode",
           "bad_plugin_request",
           "bad_request",
           "forbidden",
           "forbidden_scope",
+          "laser_estop_latched",
+          "laser_feed_limit",
+          "laser_power_limit",
+          "no_work",
+          "outside_course",
           "plugin_failed",
+          "pnp_feeder_short",
           "queue_full",
+          "too_big",
           "unauthorized",
           "unknown_machine"
         ],
@@ -11882,8 +11890,22 @@
               }
             }
           },
+          "409": {
+            "description": "Refused with `laser_estop_latched`, `pnp_feeder_short`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "laser_estop_latched",
+                  "detail": ""
+                }
+              }
+            }
+          },
           "422": {
-            "description": "Refused with `bad_app`, `bad_plugin_request`.",
+            "description": "Refused with `bad_app`, `bad_gcode`, `bad_plugin_request`, `laser_feed_limit`, `laser_power_limit`, `no_work`, `outside_course`, `too_big`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -12122,9 +12144,11 @@
           "bad_plugin_request",
           "forbidden",
           "forbidden_scope",
+          "laser_estop_latched",
           "machine_busy",
           "not_ready",
           "plugin_failed",
+          "pnp_feeder_short",
           "unauthorized",
           "unknown_job",
           "unknown_machine"
@@ -12194,14 +12218,14 @@
             }
           },
           "409": {
-            "description": "Refused with `machine_busy`, `not_ready`.",
+            "description": "Refused with `laser_estop_latched`, `machine_busy`, `not_ready`, `pnp_feeder_short`.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
                 },
                 "example": {
-                  "error": "machine_busy",
+                  "error": "laser_estop_latched",
                   "detail": ""
                 }
               }
@@ -12501,7 +12525,7 @@
           "work"
         ],
         "summary": "Cancel a queued job or stop a running one",
-        "description": "Role operator or higher. Scope `jobs:cancel` if the token is limited by scopes.",
+        "description": "For a `laser` machine the stop of a job that runs or is held is the emergency stop: the job ends at once and, unless the machine's `latch_on_stop` is off, the machine is latched until a `rearm` job has run. Role operator or higher. Scope `jobs:cancel` if the token is limited by scopes.",
         "x-role": "operator",
         "x-scope": "jobs:cancel",
         "x-error-codes": [
@@ -16700,6 +16724,11 @@
           "capabilities": {
             "type": "object",
             "additionalProperties": true
+          },
+          "detail": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "What the plugin says of the machine besides its state; only the plugins that have something to say send it: `laser` (`estop_latched`, `position_mm`, `beam_on`, `power`, `bed_mm`...), `pnp` (`feeders`, `head`, `placed_total`, `failed_picks`...) and `pcb` (`jobs_done`, `last_kind`, `last_verdict`, `rules`...)."
           }
         },
         "required": [
@@ -16806,7 +16835,7 @@
           "request": {
             "type": "object",
             "additionalProperties": true,
-            "description": "What the plugin of the machine takes: for `bungard` a drill, route or gcode request (`JobRequest`), for `demo` `{\"kind\": \"demo\", \"steps\": 10}`."
+            "description": "What the plugin of the machine takes: for `bungard` a drill, route or gcode request (`JobRequest`), for `demo` `{\"kind\": \"demo\", \"steps\": 10}`, for `laser` `gcode`, `test_fire` or `rearm`, for `pnp` `place` or `load_feeders` and for `pcb` `rules_check`, `drill_report`, `bom_report` or `inspect` (`GET /plugins` says what each takes)."
           },
           "name": {
             "type": "string",

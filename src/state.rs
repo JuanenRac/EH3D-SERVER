@@ -77,7 +77,7 @@ pub struct AppState {
     pub pstore: crate::pstore::ProjectStore,
     /// The shared catalogs (`/api/v1/catalogs`).
     pub catalogs: crate::catalogs::Catalogs,
-    /// The machine plugins (`bungard`, `demo`) the generic queue talks to.
+    /// The machine plugins (`bungard`, `demo`, `laser`, `pnp`, `pcb`) the generic queue talks to.
     pub plugins: crate::plugins::Registry,
     /// The machines of the plugins, the generic queue of jobs and the notifications.
     pub work: crate::work::Work,

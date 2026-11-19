@@ -80,7 +80,7 @@ async fn the_plugins_and_their_machines_are_listed_and_managed_by_an_administrat
         .iter()
         .map(|p| p["kind"].as_str().unwrap())
         .collect();
-    assert_eq!(kinds, vec!["bungard", "demo"]);
+    assert_eq!(kinds, vec!["bungard", "demo", "laser", "pnp", "pcb"]);
     // only an administrator makes machines
     let body = json!({"id": "demo-1", "name": "Demo", "plugin": "demo"});
     let (status, _) = call(

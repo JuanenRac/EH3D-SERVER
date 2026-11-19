@@ -1,12 +1,14 @@
 //! The machine plugins: how the server talks to a kind of machine without knowing which.
 //!
 //! The generic queue of jobs (`/api/v1/work/jobs`, `src/work.rs`) and the stream of events do not know what a drill or a laser is: they ask the **plugin** of the machine to
-//! prepare a job from a request, start it, hold it, let it go on, stop it, say how far it is and say what it can do. Two plugins come with the server:
+//! prepare a job from a request, start it, hold it, let it go on, stop it, say how far it is and say what it can do. These plugins come with the server:
 //!
 //! * `bungard`: the machines the server already runs with DRILLPRO and ROUTEPRO (drilling, routing and free G-code on a node, a GRBL controller or the simulator). It
 //!   is an adapter over what the server did before: the old routes (`/api/v1/machines`, `/api/v1/jobs`...) keep working as they were and a job made through the plugin is
 //!   the same job in the same book.
 //! * `demo`: a machine with no hardware, for the tests of the applications and of the server: a job of `steps` steps, one every `step_ms` milliseconds.
+//! * `laser`, `pnp` and `pcb`: the machines of the laser programs, of the pick-and-place program and of the board program. They are simulators: the jobs are
+//!   checked and run against a model of the machine (`src/laser.rs`, `src/pnp.rs`, `src/pcb.rs`) until a real machine is connected behind the same operations.
 //!
 //! A plugin is a value of a type that implements [`MachinePlugin`] and is added to [`Registry::standard`]; see `docs/MACHINE_PLUGINS.md`.
 
@@ -70,6 +72,8 @@ pub enum PluginError {
     NotInState,
     NotSupported(&'static str),
     Failed(String),
+    /// A refusal that has a code of its own in the catalog of errors (`src/errors.rs`) and what is wrong.
+    Coded(&'static str, String),
 }
 
 impl PluginError {
@@ -81,6 +85,7 @@ impl PluginError {
             PluginError::NotInState => "not_in_state",
             PluginError::NotSupported(_) => "not_supported",
             PluginError::Failed(_) => "plugin_failed",
+            PluginError::Coded(code, _) => code,
         }
     }
 
@@ -91,12 +96,18 @@ impl PluginError {
             PluginError::Busy | PluginError::NotInState => 409,
             PluginError::NotSupported(_) => 501,
             PluginError::Failed(_) => 502,
+            PluginError::Coded(code, _) => crate::errors::ALL
+                .iter()
+                .find(|(c, _, _)| c == code)
+                .map_or(422, |(_, status, _)| *status),
         }
     }
 
     pub fn detail(&self) -> String {
         match self {
-            PluginError::Bad(why) | PluginError::Failed(why) => why.clone(),
+            PluginError::Bad(why) | PluginError::Failed(why) | PluginError::Coded(_, why) => {
+                why.clone()
+            }
             PluginError::NotSupported(what) => (*what).to_string(),
             _ => String::new(),
         }
@@ -149,6 +160,11 @@ pub trait MachinePlugin: Send + Sync {
     /// The machines of this kind.
     fn machines(&self, st: &Arc<AppState>) -> Vec<MachineInfo>;
 
+    /// What a client sees of a machine besides its state (for a laser: whether an emergency stop latched it, the power limits in force). `null` when there is nothing to add.
+    fn detail(&self, _st: &Arc<AppState>, _machine: &str) -> Value {
+        Value::Null
+    }
+
     /// Checks a request and makes a job ready for `machine`; nothing moves.
     fn prepare(
         &self,
@@ -190,6 +206,35 @@ pub trait MachinePlugin: Send + Sync {
     fn discard(&self, st: &Arc<AppState>, machine: &str, native_id: &str, by: &str);
 }
 
+/// The settings of a machine that was made through `/api/v1/work/machines` for the plugin `kind`.
+pub(crate) fn work_machine_settings(
+    st: &Arc<AppState>,
+    machine: &str,
+    kind: &str,
+) -> Option<Value> {
+    let book = st.work.machines.locked();
+    book.get(machine)
+        .filter(|m| m.plugin == kind)
+        .map(|m| m.settings.clone())
+}
+
+/// The id and the name of every machine made for the plugin `kind`.
+pub(crate) fn work_machine_ids(st: &Arc<AppState>, kind: &str) -> Vec<(String, String)> {
+    st.work
+        .machines
+        .locked()
+        .list()
+        .iter()
+        .filter(|m| m.plugin == kind)
+        .map(|m| (m.id.clone(), m.name.clone()))
+        .collect()
+}
+
+/// Whether the jobs of the plugin `kind` live in memory only: a job of such a plugin that was open when the server stopped is marked as failed.
+pub fn in_memory(kind: &str) -> bool {
+    matches!(kind, "demo" | "laser" | "pnp" | "pcb")
+}
+
 /// The plugins of this server, by the name of their kind.
 pub struct Registry {
     plugins: Vec<Arc<dyn MachinePlugin>>,
@@ -198,7 +243,13 @@ pub struct Registry {
 impl Registry {
     pub fn standard() -> Registry {
         Registry {
-            plugins: vec![Arc::new(BungardPlugin), Arc::new(DemoPlugin::default())],
+            plugins: vec![
+                Arc::new(BungardPlugin),
+                Arc::new(DemoPlugin::default()),
+                Arc::new(crate::plugin_laser::LaserPlugin::default()),
+                Arc::new(crate::plugin_pnp::PnpPlugin::default()),
+                Arc::new(crate::plugin_pcb::PcbPlugin::default()),
+            ],
         }
     }
 
@@ -717,11 +768,17 @@ mod tests {
     }
 
     #[test]
-    fn the_registry_has_the_two_plugins() {
+    fn the_registry_has_the_plugins() {
         let r = Registry::standard();
         assert!(r.get("bungard").is_some());
         assert!(r.get("demo").is_some());
-        assert!(r.get("laser").is_none());
-        assert_eq!(r.all().len(), 2);
+        for kind in ["laser", "pnp", "pcb"] {
+            assert!(r.get(kind).is_some(), "{kind}");
+            assert!(in_memory(kind));
+            assert!(r.get(kind).unwrap().manages_machines());
+        }
+        assert!(!in_memory("bungard"));
+        assert!(r.get("nothing").is_none());
+        assert_eq!(r.all().len(), 5);
     }
 }

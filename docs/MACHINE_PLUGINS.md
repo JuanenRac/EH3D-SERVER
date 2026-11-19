@@ -1,6 +1,6 @@
 # Machine plugins, the queue of jobs and the stream of events
 
-The third of the four common services (`docs/SERVICES.md`). Until now the server knew one kind of machine, the Bungard drilling and routing machine, and its routes (`/api/v1/machines`, `/api/v1/jobs`) were written for it. An application that is not for that machine (a laser, a pick-and-place, the stencil printer) needs the same things: a machine to choose, a job to prepare, start, hold and stop, how far it is, and to be told when it ends. This service gives them without the server knowing which machine is behind.
+The third of the four common services (`docs/SERVICES.md`). The server first knew one kind of machine, the Bungard drilling and routing machine, and its routes (`/api/v1/machines`, `/api/v1/jobs`) were written for it. An application that is not for that machine (a laser, a pick-and-place, the stencil printer) needs the same things: a machine to choose, a job to prepare, start, hold and stop, how far it is, and to be told when it ends. This service gives them without the server knowing which machine is behind.
 
 The contract is the `work` tag of `docs/openapi.yaml`. The code is `src/plugins.rs` (the plugins), `src/work.rs` (the machines of the plugins, the queue, the history and the notifications), `src/feed.rs` (the events) and `src/api_work.rs` (the routes).
 
@@ -12,7 +12,7 @@ A machine plugin is a value of a type that implements `MachinePlugin` (`src/plug
 
 | Operation | What it does |
 |---|---|
-| `kind`, `title` | the short name (`bungard`, `demo`) that `plugin` says in machines and jobs, and a line of text |
+| `kind`, `title` | the short name (`bungard`, `demo`, `laser`, `pnp`, `pcb`) that `plugin` says in machines and jobs, and a line of text |
 | `capabilities` | what the machines can do: the kinds of request they take, whether they can be held, how progress is counted |
 | `machines` | the machines of this kind, with their state (`idle` or `busy`) |
 | `prepare` | checks a request and makes a job ready on a machine; nothing moves. Gives the id the plugin knows the job by and what a client draws of it |
@@ -20,6 +20,7 @@ A machine plugin is a value of a type that implements `MachinePlugin` (`src/plug
 | `status` | the state of a job (`queued`, `running`, `paused`, `done`, `failed`, `cancelled`) and how far it is (`done` of `total`) |
 | `discard` | a job that was prepared and will not start: the plugin lets go of what it kept |
 | `manages_machines`, `check_settings` | whether the machines of the plugin are made with `POST /work/machines`, and what their settings may be |
+| `detail` | what a client sees of a machine besides its state (the latch of a laser, the feeders of a pick-and-place machine...); optional |
 
 To add a plugin: write the type, add it to `Registry::standard()` and describe it in `docs/openapi.yaml` through `tools/make_openapi.py`. The generic layer, the history, the events, the notifications, the roles and the audit come with it.
 
@@ -33,9 +34,54 @@ The generic queue lists the jobs made through it; a job made with the old routes
 
 A machine with no hardware, for the tests of the applications and of the server. Its machines are made with `POST /work/machines` (`"plugin": "demo"`, settings `{"step_ms": 20}`, 0 to 3600000). A job is `{"kind": "demo", "steps": 10}` (1 to 100000); it takes `step_ms` milliseconds per step, so with `step_ms = 0` it ends as soon as it runs and with a long step it stays where it is put. It can be held and resumed (the clock stops while it is held). It lives in memory: a demo job that was open when the server stopped is marked as failed.
 
+### `laser`
+
+Laser machines for the laser programs. It is a **simulator**: the jobs are checked and run against a model of the machine, and nothing has been tried on a real laser. Its machines are made with `POST /work/machines` (`"plugin": "laser"`). The settings are checked, and a key that is not one of these is refused:
+
+| Setting | Meaning |
+|---|---|
+| `bed_x_mm`, `bed_y_mm` | the bed, 10 to 5000 (400 by default) |
+| `max_s` | the value of `S` that is full power, 1 to 65535 (1000) |
+| `power_limit_pct` | the most power a job may ask, in percent of `max_s`, 1 to 100 (**40**) |
+| `over_limit` | `reject` (default) refuses a job that asks for more; `clamp` cuts every `S` to the limit |
+| `max_feed_mm_min`, `rapid_mm_min` | the fastest cutting feed (6000) and the speed of a rapid move (12000) |
+| `latch_on_stop` | an emergency stop latches the machine (true) |
+| `test_fire_max_s` | the longest test fire, 0.01 to 10 seconds (1) |
+| `sim_rate` | how many times faster than real time the simulation works, 0 to 100000 (1; 0 is no waiting) |
+
+Raising `power_limit_pct`, switching `over_limit` to `clamp` or `latch_on_stop` off loosens a protection; they are the settings of the machine and only an administrator changes them.
+
+A job is one of three kinds:
+
+* `{"kind": "gcode", "text": "...", "power_scale_pct": 50}` is a G-code program. It is read word by word and written again from the words that were understood (comments and anything else are dropped; `$` lines, real-time characters, `G28`, `G92`, tool changes and expressions are refused with `422 bad_gcode`). Every `S` is held to the power limit (`422 laser_power_limit`, or cut when the machine clamps), every feed to `max_feed_mm_min` (`422 laser_feed_limit`), every move and every arc to the bed (`422 outside_course`), and a rapid move with the beam on in constant mode (`M3`) is refused. A program that ends with the beam on gets an `M5`. `power_scale_pct` (1 to 100) lowers every `S` before the limit is looked at. The `view` has the number of lines, the length of the cut and of all the moves, the estimate in seconds, the highest `S`, how many were cut, the box of the cut and a drawing of at most 2000 points. The head starts where the machine left it.
+* `{"kind": "test_fire", "power_pct": 10, "seconds": 0.5}` is a short pulse to focus, with the same limits as a program.
+* `{"kind": "rearm"}` says that a person looked at the machine after an emergency stop.
+
+**The emergency stop** is `POST /work/jobs/{id}/cancel` on a job that runs or is held: the job ends at once, the beam goes off and, unless `latch_on_stop` is off, the machine is **latched**. A latched machine refuses to prepare or start any job but `rearm` (`409 laser_estop_latched`) until a `rearm` job has run. A job can be held and resumed (the beam is off while it is held). Progress is counted in lines. `GET /work/machines/{id}` has `detail`: `estop_latched`, `position_mm`, `beam_on`, the power in force and the bed.
+
+### `pnp`
+
+Pick-and-place machines for the pick-and-place program. A **simulator**; nothing has been tried on a real machine. The machines are made with `POST /work/machines` (`"plugin": "pnp"`). Settings: `feeders` (slots, 1 to 200, 40 by default), `bed_x_mm`, `bed_y_mm`, `feeder_x0_mm`, `feeder_pitch_mm`, `feeder_y_mm` (where the slots are picked from), `travel_mm_s`, `pick_ms`, `place_ms`, `max_placements`, `require_stock`, `sim_fail_pick_every` and `sim_rate`. A machine has feeders in numbered slots, each with a part (its name) and how many are left.
+
+* `{"kind": "load_feeders", "feeders": [{"slot": 1, "part": "R_0603_10k", "count": 150}], "replace": false}` says what is in the slots, as a person put it there; `replace: true` empties the slots that are not in the list (an empty list with `replace: true` empties them all).
+* `{"kind": "place", "placements": [{"ref": "R1", "part": "R_0603_10k", "x": 20, "y": 30, "rot": 90, "side": "top"}], "offset": {"x": 0, "y": 0}}` places parts. It is checked when it is prepared: the references are different, every place (moved by the offset) is on the bed (`422 outside_course`), and every part is in a feeder with enough left (`409 pnp_feeder_short`; a machine with `require_stock` off lets a job start whose feeders hold too few, and the job fails when one runs dry). The parts are taken from the first slot that has some left. The `view` has the placements with their slot, the count of each part, the travel and the estimate.
+
+The simulated head takes the part off its feeder when it picks, so a feeder that is empty stops the job as `failed` (`feeder 3 is empty at R12`), and a machine with `sim_fail_pick_every` set to N loses the vacuum at the Nth placement of a job (the part is gone and the job fails there) to try how a program deals with it. The feeders are looked at again when the job starts, so a table changed in between is not trusted. `detail` has the `feeders` (with where each is picked from), the `head`, `placed_total` and `failed_picks`. Progress is counted in placements.
+
+### `pcb`
+
+Board stations that make reports and checks and move nothing. A **simulator** of the time a station takes; the reports themselves are made from the data the job brings. The machines are made with `POST /work/machines` (`"plugin": "pcb"`). Settings: the rules of the maker `min_track_mm`, `min_gap_mm`, `min_drill_mm`, `max_drill_mm` and `min_edge_mm`, `drill_hit_s`, `max_items`, `fail_on_violation`, `item_ms` and `sim_rate`.
+
+* `rules_check`: `{"board": {"outline": {"width_mm", "height_mm"}, "tracks": [{"width_mm"}], "clearances": [{"gap_mm"}], "drills": [{"dia_mm", "x", "y"}]}, "rules": {...}}` against the rules (the request may put its own over the ones of the station). It lists every `track_width`, `clearance`, `drill_small`, `drill_outside` and `drill_edge` error and every `drill_large`, `drill_duplicate` and `no_outline` warning with the item, the value and the limit, and gives the verdict `pass` or `fail`.
+* `drill_report`: the tools (holes of the same size), how many hits and how many are plated, the travel and an estimate of the time.
+* `bom_report`: the parts grouped by value and footprint, the references that repeat (error) and the parts with no value or footprint (warning).
+* `inspect`: `{"measurements": [{"name", "nominal", "tolerance", "value"}]}` each judged against its tolerance.
+
+The report is in the `view` of the job as soon as it is prepared; the job then runs for the time the station takes to go over its items. A job whose report has errors ends `done` with the verdict `fail`, unless the station has `fail_on_violation`, and then it ends `failed`. `detail` has how many jobs were done, the kind and the verdict of the last one and the rules in force. Progress is counted in items.
+
 ## The machines
 
-`GET /plugins` lists the plugins. `GET /work/machines` lists the machines of every plugin, each with its `plugin`, its state, the job of the generic queue that has it and its capabilities. `POST /work/machines` (administrator, scope `machines:manage`) makes a machine for a plugin that keeps its machines here; its id may not be the id of any other machine, of any plugin (`409 machine_exists`). `PUT` and `DELETE` change and remove it (not while a job is open on it, `409 machine_busy`). The machines of `bungard` are made, changed and removed with the old routes.
+`GET /plugins` lists the plugins. `GET /work/machines` lists the machines of every plugin, each with its `plugin`, its state, the job of the generic queue that has it, its capabilities and, for the plugins that have something to say (`laser`, `pnp`, `pcb`), its `detail`. `POST /work/machines` (administrator, scope `machines:manage`) makes a machine for a plugin that keeps its machines here; its id may not be the id of any other machine, of any plugin (`409 machine_exists`). `PUT` and `DELETE` change and remove it (not while a job is open on it, `409 machine_busy`). The machines of `bungard` are made, changed and removed with the old routes.
 
 ## The queue and the history
 
@@ -147,4 +193,4 @@ For PHOENIX-3DP (a new application, `3dp` among the names of `auth_known_apps`),
 
 ## What has been tried
 
-Everything above runs in the tests against the `demo` plugin and the simulator of the `bungard` plugin. Nothing has been tried with a second kind of real machine, and the `bungard` plugin has run on a real machine only as far as the old routes have.
+Everything above runs in the tests against the `demo` plugin, the simulator of the `bungard` plugin and the simulators `laser`, `pnp` and `pcb`. Nothing has been tried with a second kind of real machine: the evidence of the three new plugins is `simulator`, and the `bungard` plugin has run on a real machine only as far as the old routes have. The jobs of `demo`, `laser`, `pnp` and `pcb` live in memory: one that was open when the server stopped is marked as failed.

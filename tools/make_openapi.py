@@ -589,6 +589,7 @@ SCHEMAS.update({
     "WorkMachineInfo": obj({
         "id": s(), "name": s(), "plugin": s(), "state": {"type": "string", "enum": ["idle", "busy"]}, "job": nullable(S),
         "capabilities": {"type": "object", "additionalProperties": True},
+        "detail": {"type": "object", "additionalProperties": True, "description": "What the plugin says of the machine besides its state; only the plugins that have something to say send it: `laser` (`estop_latched`, `position_mm`, `beam_on`, `power`, `bed_mm`...), `pnp` (`feeders`, `head`, `placed_total`, `failed_picks`...) and `pcb` (`jobs_done`, `last_kind`, `last_verdict`, `rules`...)."},
     }, ["id", "name", "plugin", "state"], description="`job` is the job of the generic queue that has the machine, when there is one."),
     "WorkMachineList": obj({"machines": arr(ref("WorkMachineInfo"))}, ["machines"]),
     "NewWorkMachine": obj({"id": s("Lowercase letters, digits and hyphens, up to 32."), "name": s(minLength=1, maxLength=80), "plugin": s(),
@@ -597,7 +598,7 @@ SCHEMAS.update({
                              ["id", "name", "plugin", "settings"]),
     "WorkMachineChange": obj({"name": s(minLength=1, maxLength=80), "settings": {"type": "object", "additionalProperties": True}}),
     "NewWorkJob": obj({
-        "machine": s("The id of a machine of any plugin."), "request": {"type": "object", "additionalProperties": True, "description": "What the plugin of the machine takes: for `bungard` a drill, route or gcode request (`JobRequest`), for `demo` `{\"kind\": \"demo\", \"steps\": 10}`."},
+        "machine": s("The id of a machine of any plugin."), "request": {"type": "object", "additionalProperties": True, "description": "What the plugin of the machine takes: for `bungard` a drill, route or gcode request (`JobRequest`), for `demo` `{\"kind\": \"demo\", \"steps\": 10}`, for `laser` `gcode`, `test_fire` or `rearm`, for `pnp` `place` or `load_feeders` and for `pcb` `rules_check`, `drill_report`, `bom_report` or `inspect` (`GET /plugins` says what each takes)."},
         "name": s(maxLength=80), "app": s("The application that asks; the default is the one of the login."),
     }, ["machine", "request"]),
     "WorkState": WORK_STATE,
@@ -619,12 +620,12 @@ SCHEMAS.update({
 
 W_READ = dict(scope="machines:view")
 op("GET", "/plugins", "work", "viewer", "List the machine plugins", ok=(200, "PluginList", "application/json"), **W_READ,
-   desc="`bungard` (the machines of DRILLPRO and ROUTEPRO, the same as `/machines`) and `demo` (a machine with no hardware), with what each can do.")
+   desc="`bungard` (the machines of DRILLPRO and ROUTEPRO, the same as `/machines`), `demo` (a machine with no hardware) and the simulators `laser`, `pnp` and `pcb`, with what each can do and the settings of its machines.")
 op("GET", "/work/machines", "work", "viewer", "List the machines of every plugin", ok=(200, "WorkMachineList", "application/json"), **W_READ,
    desc="The machines of `/machines` appear here as machines of the `bungard` plugin, with their state; the ones of the other plugins are made with `POST /work/machines`.")
 op("POST", "/work/machines", "work", "admin", "Make a machine of a plugin", scope="machines:manage", body="NewWorkMachine", ok=(201, "WorkMachineRecord", "application/json"),
    errors=["bad_id", "bad_name", "unknown_plugin", "not_supported", "bad_plugin_request", "machine_exists"],
-   desc="Only for a plugin that keeps its machines here (`demo`); for `bungard` use `POST /machines`. The id cannot be one of any other machine.",
+   desc="Only for a plugin that keeps its machines here (`demo`, `laser`, `pnp`, `pcb`); for `bungard` use `POST /machines`. The id cannot be one of any other machine. The settings are checked by the plugin and a key it does not know is refused.",
    example={"id": "demo-1", "name": "Demo machine", "plugin": "demo", "settings": {"step_ms": 20}})
 op("GET", "/work/machines/{id}", "work", "viewer", "Read a machine of a plugin", ok=(200, "WorkMachineInfo", "application/json"), errors=MACHINE_ERR, **W_READ)
 op("PUT", "/work/machines/{id}", "work", "admin", "Change a machine made through the plugins", scope="machines:manage", body="WorkMachineChange", ok=(200, "WorkMachineRecord", "application/json"),
@@ -637,20 +638,24 @@ op("GET", "/work/jobs", "work", "viewer", "List the jobs of the generic queue, n
           q("mine", B, "Only the caller's."), q("limit", {"type": "integer", "minimum": 1, "maximum": 500}, "Jobs per page (50)."), q("offset", {"type": "integer", "minimum": 0}, "Jobs to skip.")],
    desc="The jobs that are open are read from their plugins first.")
 op("POST", "/work/jobs", "work", "operator", "Prepare a job on a machine of any plugin", scope="jobs:prepare", body="NewWorkJob", ok=(201, "WorkJob", "application/json"),
-   errors=["unknown_machine", "bad_plugin_request", "bad_app", "queue_full", "plugin_failed"],
-   desc="The plugin of the machine checks the request and makes the job ready (`queued`); nothing moves until a person starts it. At most `work_queue_max` jobs wait.",
+   errors=["unknown_machine", "bad_plugin_request", "bad_app", "queue_full", "plugin_failed", "bad_gcode", "no_work", "too_big", "outside_course",
+           "laser_power_limit", "laser_feed_limit", "laser_estop_latched", "pnp_feeder_short"],
+   desc="The plugin of the machine checks the request and makes the job ready (`queued`); nothing moves until a person starts it. At most `work_queue_max` jobs wait. "
+        "A laser job is held to the power, the feed and the bed of its machine (`laser_power_limit`, `laser_feed_limit`, `outside_course`) and nothing but a `rearm` job is prepared on a laser that an emergency stop latched (`laser_estop_latched`); "
+        "a placement job needs its parts in the feeders of the machine (`pnp_feeder_short`).",
    example={"machine": "demo-1", "request": {"kind": "demo", "steps": 10}, "name": "test run", "app": "studio"})
 op("GET", "/work/jobs/{id}", "work", "viewer", "Read a job with its history", ok=(200, "WorkJob", "application/json"), errors=["unknown_job"], **W_READ,
    desc="The state is read from the plugin first.")
 op("DELETE", "/work/jobs/{id}", "work", "operator", "Remove a finished job", scope="jobs:cancel", errors=["unknown_job", "job_active"])
 op("POST", "/work/jobs/{id}/start", "work", "operator", "Start a queued job", scope="jobs:start", ok=(200, "WorkJob", "application/json"),
-   errors=WJOB_ERR + ["not_ready", "machine_busy", "unknown_machine", "bad_plugin_request"], desc="One job at a time on a machine.")
+   errors=WJOB_ERR + ["not_ready", "machine_busy", "unknown_machine", "bad_plugin_request", "laser_estop_latched", "pnp_feeder_short"], desc="One job at a time on a machine.")
 op("POST", "/work/jobs/{id}/pause", "work", "operator", "Hold a running job", scope="jobs:start", ok=(200, "WorkJob", "application/json"),
    errors=WJOB_ERR + ["not_in_state", "not_supported"], desc="A `bungard` machine holds only free G-code jobs (`not_supported` otherwise).")
 op("POST", "/work/jobs/{id}/resume", "work", "operator", "Let a held job go on", scope="jobs:start", ok=(200, "WorkJob", "application/json"),
    errors=WJOB_ERR + ["not_in_state", "not_supported"])
 op("POST", "/work/jobs/{id}/cancel", "work", "operator", "Cancel a queued job or stop a running one", scope="jobs:cancel", ok=(200, "WorkJob", "application/json"),
-   errors=WJOB_ERR + ["not_cancellable", "not_in_state"])
+   errors=WJOB_ERR + ["not_cancellable", "not_in_state"],
+   desc="For a `laser` machine the stop of a job that runs or is held is the emergency stop: the job ends at once and, unless the machine's `latch_on_stop` is off, the machine is latched until a `rearm` job has run.")
 op("GET", "/events/stream", "work", "viewer", "Open the stream of events (server-sent events)", security=SECURITY_OPEN, ok=(200, S, "text/event-stream"),
    errors=["too_many_clients"],
    query=[q("machine", S, "Only the events about this machine."), q("project", S, "Only the events about this project."), q("job", S, "Only the events about this job."),

@@ -217,6 +217,20 @@
         },
         {
           "desc": {
+            "en": "the simulated laser, pick-and-place and board machines and their clock",
+            "es": "las máquinas simuladas de láser, pick-and-place y placa, y su reloj",
+            "de": "die simulierten Laser-, Bestückungs- und Platinenmaschinen und ihre Uhr",
+            "fr": "les machines simulées de laser, de placement de composants et de carte, et leur horloge",
+            "it": "le macchine simulate di laser, pick-and-place e scheda, e il loro orologio",
+            "ja": "シミュレートされたレーザー・ピックアンドプレース・基板マシンとその時計",
+            "zh": "模拟的激光、贴片和电路板机床及其时钟",
+            "pt": "as máquinas simuladas de laser, pick-and-place e placa, e o seu relógio"
+          },
+          "name": "laser.rs  pnp.rs  pcb.rs",
+          "tree_name": "laser.rs pnp.rs pcb.rs plugin_*.rs simclock.rs"
+        },
+        {
+          "desc": {
             "en": "the applications and the single login for all of them",
             "es": "las aplicaciones y el login único para todas",
             "de": "die Anwendungen und die einmalige Anmeldung für alle",

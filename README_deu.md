@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.1.8` |
 | Reifegrad | Funktionsfähig |
-| Tests | 386 |
+| Tests | 446 |
 | Technologie-Stack | Rust (axum, tokio) |
 | Auf echter Hardware | Nein: gegen den Simulator getestet; über den Server lief noch nichts auf einer echten Maschine |
 
@@ -45,7 +45,7 @@ Jede Zeile ist ein Teil dieses Repositorys, und die Ampel sagt, wie weit er heut
 | Bereich | Stand | Was das hier bedeutet |
 |---|---|---|
 | Software | 🟡 | Ein Rust-Server (axum) verwaltet Benutzer, Maschinen und Aufträge, plant Bohr- und Fräsaufträge mit den Bibliotheken von EH3D-DRILLPRO und EH3D-ROUTEPRO, zeigt eine Vorschau und führt den Auftrag mit Bedienerdialogen und einem Stopp aus. |
-| Tests | 🟡 | 386 Tests bestehen (`cargo test`): 205 in den Modulen und 181 an der Schnittstelle von Ende zu Ende, mit Aufträgen im Simulator (41 in `tests/api.rs`, 7 mit den echten Programmen in `tests/programs.rs`). |
+| Tests | 🟡 | 446 Tests bestehen (`cargo test`): 255 in den Modulen und 191 an der Schnittstelle von Ende zu Ende, mit Aufträgen im Simulator (41 in `tests/api.rs`, 7 mit den echten Programmen in `tests/programs.rs`). |
 | Schnittstelle für Clients (API) | 🟡 | Die REST-Anfragen und die Websocket-Ereignisse sind in `docs/API.md` (die Routen außerdem im OpenAPI-Vertrag `docs/openapi.yaml`) beschrieben und von den Tests abgedeckt; bisher nutzt sie nur die Serververbindung der Programme selbst. |
 | Gemeinsame Dienste | 🟠 | Projektspeicher, gemeinsame Kataloge, Maschinen-Plugins mit Warteschlange und Ereignissen und die einheitliche Anmeldung laufen in den Tests auf einem Rechner; keine Anwendung nutzt sie bisher, über die Warteschlange lief nichts auf einer echten Maschine, und die Kataloge wurden nicht mit den echten Daten ihrer Programme gefüllt. |
 | Clients | 🔴 | EH3D-STUDIO nutzt ihn (nie an einer echten Maschine probiert); die Android-App und das Touch-Panel an der Maschine gibt es noch nicht. |
@@ -97,7 +97,7 @@ Wie die Teile dieses Repositorys zusammenpassen: wer es nutzt, was es enthält u
 * **Die Qualitätsprüfung mit der Kamera des Kopfes:** Der Server schaltet den LED-Ring ein, holt ein Bild vom Knoten, beurteilt es mit dem Analysator der Werkstatt (das Profil jeder Maschine verwahrt der Server), lässt den Ring zeigen, wie es ausging (grün oder rot blinkend), und behält die letzte Prüfung, damit der Bildschirm an der Maschine und die Telefone sie zeigen: `GET/POST .../head/light`, `GET .../head/snapshot`, `POST/GET .../head/inspect`, `GET/PUT .../head/inspect/profile` und `POST .../head/inspect/calibrate`.
 * **Die Spindel der Maschine:** `GET` und `PUT /api/v1/machines/:id/spindle` nennen die Spindel, die die Maschine trägt (`original` oder `vfd`), und ihre Grenzen (Drehzahl, Vorschub im Schnitt, Eintauchvorschub, dickster Bohrer); ein Auftrag, der mehr verlangt, wird mit `spindle_limit` abgelehnt (der Sicherheitsschalter `guard` steht standardmäßig auf `reject`; mit `warn` läuft der Auftrag mit auf das Maximum der Spindel gekürzter Drehzahl durch und jede Überschreitung steht in `spindle_warnings`).
 * **Ein Projektspeicher mit Versionen:** eine Datei wird nie überschrieben, jedes Schreiben ist eine neue Version mit ihrem SHA-256, ein Schreiben über eine vorhandene Datei muss angeben, von welcher Version es ausgeht (`If-Match`), die Bytes werden bei jedem Lesen gegen ihren Hash geprüft, und Namen, die den Ordner verlassen könnten oder Windows gehören, werden abgelehnt.
-* **Maschinen hinter Plugins:** die Bungard-Maschinen sind das Plugin `bungard` (dieselben Maschinen, dieselben Aufträge, dieselben alten Routen), ein Plugin `demo` ohne Hardware dient den Tests; eine generische Warteschlange führt den Verlauf jedes Auftrags, und ein Ereignisstrom (`GET /api/v1/events/stream`) lässt einen Client mit `Last-Event-ID` wieder anknüpfen, ohne etwas zu verlieren.
+* **Maschinen hinter Plugins:** die Bungard-Maschinen sind das Plugin `bungard` (dieselben Maschinen, dieselben Aufträge, dieselben alten Routen), ein Plugin `demo` ohne Hardware dient den Tests, und die Simulatoren `laser` (Grenzen für Leistung und Vorschub, ein Not-Halt, der sperrt), `pnp` (Zuführer und Bestückungsaufträge) und `pcb` (Prüfungen und Berichte) dienen den Programmen für Laser, Bestückung und Platinen; eine generische Warteschlange führt den Verlauf jedes Auftrags, und ein Ereignisstrom (`GET /api/v1/events/stream`) lässt einen Client mit `Last-Event-ID` wieder anknüpfen, ohne etwas zu verlieren.
 * **Eine Anmeldung für jede Anwendung:** die Anmeldung sagt, für welche Anwendung sie gilt, jede Person sieht und schließt ihre offenen Sitzungen, ein Administrator die jeder anderen, Passwörter und Sperre folgen den Einstellungen, und das Audit hält Anmeldungen, Ablehnungen und Schließungen fest, nie ein Geheimnis; `GET /api/v1/auth/policy` zeigt dem Studio die Sicherheitsschalter.
 
 ## 🔒 Sicherheit und Schutz
@@ -177,7 +177,7 @@ Starte ihn mit `run.bat` (Windows) oder `./run.sh` (Linux); bei Bedarf baut er z
 
 ## 🧪 Tests
 
-Die Suite hat 377 Tests (`cargo test`, in der CI unter Windows und Linux mit COMMON, DRILLPRO und ROUTEPRO neben dem Server ausgeführt): 201 in den Modulen (Einstellungen und ihre Bereiche, Benutzer, Rollen, Tokens, die Bremse bei falschen Passwörtern, die Dateien und das Auftragsbuch, die Planung), 41 an der Schnittstelle von Ende zu Ende über den echten Router (`tests/api.rs`), 2 für die Beispiele der Antworten, die die Clients lesen (`tests/examples.rs`) und 7 mit den echten Programmen, die ihre Aufträge an einen echten Server auf einem echten Port schicken, mit der Maschine im Simulator (`tests/programs.rs`). Die übrigen Dateien von `tests/` bringen 109 weitere (die vier gemeinsamen Dienste mit ihren Dokumenten, Artefakte, Rechenaufgaben, Freigaben, Ereignisse, den Fehlerkatalog, die Routen des API-Dokuments, einen Stopp per Signal und eine Panik). Die CI führt außerdem `cargo fmt --all --check`, `cargo clippy` mit Warnungen als Fehlern und `python -I tools/ci_validate.py` aus. Nichts davon wurde gegen einen echten Knoten oder eine echte Maschine getestet. Der Helfer, der die Aktualisierungen macht, hat 33 weitere eigene Tests (`python -I tests/test_update_helper.py`, mit durch Attrappen ersetzten GitHub und systemd). Zwei weitere Testdateien prüfen, dass ein Panic, der eine Sperre vergiftet, den Server nicht anhält (`tests/poison.rs`), und dass das echte Binary bei SIGTERM stoppt (`tests/sigterm.rs`, unter Linux); die Sicherung und die Dateien der Bereitstellung haben 7 und 8 eigene Tests (`tests/test_backup.py`, `tests/test_deploy_files.py`). Zwei weitere Testdateien prüfen den Event-Websocket auf einem echten Socket (`tests/events.rs`, 3 Tests) und den Katalog der Fehlercodes gegen den Quelltext des Servers (`tests/errors.rs`, 3 Tests). Der Vertrag der Routen wird von `tests/openapi.rs` (6 Tests) und von `python -I tools/check_openapi.py` gegen den Router geprüft; Letzteres führt die CI ebenfalls aus.
+Die Suite hat 437 Tests (`cargo test`, in der CI unter Windows und Linux mit COMMON, DRILLPRO und ROUTEPRO neben dem Server ausgeführt): 251 in den Modulen (Einstellungen und ihre Bereiche, Benutzer, Rollen, Tokens, die Bremse bei falschen Passwörtern, die Dateien und das Auftragsbuch, die Planung), 41 an der Schnittstelle von Ende zu Ende über den echten Router (`tests/api.rs`), 2 für die Beispiele der Antworten, die die Clients lesen (`tests/examples.rs`) und 7 mit den echten Programmen, die ihre Aufträge an einen echten Server auf einem echten Port schicken, mit der Maschine im Simulator (`tests/programs.rs`). Die übrigen Dateien von `tests/` bringen 119 weitere (die vier gemeinsamen Dienste mit ihren Dokumenten, Artefakte, Rechenaufgaben, Freigaben, Ereignisse, den Fehlerkatalog, die Routen des API-Dokuments, einen Stopp per Signal und eine Panik). Die CI führt außerdem `cargo fmt --all --check`, `cargo clippy` mit Warnungen als Fehlern und `python -I tools/ci_validate.py` aus. Nichts davon wurde gegen einen echten Knoten oder eine echte Maschine getestet. Der Helfer, der die Aktualisierungen macht, hat 33 weitere eigene Tests (`python -I tests/test_update_helper.py`, mit durch Attrappen ersetzten GitHub und systemd). Zwei weitere Testdateien prüfen, dass ein Panic, der eine Sperre vergiftet, den Server nicht anhält (`tests/poison.rs`), und dass das echte Binary bei SIGTERM stoppt (`tests/sigterm.rs`, unter Linux); die Sicherung und die Dateien der Bereitstellung haben 7 und 8 eigene Tests (`tests/test_backup.py`, `tests/test_deploy_files.py`). Zwei weitere Testdateien prüfen den Event-Websocket auf einem echten Socket (`tests/events.rs`, 3 Tests) und den Katalog der Fehlercodes gegen den Quelltext des Servers (`tests/errors.rs`, 3 Tests). Der Vertrag der Routen wird von `tests/openapi.rs` (6 Tests) und von `python -I tools/check_openapi.py` gegen den Router geprüft; Letzteres führt die CI ebenfalls aus.
 
 ## 🏗️ Build und Veröffentlichung
 
@@ -195,36 +195,37 @@ Die Version steht in `Cargo.toml` und in `eh3d.project.json`, und jede Version h
 ```text
 EH3D-SERVER/
 ├── src/
-│   ├── api.rs                                   die REST-Routen und der Websocket
-│   ├── auth.rs                                  Benutzer, Rollen, Tokens und die Bremse bei falschen Passwörtern
-│   ├── plan.rs                                  von der Anfrage zu den Elementen, die die Maschine ausführt
-│   ├── jobs.rs state.rs                         die Aufträge und woraus der Server im Betrieb besteht
-│   ├── audit.rs errors.rs panic.rs              Audit, Protokoll, Fehlercodes, Ausstieg bei Panik
-│   ├── machines.rs store.rs                     die Maschinen und die über eine temporäre Datei geschriebenen Dateien
-│   ├── config.rs lib.rs main.rs                 die Einstellungsdatei, die Bibliothekswurzel und das Programm
-│   ├── updates.rs  head.rs                      die Aktualisierungen der Dienste
-│   ├── inspect.rs                               die Qualitätsprüfung mit der Kamera des Kopfes
-│   ├── gcode.rs gcode_run.rs                    freier G-Code: Bereinigen, Lesen und Ausführen am Simulator oder an GRBL
-│   ├── spindle.rs                               die Spindel einer Maschine, ihre Grenzen und der Sicherheitsschalter
-│   ├── pstore.rs api_pstore.rs                  der Projektspeicher: Versionen, Sperren, Container
-│   ├── catalogs.rs api_catalogs.rs              die gemeinsamen Kataloge: Materialien, Werkzeuge, Bibliotheken
-│   ├── plugins.rs work.rs feed.rs api_work.rs   Maschinen-Plugins, Auftragsschlange, Ereignisse, Meldungen
-│   └── apps.rs api_auth.rs                      die Anwendungen und die einmalige Anmeldung für alle
-├── tests/                                       die Schnittstelle von Ende zu Ende im Simulator und die echten Programme gegen einen echten Server
-├── docs/                                        die API, ihr OpenAPI-Vertrag, die Anleitung zum Betrieb des Servers und die Daten der beiden Bilder
-├── deploy/                                      die systemd-Units und Helfer des Dienstes
-├── server.cfg.example                           die Einstellungsdatei mit jeder erklärten Taste
-├── tools/                                       CI- und README-Prüfung, OpenAPI, das Skript-Panel und die Bildwerkzeuge
-├── images/                                      Banner und die Bilder von Architektur und Repository-Struktur
-├── .github/                                     CI- und Release-Workflows, Vorlagen für Issues und Pull Requests
-├── build.sh build.bat                           baut die Release-Binärdatei mit einem Live-Panel
-├── run.sh run.bat                               startet den Server (baut bei Bedarf zuerst)
-├── eh3d.project.json                            Manifest: Version, Rolle, Reifegrad und Build-Befehl
-├── Cargo.toml Cargo.lock                        das Rust-Paket, seine Abhängigkeiten und die Bibliotheken der beiden Programme
-├── rust-toolchain.toml                          die festgelegte Rust-Toolchain
-├── CHANGELOG.md                                 was sich in jeder Version geändert hat
-├── SECURITY.md SUPPORT.md                       Schwachstellen melden und Fragen stellen
-└── CONTRIBUTING.md CODE_OF_CONDUCT.md LICENSE   Mitwirken, Verhaltenskodex und Lizenz
+│   ├── api.rs                                           die REST-Routen und der Websocket
+│   ├── auth.rs                                          Benutzer, Rollen, Tokens und die Bremse bei falschen Passwörtern
+│   ├── plan.rs                                          von der Anfrage zu den Elementen, die die Maschine ausführt
+│   ├── jobs.rs state.rs                                 die Aufträge und woraus der Server im Betrieb besteht
+│   ├── audit.rs errors.rs panic.rs                      Audit, Protokoll, Fehlercodes, Ausstieg bei Panik
+│   ├── machines.rs store.rs                             die Maschinen und die über eine temporäre Datei geschriebenen Dateien
+│   ├── config.rs lib.rs main.rs                         die Einstellungsdatei, die Bibliothekswurzel und das Programm
+│   ├── updates.rs  head.rs                              die Aktualisierungen der Dienste
+│   ├── inspect.rs                                       die Qualitätsprüfung mit der Kamera des Kopfes
+│   ├── gcode.rs gcode_run.rs                            freier G-Code: Bereinigen, Lesen und Ausführen am Simulator oder an GRBL
+│   ├── spindle.rs                                       die Spindel einer Maschine, ihre Grenzen und der Sicherheitsschalter
+│   ├── pstore.rs api_pstore.rs                          der Projektspeicher: Versionen, Sperren, Container
+│   ├── catalogs.rs api_catalogs.rs                      die gemeinsamen Kataloge: Materialien, Werkzeuge, Bibliotheken
+│   ├── plugins.rs work.rs feed.rs api_work.rs           Maschinen-Plugins, Auftragsschlange, Ereignisse, Meldungen
+│   ├── laser.rs pnp.rs pcb.rs plugin_*.rs simclock.rs   die simulierten Laser-, Bestückungs- und Platinenmaschinen und ihre Uhr
+│   └── apps.rs api_auth.rs                              die Anwendungen und die einmalige Anmeldung für alle
+├── tests/                                               die Schnittstelle von Ende zu Ende im Simulator und die echten Programme gegen einen echten Server
+├── docs/                                                die API, ihr OpenAPI-Vertrag, die Anleitung zum Betrieb des Servers und die Daten der beiden Bilder
+├── deploy/                                              die systemd-Units und Helfer des Dienstes
+├── server.cfg.example                                   die Einstellungsdatei mit jeder erklärten Taste
+├── tools/                                               CI- und README-Prüfung, OpenAPI, das Skript-Panel und die Bildwerkzeuge
+├── images/                                              Banner und die Bilder von Architektur und Repository-Struktur
+├── .github/                                             CI- und Release-Workflows, Vorlagen für Issues und Pull Requests
+├── build.sh build.bat                                   baut die Release-Binärdatei mit einem Live-Panel
+├── run.sh run.bat                                       startet den Server (baut bei Bedarf zuerst)
+├── eh3d.project.json                                    Manifest: Version, Rolle, Reifegrad und Build-Befehl
+├── Cargo.toml Cargo.lock                                das Rust-Paket, seine Abhängigkeiten und die Bibliotheken der beiden Programme
+├── rust-toolchain.toml                                  die festgelegte Rust-Toolchain
+├── CHANGELOG.md                                         was sich in jeder Version geändert hat
+├── SECURITY.md SUPPORT.md                               Schwachstellen melden und Fragen stellen
+└── CONTRIBUTING.md CODE_OF_CONDUCT.md LICENSE           Mitwirken, Verhaltenskodex und Lizenz
 ```
 
 </details>

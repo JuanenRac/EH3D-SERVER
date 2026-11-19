@@ -30,7 +30,7 @@
 |---|---|
 | 版本 | `0.1.8` |
 | 成熟度 | 可用 |
-| 测试 | 386 |
+| 测试 | 446 |
 | 技术栈 | Rust (axum, tokio) |
 | 真实硬件 | 否：已针对模拟器测试；尚未通过服务器在真实机床上运行过任何东西 |
 
@@ -45,7 +45,7 @@
 | 领域 | 状态 | 在这里的含义 |
 |---|---|---|
 | 软件 | 🟡 | Rust 服务器（axum）保存用户、机床和作业，使用 EH3D-DRILLPRO 和 EH3D-ROUTEPRO 的库规划钻孔和铣削作业，显示预览，并带有操作员对话框和停止功能地运行作业。 |
-| 测试 | 🟡 | 386 个测试通过（`cargo test`）：模块内 205 个，接口端到端 181 个，作业在模拟器上运行（`tests/api.rs` 41 个，使用真实程序的 `tests/programs.rs` 7 个）。 |
+| 测试 | 🟡 | 446 个测试通过（`cargo test`）：模块内 255 个，接口端到端 191 个，作业在模拟器上运行（`tests/api.rs` 41 个，使用真实程序的 `tests/programs.rs` 7 个）。 |
 | 面向客户端的接口（API） | 🟡 | REST 请求和 websocket 事件已写在 `docs/API.md` 和路由的 OpenAPI 契约 `docs/openapi.yaml` 中并被测试覆盖；目前只有程序自带的服务器连接在使用。 |
 | 公共服务 | 🟠 | 项目存储、共享目录、带队列和事件的机床插件以及统一登录，都在计算机上的测试中运行；目前没有任何应用使用它们，没有任何东西通过队列在真实机床上运行过，目录也没有载入各程序的真实数据。 |
 | 客户端 | 🔴 | EH3D-STUDIO 在使用它（从未对真实机床试过）；Android 应用和机床旁的触摸面板尚不存在。 |
@@ -97,7 +97,7 @@ EH3D-SERVER 是 EH3D 家族的中心：程序把作业发给它，它通过节�
 * **通过钻头摄像头进行质量检查：** 服务器打开 LED 环形灯，从节点取一张图像，用工坊的分析器判断（每台机床的配置由服务器保存），让环形灯显示结果（绿色或红色闪烁），并保存最近一次检查，供机床旁的屏幕和手机显示：`GET/POST .../head/light`、`GET .../head/snapshot`、`POST/GET .../head/inspect`、`GET/PUT .../head/inspect/profile` 和 `POST .../head/inspect/calibrate`。
 * **机床的主轴：** `GET` 和 `PUT /api/v1/machines/:id/spindle` 说明机床装的是哪个主轴（`original` 或 `vfd`）及其限值（转速、切削进给、下刀进给、最粗的钻头）；要求超出的作业会被 `spindle_limit` 拒绝（安全开关 `guard` 默认为 `reject`；设为 `warn` 时作业通过，转速被削减到主轴最大值，每项超出列在 `spindle_warnings` 中）。
 * **带版本的项目存储：** 文件从不被覆盖，每次写入都是带 SHA-256 的新版本；对已有文件的写入必须说明它基于哪个版本（`If-Match`）；每次读取都用哈希校验字节；可能跳出文件夹或属于 Windows 的名称会被拒绝。
-* **插件背后的机床：** Bungard 机床就是 `bungard` 插件（同样的机床、同样的作业、同样的旧路由），无硬件的 `demo` 插件供测试使用；通用队列保存每个作业的历史，事件流（`GET /api/v1/events/stream`）让客户端凭 `Last-Event-ID` 重新连接而不丢失任何内容。
+* **插件背后的机床：** Bungard 机床就是 `bungard` 插件（同样的机床、同样的作业、同样的旧路由），无硬件的 `demo` 插件供测试使用，模拟器 `laser`（功率和进给上限、会锁定的急停）、`pnp`（供料器和贴装作业）和 `pcb`（检查和报告）供激光、贴片和电路板程序使用；通用队列保存每个作业的历史，事件流（`GET /api/v1/events/stream`）让客户端凭 `Last-Event-ID` 重新连接而不丢失任何内容。
 * **每个应用共用的登录：** 登录会说明它属于哪个应用，每个人可以查看并关闭自己已打开的会话，管理员可以处理任何人的会话；密码与锁定遵循设置，审计记录登录、拒绝和关闭，绝不记录秘密；`GET /api/v1/auth/policy` 向 Studio 展示安全开关。
 
 ## 🔒 安全与防护
@@ -177,7 +177,7 @@ python -I tools/ci_validate.py
 
 ## 🧪 测试
 
-测试共 377 个（`cargo test`，CI 中在 Windows 和 Linux 上运行，COMMON, DRILLPRO 和 ROUTEPRO 检出在服务器旁）：模块内 201 个（设置及其范围、用户、角色、令牌、对错误密码的减速、文件和作业簿、规划），通过真实路由器的接口端到端 41 个（`tests/api.rs`），维护客户端所读响应示例的 2 个（`tests/examples.rs`），以及真实程序通过真实端口把作业发给真实服务器、机床使用模拟器的 7 个（`tests/programs.rs`）。`tests/` 中的其他文件另有 109 个（四个公共服务及其文档、产物、计算任务、共享、事件、错误目录、API 文档中的路由、信号停止与一次 panic）。CI 还运行 `cargo fmt --all --check`、将警告视为错误的 `cargo clippy` 和 `python -I tools/ci_validate.py`。这里没有任何东西针对真实节点或机床测试过。 负责更新的辅助程序另有 33 项自己的测试（`python -I tests/test_update_helper.py`，用替身替代 GitHub 和 systemd）。另有两个测试文件检查：使锁中毒的 panic 不会使服务器停止（`tests/poison.rs`），以及真实的二进制文件在收到 SIGTERM 时停止（`tests/sigterm.rs`，在 Linux 上）；备份和部署文件各有 7 个和 8 个自己的测试（`tests/test_backup.py`、`tests/test_deploy_files.py`）。 另有两个测试文件分别在真实套接字上检查事件 websocket（`tests/events.rs`，3 个测试），并对照服务器源码检查错误代码目录（`tests/errors.rs`，3 个测试）。 路由契约通过 `tests/openapi.rs`（6 个测试）和 `python -I tools/check_openapi.py` 对照路由器检查，后者也在 CI 中运行。
+测试共 437 个（`cargo test`，CI 中在 Windows 和 Linux 上运行，COMMON, DRILLPRO 和 ROUTEPRO 检出在服务器旁）：模块内 251 个（设置及其范围、用户、角色、令牌、对错误密码的减速、文件和作业簿、规划），通过真实路由器的接口端到端 41 个（`tests/api.rs`），维护客户端所读响应示例的 2 个（`tests/examples.rs`），以及真实程序通过真实端口把作业发给真实服务器、机床使用模拟器的 7 个（`tests/programs.rs`）。`tests/` 中的其他文件另有 119 个（四个公共服务及其文档、产物、计算任务、共享、事件、错误目录、API 文档中的路由、信号停止与一次 panic）。CI 还运行 `cargo fmt --all --check`、将警告视为错误的 `cargo clippy` 和 `python -I tools/ci_validate.py`。这里没有任何东西针对真实节点或机床测试过。 负责更新的辅助程序另有 33 项自己的测试（`python -I tests/test_update_helper.py`，用替身替代 GitHub 和 systemd）。另有两个测试文件检查：使锁中毒的 panic 不会使服务器停止（`tests/poison.rs`），以及真实的二进制文件在收到 SIGTERM 时停止（`tests/sigterm.rs`，在 Linux 上）；备份和部署文件各有 7 个和 8 个自己的测试（`tests/test_backup.py`、`tests/test_deploy_files.py`）。 另有两个测试文件分别在真实套接字上检查事件 websocket（`tests/events.rs`，3 个测试），并对照服务器源码检查错误代码目录（`tests/errors.rs`，3 个测试）。 路由契约通过 `tests/openapi.rs`（6 个测试）和 `python -I tools/check_openapi.py` 对照路由器检查，后者也在 CI 中运行。
 
 ## 🏗️ 构建与发布
 
@@ -195,36 +195,37 @@ python -I tools/ci_validate.py
 ```text
 EH3D-SERVER/
 ├── src/
-│   ├── api.rs                                   REST 路由和 websocket
-│   ├── auth.rs                                  用户、角色、令牌和对错误密码的减速
-│   ├── plan.rs                                  从请求到机床执行的项目
-│   ├── jobs.rs state.rs                         作业以及服务器运行时的组成
-│   ├── audit.rs errors.rs panic.rs              审计、作业记录、错误代码、panic 退出
-│   ├── machines.rs store.rs                     机床以及通过临时文件写入的文件
-│   ├── config.rs lib.rs main.rs                 设置文件、库根和程序
-│   ├── updates.rs  head.rs                      服务的更新
-│   ├── inspect.rs                               通过钻头摄像头进行质量检查
-│   ├── gcode.rs gcode_run.rs                    自由 G 代码：清理、解析，以及在模拟器或 GRBL 上运行
-│   ├── spindle.rs                               机床的主轴、其限值和安全开关
-│   ├── pstore.rs api_pstore.rs                  项目存储：版本、锁、容器
-│   ├── catalogs.rs api_catalogs.rs              共享目录：材料、刀具、库
-│   ├── plugins.rs work.rs feed.rs api_work.rs   机床插件、作业队列、事件、通知
-│   └── apps.rs api_auth.rs                      各个应用以及它们共用的统一登录
-├── tests/                                       模拟器上的接口端到端测试，以及真实程序对真实服务器
-├── docs/                                        API、其 OpenAPI 契约、运行服务器的指南和两张图的数据
-├── deploy/                                      systemd 单元和服务的辅助程序
-├── server.cfg.example                           为每个键附有说明的设置文件
-├── tools/                                       CI 与 README 检查、OpenAPI、脚本面板和绘图工具
-├── images/                                      横幅图以及架构和仓库结构图片
-├── .github/                                     CI 与发布工作流、Issue 和 PR 模板
-├── build.sh build.bat                           在实时面板中编译发布二进制
-├── run.sh run.bat                               启动服务器（需要时先编译）
-├── eh3d.project.json                            清单：版本、角色、成熟度和构建命令
-├── Cargo.toml Cargo.lock                        Rust 包、其依赖及两个程序的库
-├── rust-toolchain.toml                          固定的 Rust 工具链
-├── CHANGELOG.md                                 每个版本的变更
-├── SECURITY.md SUPPORT.md                       如何报告漏洞及在哪里提问
-└── CONTRIBUTING.md CODE_OF_CONDUCT.md LICENSE   参与贡献、行为准则和许可证
+│   ├── api.rs                                           REST 路由和 websocket
+│   ├── auth.rs                                          用户、角色、令牌和对错误密码的减速
+│   ├── plan.rs                                          从请求到机床执行的项目
+│   ├── jobs.rs state.rs                                 作业以及服务器运行时的组成
+│   ├── audit.rs errors.rs panic.rs                      审计、作业记录、错误代码、panic 退出
+│   ├── machines.rs store.rs                             机床以及通过临时文件写入的文件
+│   ├── config.rs lib.rs main.rs                         设置文件、库根和程序
+│   ├── updates.rs  head.rs                              服务的更新
+│   ├── inspect.rs                                       通过钻头摄像头进行质量检查
+│   ├── gcode.rs gcode_run.rs                            自由 G 代码：清理、解析，以及在模拟器或 GRBL 上运行
+│   ├── spindle.rs                                       机床的主轴、其限值和安全开关
+│   ├── pstore.rs api_pstore.rs                          项目存储：版本、锁、容器
+│   ├── catalogs.rs api_catalogs.rs                      共享目录：材料、刀具、库
+│   ├── plugins.rs work.rs feed.rs api_work.rs           机床插件、作业队列、事件、通知
+│   ├── laser.rs pnp.rs pcb.rs plugin_*.rs simclock.rs   模拟的激光、贴片和电路板机床及其时钟
+│   └── apps.rs api_auth.rs                              各个应用以及它们共用的统一登录
+├── tests/                                               模拟器上的接口端到端测试，以及真实程序对真实服务器
+├── docs/                                                API、其 OpenAPI 契约、运行服务器的指南和两张图的数据
+├── deploy/                                              systemd 单元和服务的辅助程序
+├── server.cfg.example                                   为每个键附有说明的设置文件
+├── tools/                                               CI 与 README 检查、OpenAPI、脚本面板和绘图工具
+├── images/                                              横幅图以及架构和仓库结构图片
+├── .github/                                             CI 与发布工作流、Issue 和 PR 模板
+├── build.sh build.bat                                   在实时面板中编译发布二进制
+├── run.sh run.bat                                       启动服务器（需要时先编译）
+├── eh3d.project.json                                    清单：版本、角色、成熟度和构建命令
+├── Cargo.toml Cargo.lock                                Rust 包、其依赖及两个程序的库
+├── rust-toolchain.toml                                  固定的 Rust 工具链
+├── CHANGELOG.md                                         每个版本的变更
+├── SECURITY.md SUPPORT.md                               如何报告漏洞及在哪里提问
+└── CONTRIBUTING.md CODE_OF_CONDUCT.md LICENSE           参与贡献、行为准则和许可证
 ```
 
 </details>

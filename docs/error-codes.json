@@ -255,6 +255,21 @@
     "status": 409
   },
   {
+    "code": "laser_estop_latched",
+    "description": "An emergency stop latched the laser machine: nothing is prepared or started on it until a job of the kind rearm has run.",
+    "status": 409
+  },
+  {
+    "code": "laser_feed_limit",
+    "description": "A line of the G-code program asks for a cutting feed over max_feed_mm_min of the laser machine.",
+    "status": 422
+  },
+  {
+    "code": "laser_power_limit",
+    "description": "The job asks for more power (S) than the limit of the laser machine (power_limit_pct of max_s) and the machine is set to reject it.",
+    "status": 422
+  },
+  {
     "code": "last_admin",
     "description": "The last administrator cannot be deleted, disabled or demoted.",
     "status": 409
@@ -363,6 +378,11 @@
     "code": "plugin_failed",
     "description": "The plugin or the machine behind it failed while doing this.",
     "status": 502
+  },
+  {
+    "code": "pnp_feeder_short",
+    "description": "A part of the placement job is in no feeder of the pick-and-place machine, or the feeders hold fewer than the job needs while the machine requires the stock.",
+    "status": 409
   },
   {
     "code": "precondition_failed",
