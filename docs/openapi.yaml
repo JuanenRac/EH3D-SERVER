@@ -8328,6 +8328,7 @@ paths:
       x-error-codes:
         - air_assist_off
         - bad_plugin_request
+        - bambu_lan_off
         - enclosure_open
         - focus_not_checked
         - forbidden
@@ -8386,7 +8387,7 @@ paths:
                 error: unknown_job
                 detail: ""
         "409":
-          description: "Refused with `air_assist_off`, `enclosure_open`, `focus_not_checked`, `laser_estop_latched`, `machine_alarm`, `machine_busy`, `not_ready`, `pnp_feeder_short`, `printer_latched`."
+          description: "Refused with `air_assist_off`, `bambu_lan_off`, `enclosure_open`, `focus_not_checked`, `laser_estop_latched`, `machine_alarm`, `machine_busy`, `not_ready`, `pnp_feeder_short`, `printer_latched`."
           content:
             application/json:
               schema:
@@ -9968,10 +9969,11 @@ paths:
       tags:
         - slice
       summary: Slice a mesh into G-code inside the limits of a printer profile
-      description: "Off until the switch `slice_enabled` of the security page is on. The small slicer of the server cuts a closed mesh (STL, or a 3MF whose model is stored without compression) into layers with an outline and a rectilinear infill; the engine `phoenix` runs the program of the suite that `slice_phoenix_bin` names, with a time limit and no input. The program that comes out is read again against the limits of the profile: an object that does not fit, a temperature or a feed over the limit is a refusal and nothing is cut down. The mesh, the layers, the work and the program have limits (`slice_*` in `server.cfg`). Role operator or higher. Scope `jobs:prepare` if the token is limited by scopes."
+      description: "Off until the switch `slice_enabled` of the security page is on. The small slicer of the server cuts a closed mesh (STL, or a 3MF whose model is stored or deflated) into layers with an outline and a rectilinear infill; the engine `phoenix` runs the program of the suite that `slice_phoenix_bin` names, with a time limit and no input. The program that comes out is read again against the limits of the profile: an object that does not fit, a temperature or a feed over the limit is a refusal and nothing is cut down. The mesh, the layers, the work and the program have limits (`slice_*` in `server.cfg`). Role operator or higher. Scope `jobs:prepare` if the token is limited by scopes."
       x-role: operator
       x-scope: "jobs:prepare"
       x-error-codes:
+        - bad_bgcode
         - bad_gcode
         - bad_mesh
         - bad_plugin_request
@@ -10048,13 +10050,13 @@ paths:
                 error: slice_off
                 detail: ""
         "422":
-          description: "Refused with `bad_gcode`, `bad_mesh`, `bad_plugin_request`, `out_of_travel`, `program_over_limit`, `slice_limit`, `temperature_over_limit`, `too_big`."
+          description: "Refused with `bad_bgcode`, `bad_gcode`, `bad_mesh`, `bad_plugin_request`, `out_of_travel`, `program_over_limit`, `slice_limit`, `temperature_over_limit`, `too_big`."
           content:
             application/json:
               schema:
                 "$ref": "#/components/schemas/ErrorBody"
               example:
-                error: bad_gcode
+                error: bad_bgcode
                 detail: ""
         "500":
           description: "Refused with `blob_damaged`, `storage`."
@@ -10082,6 +10084,98 @@ paths:
                 "$ref": "#/components/schemas/ErrorBody"
               example:
                 error: slice_failed
+                detail: ""
+  "/slice/bgcode":
+    post:
+      operationId: post_slice_bgcode
+      tags:
+        - slice
+      summary: Read a binary G-code file
+      description: "Off until the switch `slice_enabled` of the security page is on. Reads a `.bgcode` file (the header, every block with its CRC-32, deflate or heatshrink data) and says what it holds: the metadata, the pictures, the blocks and, when asked, the G-code. A file that is cut, damaged, out of order or too big is `bad_bgcode`; one packed with MeatPack, or of another version of the format, is `bgcode_unsupported`. Nothing is guessed. The format was written from its public description and has only been tried on files this server wrote. Role operator or higher. Scope `jobs:prepare` if the token is limited by scopes."
+      x-role: operator
+      x-scope: "jobs:prepare"
+      x-error-codes:
+        - bad_bgcode
+        - bad_plugin_request
+        - bad_request
+        - bgcode_unsupported
+        - blob_damaged
+        - forbidden
+        - forbidden_scope
+        - slice_off
+        - too_big
+        - unauthorized
+        - unknown_artifact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/BgcodeReadRequest"
+            example:
+              bgcode:
+                base64: "<a .bgcode file in base64>"
+              include_gcode: false
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/BgcodeInfo"
+        "400":
+          description: "Refused with `bad_request`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_request
+                detail: ""
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `slice_off`, `unknown_artifact`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: slice_off
+                detail: ""
+        "422":
+          description: "Refused with `bad_bgcode`, `bad_plugin_request`, `bgcode_unsupported`, `too_big`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_bgcode
+                detail: ""
+        "500":
+          description: "Refused with `blob_damaged`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: blob_damaged
                 detail: ""
   "/work/machines/{id}/compat/key":
     get:
@@ -13429,6 +13523,12 @@ components:
         artifact_name:
           type: string
           maxLength: 120
+        format:
+          type: string
+          enum:
+            - gcode
+            - bgcode
+          description: "`gcode` (the default) gives the text of the program; `bgcode` gives a binary G-code file (`.bgcode`: metadata, CRC-32 per block, heatshrink-packed G-code) as `bgcode_base64` or, with `output` `artifact`, as an artifact of the kind `application/x-bgcode`."
       required:
         - mesh
         - profile
@@ -13438,6 +13538,11 @@ components:
       properties:
         engine:
           type: string
+        format:
+          type: string
+          enum:
+            - gcode
+            - bgcode
         layers:
           type: integer
         estimate_s:
@@ -13445,6 +13550,11 @@ components:
         filament_mm:
           type: number
         open_layers:
+          type: integer
+        bgcode_base64:
+          type: string
+          description: "The binary G-code file, when `format` is `bgcode` and `output` is `view`."
+        bgcode_bytes:
           type: integer
         bounds_mm:
           type: object
@@ -13467,6 +13577,82 @@ components:
         - layers
       additionalProperties: false
       description: The program was read again against the limits of the printer before it was given back.
+    BgcodeReadRequest:
+      type: object
+      properties:
+        bgcode:
+          type: object
+          additionalProperties: false
+          properties:
+            artifact:
+              type: string
+              description: The id of an artifact that holds the binary G-code file.
+            base64:
+              type: string
+              description: "The bytes of the file, in base64."
+          description: One of the two.
+        include_gcode:
+          type: boolean
+          description: "Whether the answer carries the G-code (it can be big). False by default."
+      required:
+        - bgcode
+      additionalProperties: false
+    BgcodeInfo:
+      type: object
+      properties:
+        version:
+          type: integer
+        checksum:
+          type: string
+          enum:
+            - crc32
+            - none
+        file:
+          type: object
+          additionalProperties:
+            type: string
+          description: "The file metadata (`key=value` pairs)."
+        printer:
+          type: object
+          additionalProperties:
+            type: string
+        print:
+          type: object
+          additionalProperties:
+            type: string
+        slicer:
+          type: object
+          additionalProperties:
+            type: string
+        thumbnails:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            description: "`format` (`png`, `jpg` or `qoi`), `width`, `height` and `bytes`."
+        blocks:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            description: "`type` and `compression` of each block, in file order."
+        gcode_bytes:
+          type: integer
+        layers:
+          type: integer
+        gcode:
+          type: string
+          description: "The G-code, when `include_gcode` was asked."
+        evidence:
+          type: string
+          description: "`synthetic`: the format has only been tried on files this server wrote."
+      required:
+        - version
+        - checksum
+        - blocks
+        - gcode_bytes
+      additionalProperties: false
+      description: "What a binary G-code file holds. A file packed with MeatPack is refused with `bgcode_unsupported`."
     CompatKeyRevoked:
       type: object
       properties:

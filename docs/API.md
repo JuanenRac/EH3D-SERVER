@@ -287,6 +287,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `bad_app` | 422 | The name of the application is not one this server accepts (lower case letters, digits and hyphens, one of the known applications or of auth_extra_apps). |
 | `bad_artifact` | 422 | The description of an artifact does not fit (name, format, result_type, inputs or params). |
 | `bad_axis` | 422 | The axis of a jog is not one of x, y or z. |
+| `bad_bgcode` | 422 | A binary G-code file (.bgcode) cannot be read or written: it is cut, its checksum is wrong, a block is out of order, of a type or a compression the format does not have, or it is bigger than the limit. |
 | `bad_board` | 422 | board_mm is not from 0 to 50. |
 | `bad_catalog` | 422 | The dataset uploaded to a catalog does not fit: not JSON or CSV that reads, items that are not objects, an item without the field that names it (or repeated), a missing format, or more items than catalog_max_items. |
 | `bad_cfg` | 422 | The tuning text of the machine does not read. |
@@ -327,6 +328,8 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `bad_template` | 422 | The template of a token is not phoenix, cam, client or custom. |
 | `bad_tool` | 422 | A tool has values out of range. |
 | `bad_upload` | 422 | The declaration of an upload or one of its parts does not fit (hash, empty part, a part past the declared size). |
+| `bambu_lan_off` | 409 | The LAN link to a real Bambu Lab printer is off on this server (the switch bambu_lan_enabled of server.cfg), so only the simulated printer (host sim) is reached. |
+| `bgcode_unsupported` | 422 | A binary G-code file uses something the server does not read: another version of the format, or G-code packed with MeatPack. |
 | `blob_damaged` | 500 | The bytes of an artifact are missing or are not what their hash says. |
 | `both_sources` | 422 | The job brings the work as data and as files; it must be one of them. |
 | `catalog_readonly` | 409 | The catalog is built in and is not written, not even by an administrator. |

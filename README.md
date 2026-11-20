@@ -18,7 +18,7 @@
 
 ---
 
-**Honesty check - what actually runs today:** a Rust server (axum) with a REST and websocket interface that keeps users, machines and jobs, plans a drilling or routing job (holes and paths, or an Excellon or HP-GL file with its tool table) with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator, a stop and every change told as it happens. 663 tests run on a computer, the jobs against the simulator. **Nothing has run on a real machine through it yet**, it does not terminate TLS, and of the clients besides the programs, EH3D-STUDIO exists (never tried against a real machine) and the Android app and the panel next to the machine do not exist yet. It is also the server of every EH3D application, with four common services (a store of projects, shared catalogs, machine plugins with a queue of jobs and a stream of events, and one login); they run only in the tests and no application uses them yet.
+**Honesty check - what actually runs today:** a Rust server (axum) with a REST and websocket interface that keeps users, machines and jobs, plans a drilling or routing job (holes and paths, or an Excellon or HP-GL file with its tool table) with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator, a stop and every change told as it happens. 703 tests run on a computer, the jobs against the simulator. **Nothing has run on a real machine through it yet**, it does not terminate TLS, and of the clients besides the programs, EH3D-STUDIO exists (never tried against a real machine) and the Android app and the panel next to the machine do not exist yet. It is also the server of every EH3D application, with four common services (a store of projects, shared catalogs, machine plugins with a queue of jobs and a stream of events, and one login); they run only in the tests and no application uses them yet.
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.1.9` |
 | Maturity | Functional |
-| Tests | 663 |
+| Tests | 703 |
 | Stack | Rust (axum, tokio) |
 | On real hardware | No: tested against the simulator; nothing has run on a real machine through the server yet |
 
@@ -45,7 +45,7 @@ Each line is one part of this repository and the light says how far it is today.
 | Area | State | What it means here |
 |---|---|---|
 | Software | 🟡 | A Rust server (axum) keeps users, machines and jobs, plans drilling and routing jobs with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview and runs the job with operator dialogs and a stop. |
-| Tests | 🟡 | 663 tests pass (`cargo test`): 427 in the modules and 236 on the interface end to end, with jobs running on the simulator (41 in `tests/api.rs`, 7 with the real programs in `tests/programs.rs`). |
+| Tests | 🟡 | 703 tests pass (`cargo test`): 465 in the modules and 238 on the interface end to end, with jobs running on the simulator (41 in `tests/api.rs`, 7 with the real programs in `tests/programs.rs`). |
 | Interface for clients (API) | 🟡 | The REST requests and the websocket events are written down in `docs/API.md` (the routes also in the OpenAPI contract `docs/openapi.yaml`) and covered by the tests; only the programs' own server connection uses them so far. |
 | Common services | 🟠 | The project store, the shared catalogs, the machine plugins with their queue and events, and the single login run in the tests on a computer; no application uses them yet, nothing has run on a real machine through the queue, and the catalogs have not been loaded with the real data of their programs. |
 | Clients | 🔴 | EH3D-STUDIO uses it (never tried against a real machine); the Android app and the touch panel next to the machine do not exist yet. |
@@ -97,7 +97,7 @@ How the parts of this repository fit together: who uses it, what it holds and wh
 * **The quality check through the camera of the head:** the server turns the ring of LEDs on, takes a picture from the node, judges it with the analyser of the shop (the profile of each machine is kept by the server), makes the ring say how it went (green, or red blinking) and keeps the last check so the screen next to the machine and the phones show it: `GET/POST .../head/light`, `GET .../head/snapshot`, `POST/GET .../head/inspect`, `GET/PUT .../head/inspect/profile` and `POST .../head/inspect/calibrate`.
 * **The spindle of the machine:** `GET` and `PUT /api/v1/machines/:id/spindle` say which spindle the machine carries (`original` or `vfd`) and its limits (turns, feed along the cut, plunge feed, thickest bit); a job that asks for more is refused with `spindle_limit` (the safety switch `guard` is `reject` by default; with `warn` the job goes through with the turns cut to the top of the spindle and every excess listed in `spindle_warnings`).
 * **A project store with versions:** a file is never overwritten, every write is a new version with its SHA-256, a write over an existing file must say which version it was made from (`If-Match`), the bytes are checked against their hash at every read, and names that could leave the folder or belong to Windows are refused.
-* **Machines behind plugins:** the Bungard machines are the `bungard` plugin (same machines, same jobs, same old routes) and a `demo` plugin without hardware serves the tests, and the simulators `laser` (limits of power and feed, an emergency stop that latches), `pnp` (feeders and placement jobs) and `pcb` (checks and reports) serve the laser, pick-and-place and board programs; `cnc` (a program held to the travel, a jog with limits, an emergency stop that latches until an administrator releases it), `gerber` and `cam` (Gerber checks, G-code for drilling, outlines and isolation) and `printer3d` (limits of temperature by model, watched heaters, drivers for Moonraker and OctoPrint) do the same for CNC, board-tool and 3D-printing programs; a generic queue keeps the history of every job, and a stream of events (`GET /api/v1/events/stream`) lets a client reconnect with `Last-Event-ID` without losing anything. All of these plugins are **simulator only**: their capabilities say `evidence: simulator` and the detail of each of their machines says `simulator_only`, and nothing has run on a real laser, router, pick-and-place machine, board station or printer through the server. The server can announce itself on the local network (`_eh3d._tcp`, off by default), serves its own contract at `GET /api/v1/openapi.json`, and, behind a switch that is off by default and a key per machine, answers read-only routes for Moonraker and OctoPrint clients. Also simulated: `vision` (the results of the camera programs as `vision-<kind>.json` artifacts) and `cad` (checks and reports of the PHOENIX-CAD project file), a Marlin printer on a simulated serial line and, as an experiment, a Bambu Lab printer in LAN mode that never accepts a certificate that is not the pinned one; a farm route shares a print among the free printers and leaves each copy waiting for a person; behind two more switches, off by default, the compatibility routes can also write (upload to the queue, pause, cancel) and the server can slice a mesh into G-code inside the limits of a printer profile.
+* **Machines behind plugins:** the Bungard machines are the `bungard` plugin (same machines, same jobs, same old routes) and a `demo` plugin without hardware serves the tests, and the simulators `laser` (limits of power and feed, an emergency stop that latches), `pnp` (feeders and placement jobs) and `pcb` (checks and reports) serve the laser, pick-and-place and board programs; `cnc` (a program held to the travel, a jog with limits, an emergency stop that latches until an administrator releases it), `gerber` and `cam` (Gerber checks, G-code for drilling, outlines and isolation) and `printer3d` (limits of temperature by model, watched heaters, drivers for Moonraker and OctoPrint) do the same for CNC, board-tool and 3D-printing programs; a generic queue keeps the history of every job, and a stream of events (`GET /api/v1/events/stream`) lets a client reconnect with `Last-Event-ID` without losing anything. All of these plugins are **simulator only**: their capabilities say `evidence: simulator` and the detail of each of their machines says `simulator_only`, and nothing has run on a real laser, router, pick-and-place machine, board station or printer through the server. The server can announce itself on the local network (`_eh3d._tcp`, off by default), serves its own contract at `GET /api/v1/openapi.json`, and, behind a switch that is off by default and a key per machine, answers read-only routes for Moonraker and OctoPrint clients. Also simulated: `vision` (the results of the camera programs as `vision-<kind>.json` artifacts) and `cad` (checks and reports of the PHOENIX-CAD project file), a Marlin printer on a simulated serial line and, as an experiment, a Bambu Lab printer in LAN mode that never accepts a certificate that is not the pinned one; a farm route shares a print among the free printers and leaves each copy waiting for a person; behind two more switches, off by default, the compatibility routes can also write (upload to the queue, pause, cancel) and the server can slice a mesh into G-code inside the limits of a printer profile. The slice route can also give the program as a binary G-code file (`.bgcode`) and read one back, and it reads 3MF files whose model is deflated; behind the switch `bambu_lan_enabled`, off by default, the server can reach a real Bambu Lab printer over TLS with its certificate pinned by fingerprint, an experiment that has only run against a printer in memory.
 * **One login for every application:** a login says which application it is for, a person sees and closes their own open sessions and an administrator anybody's, passwords and lockout follow the settings, and the audit has the logins, the refusals and the closings, never a secret; `GET /api/v1/auth/policy` shows Studio the switches of security.
 
 ## 🔒 Security & Safety
@@ -195,41 +195,42 @@ The version lives in `Cargo.toml` and in `eh3d.project.json`, and each version h
 ```text
 EH3D-SERVER/
 ├── src/
-│   ├── api.rs                                                                  the REST routes and the websocket
-│   ├── auth.rs                                                                 users, roles, tokens and the slowdown on wrong passwords
-│   ├── plan.rs                                                                 from the request to the items the machine runs
-│   ├── jobs.rs state.rs                                                        the jobs and what the server is made of while it runs
-│   ├── audit.rs errors.rs panic.rs                                             audit, job log, error codes, panic exit
-│   ├── machines.rs store.rs                                                    the machines, and the files written through a temporary file
-│   ├── config.rs lib.rs main.rs                                                the settings file, the library root and the program
-│   ├── updates.rs  head.rs                                                     the updates of the services
-│   ├── inspect.rs                                                              the quality check through the camera of the head
-│   ├── gcode.rs gcode_run.rs                                                   free G-code: cleaning, reading and the run on the simulator or on GRBL
-│   ├── spindle.rs                                                              the spindle of a machine, its limits and the safety switch
-│   ├── pstore.rs api_pstore.rs                                                 the project store: versions, locks, the container
-│   ├── catalogs.rs api_catalogs.rs                                             the shared catalogs: materials, tools, libraries
-│   ├── plugins.rs work.rs feed.rs api_work.rs                                  machine plugins, job queue, events, notifications
-│   ├── laser.rs pnp.rs pcb.rs plugin_*.rs                                      the simulated laser, pick-and-place and board machines
-│   ├── cnc.rs gerber.rs cam.rs                                                 the simulated CNC machine and the Gerber and CAM workers
-│   ├── mdns.rs compat.rs                                                       mDNS announcement and compatibility keys
-│   ├── printer3d.rs printer_drivers.rs simjobs.rs simclock.rs secrets.rs       the 3D printers, their drivers and what the simulations share
-│   ├── marlin.rs bambu.rs printer_lan.rs slicer.rs api_slice.rs multipart.rs   the Marlin and Bambu Lab printers (simulated) and the small slicer
-│   └── apps.rs api_auth.rs                                                     the applications and the single login for all of them
-├── tests/                                                                      the interface end to end on the simulator, and the real programs against a real server
-├── docs/                                                                       the API, its OpenAPI contract, the guide to running the server and the data of the two pictures
-├── deploy/                                                                     the systemd units and the helpers of the service
-├── server.cfg.example                                                          the settings file with every key explained
-├── tools/                                                                      CI and README checks, OpenAPI, the script panel and the picture tools
-├── images/                                                                     banner and the Architecture and Repository Structure pictures
-├── .github/                                                                    CI and release workflows, issue and pull-request templates
-├── build.sh build.bat                                                          build the release binary in a live panel
-├── run.sh run.bat                                                              start the server (builds first if needed)
-├── eh3d.project.json                                                           manifest: version, role, maturity and build command
-├── Cargo.toml Cargo.lock                                                       the Rust package, its dependencies and the libraries of the two programs
-├── rust-toolchain.toml                                                         the pinned Rust toolchain
-├── CHANGELOG.md                                                                what changed in each version
-├── SECURITY.md SUPPORT.md                                                      how to report a vulnerability and where to ask
-└── CONTRIBUTING.md CODE_OF_CONDUCT.md LICENSE                                  how to contribute, the code of conduct and the licence
+│   ├── api.rs                                                                                           the REST routes and the websocket
+│   ├── auth.rs                                                                                          users, roles, tokens and the slowdown on wrong passwords
+│   ├── plan.rs                                                                                          from the request to the items the machine runs
+│   ├── jobs.rs state.rs                                                                                 the jobs and what the server is made of while it runs
+│   ├── audit.rs errors.rs panic.rs                                                                      audit, job log, error codes, panic exit
+│   ├── machines.rs store.rs                                                                             the machines, and the files written through a temporary file
+│   ├── config.rs lib.rs main.rs                                                                         the settings file, the library root and the program
+│   ├── updates.rs  head.rs                                                                              the updates of the services
+│   ├── inspect.rs                                                                                       the quality check through the camera of the head
+│   ├── gcode.rs gcode_run.rs                                                                            free G-code: cleaning, reading and the run on the simulator or on GRBL
+│   ├── spindle.rs                                                                                       the spindle of a machine, its limits and the safety switch
+│   ├── pstore.rs api_pstore.rs                                                                          the project store: versions, locks, the container
+│   ├── catalogs.rs api_catalogs.rs                                                                      the shared catalogs: materials, tools, libraries
+│   ├── plugins.rs work.rs feed.rs api_work.rs                                                           machine plugins, job queue, events, notifications
+│   ├── laser.rs pnp.rs pcb.rs plugin_*.rs                                                               the simulated laser, pick-and-place and board machines
+│   ├── cnc.rs gerber.rs cam.rs                                                                          the simulated CNC machine and the Gerber and CAM workers
+│   ├── mdns.rs compat.rs                                                                                mDNS announcement and compatibility keys
+│   ├── printer3d.rs printer_drivers.rs simjobs.rs simclock.rs secrets.rs                                the 3D printers, their drivers and what the simulations share
+│   ├── marlin.rs bambu.rs bambu_mqtt.rs tls_pin.rs printer_lan.rs slicer.rs api_slice.rs multipart.rs   the Marlin and Bambu Lab printers (simulated) and the small slicer
+│   ├── bgcode.rs inflate.rs heatshrink.rs                                                               binary G-code files (.bgcode) and the compression they use
+│   └── apps.rs api_auth.rs                                                                              the applications and the single login for all of them
+├── tests/                                                                                               the interface end to end on the simulator, and the real programs against a real server
+├── docs/                                                                                                the API, its OpenAPI contract, the guide to running the server and the data of the two pictures
+├── deploy/                                                                                              the systemd units and the helpers of the service
+├── server.cfg.example                                                                                   the settings file with every key explained
+├── tools/                                                                                               CI and README checks, OpenAPI, the script panel and the picture tools
+├── images/                                                                                              banner and the Architecture and Repository Structure pictures
+├── .github/                                                                                             CI and release workflows, issue and pull-request templates
+├── build.sh build.bat                                                                                   build the release binary in a live panel
+├── run.sh run.bat                                                                                       start the server (builds first if needed)
+├── eh3d.project.json                                                                                    manifest: version, role, maturity and build command
+├── Cargo.toml Cargo.lock                                                                                the Rust package, its dependencies and the libraries of the two programs
+├── rust-toolchain.toml                                                                                  the pinned Rust toolchain
+├── CHANGELOG.md                                                                                         what changed in each version
+├── SECURITY.md SUPPORT.md                                                                               how to report a vulnerability and where to ask
+└── CONTRIBUTING.md CODE_OF_CONDUCT.md LICENSE                                                           how to contribute, the code of conduct and the licence
 ```
 
 </details>

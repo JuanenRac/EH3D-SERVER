@@ -30,6 +30,11 @@
     "status": 422
   },
   {
+    "code": "bad_bgcode",
+    "description": "A binary G-code file (.bgcode) cannot be read or written: it is cut, its checksum is wrong, a block is out of order, of a type or a compression the format does not have, or it is bigger than the limit.",
+    "status": 422
+  },
+  {
     "code": "bad_board",
     "description": "board_mm is not from 0 to 50.",
     "status": 422
@@ -227,6 +232,16 @@
   {
     "code": "bad_upload",
     "description": "The declaration of an upload or one of its parts does not fit (hash, empty part, a part past the declared size).",
+    "status": 422
+  },
+  {
+    "code": "bambu_lan_off",
+    "description": "The LAN link to a real Bambu Lab printer is off on this server (the switch bambu_lan_enabled of server.cfg), so only the simulated printer (host sim) is reached.",
+    "status": 409
+  },
+  {
+    "code": "bgcode_unsupported",
+    "description": "A binary G-code file uses something the server does not read: another version of the format, or G-code packed with MeatPack.",
     "status": 422
   },
   {

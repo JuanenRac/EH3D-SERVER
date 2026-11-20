@@ -1,6 +1,6 @@
 //! The drivers of two more kinds of 3D printer, both **simulated only** for now: a Marlin printer on a serial line (`marlin`) and a Bambu Lab printer in LAN mode
-//! (`bambu_lan`, an experiment). Each driver speaks the protocol of its printer through a small trait (`SerialLink`, `BambuLink`) and the only link the server serves is a
-//! printer in memory (`src/marlin.rs`, `src/bambu.rs`), so the drivers are tried against it and nothing has run on a real Marlin, A1, P1S or other printer.
+//! (`bambu_lan`, an experiment). Each driver speaks the protocol of its printer through a small trait (`SerialLink`, `BambuLink`) and the link the server serves is a
+//! printer in memory (`src/marlin.rs`, `src/bambu.rs`) and, for Bambu only and behind the switch `bambu_lan_enabled`, the TLS link of `src/bambu_mqtt.rs`; the drivers are tried against the printers in memory and nothing has run on a real Marlin, A1, P1S or other printer.
 //!
 //! The Bambu driver never takes a certificate it did not check: it asks the link for the fingerprint of the certificate the printer shows and compares it with the one pinned in
 //! the settings of the machine (`connection.fingerprint`) before anything else is sent; with none pinned, or another, the connection is refused and the refusal says what the

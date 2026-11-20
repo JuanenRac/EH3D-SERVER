@@ -104,6 +104,7 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/setup` | GET | none | Ask whether the first administrator is still needed |
 | `/api/v1/setup` | POST | none | Make the first administrator |
 | `/api/v1/slice` | POST | operator + `jobs:prepare` | Slice a mesh into G-code inside the limits of a printer profile |
+| `/api/v1/slice/bgcode` | POST | operator + `jobs:prepare` | Read a binary G-code file |
 | `/api/v1/tasks` | GET | viewer + `tasks:read` | List the tasks the caller may see, newest first |
 | `/api/v1/tasks` | POST | operator + `tasks:run` | Make a task |
 | `/api/v1/tasks/:id` | GET | viewer + `tasks:read` | Read a task with its result |

@@ -647,12 +647,29 @@ SCHEMAS.update({
         "engine": {"type": "string", "enum": ["builtin", "phoenix"], "description": "`builtin` (the default) is the small slicer of the server; `phoenix` runs the program of the suite that `slice_phoenix_bin` names."},
         "output": {"type": "string", "enum": ["view", "artifact"], "description": "`view` (the default) gives the program in the answer, `artifact` keeps it in the store of the caller."},
         "artifact_name": s(maxLength=120),
+        "format": {"type": "string", "enum": ["gcode", "bgcode"], "description": "`gcode` (the default) gives the text of the program; `bgcode` gives a binary G-code file (`.bgcode`: metadata, CRC-32 per block, heatshrink-packed G-code) as `bgcode_base64` or, with `output` `artifact`, as an artifact of the kind `application/x-bgcode`."},
     }, ["mesh", "profile"]),
     "SliceResult": obj({
-        "engine": s(), "layers": I, "estimate_s": N, "filament_mm": N, "open_layers": I,
+        "engine": s(), "format": {"type": "string", "enum": ["gcode", "bgcode"]}, "layers": I, "estimate_s": N, "filament_mm": N, "open_layers": I,
+        "bgcode_base64": s("The binary G-code file, when `format` is `bgcode` and `output` is `view`."), "bgcode_bytes": I,
         "bounds_mm": {"type": "object", "additionalProperties": True}, "limits": {"type": "object", "additionalProperties": True}, "read": {"type": "object", "additionalProperties": True},
         "gcode": s("The program, when `output` is `view`."), "artifact": {"type": "object", "additionalProperties": True, "description": "The artifact that holds the program, when `output` is `artifact`."},
     }, ["engine", "layers"], description="The program was read again against the limits of the printer before it was given back."),
+    "BgcodeReadRequest": obj({
+        "bgcode": {"type": "object", "additionalProperties": False, "properties": {"artifact": s("The id of an artifact that holds the binary G-code file."), "base64": s("The bytes of the file, in base64.")},
+                   "description": "One of the two."},
+        "include_gcode": {"type": "boolean", "description": "Whether the answer carries the G-code (it can be big). False by default."},
+    }, ["bgcode"]),
+    "BgcodeInfo": obj({
+        "version": I, "checksum": {"type": "string", "enum": ["crc32", "none"]},
+        "file": {"type": "object", "additionalProperties": {"type": "string"}, "description": "The file metadata (`key=value` pairs)."},
+        "printer": {"type": "object", "additionalProperties": {"type": "string"}}, "print": {"type": "object", "additionalProperties": {"type": "string"}},
+        "slicer": {"type": "object", "additionalProperties": {"type": "string"}},
+        "thumbnails": arr({"type": "object", "additionalProperties": True, "description": "`format` (`png`, `jpg` or `qoi`), `width`, `height` and `bytes`."}),
+        "blocks": arr({"type": "object", "additionalProperties": True, "description": "`type` and `compression` of each block, in file order."}),
+        "gcode_bytes": I, "layers": I, "gcode": s("The G-code, when `include_gcode` was asked."),
+        "evidence": s("`synthetic`: the format has only been tried on files this server wrote."),
+    }, ["version", "checksum", "blocks", "gcode_bytes"], description="What a binary G-code file holds. A file packed with MeatPack is refused with `bgcode_unsupported`."),
     "CompatKeyRevoked": obj({"machine": s(), "revoked": B}, ["machine", "revoked"]),
     "MachineOperation": {"type": "object", "additionalProperties": True, "description": "What the operation of the plugin answers; each route says what it has."},
     "JogRequest": obj({"axis": s("`x`, `y` or `z`."), "distance_mm": N, "feed": N}, ["axis", "distance_mm"], description="The distance is signed and at most `jog_max_mm`; the feed at most `jog_max_feed` (mm/min)."),
@@ -700,7 +717,7 @@ op("GET", "/work/jobs/{id}/findings", "work", "viewer", "The findings a gerber j
 op("DELETE", "/work/jobs/{id}", "work", "operator", "Remove a finished job", scope="jobs:cancel", errors=["unknown_job", "job_active"])
 op("POST", "/work/jobs/{id}/start", "work", "operator", "Start a queued job", scope="jobs:start", ok=(200, "WorkJob", "application/json"),
    errors=WJOB_ERR + ["not_ready", "machine_busy", "unknown_machine", "bad_plugin_request", "laser_estop_latched", "pnp_feeder_short", "machine_alarm", "printer_latched",
-                                                    "printer_disconnected", "printer_untrusted", "enclosure_open", "air_assist_off", "focus_not_checked"],
+                                                    "printer_disconnected", "printer_untrusted", "bambu_lan_off", "enclosure_open", "air_assist_off", "focus_not_checked"],
    desc="One job at a time on a machine. A queue does not start by itself unless the machine is set to (`auto_start_queue` of a `printer3d` machine, off by default).")
 op("POST", "/work/jobs/{id}/pause", "work", "operator", "Hold a running job", scope="jobs:start", ok=(200, "WorkJob", "application/json"),
    errors=WJOB_ERR + ["not_in_state", "not_supported"], desc="A `bungard` machine holds only free G-code jobs (`not_supported` otherwise).")
@@ -761,9 +778,13 @@ op("POST", "/work/farm/jobs", "work", "operator", "Share a print among the free 
    desc="Each copy goes to the first free 3D printer that accepts it (not running, not latched and with no job waiting) and WAITS in its queue for a person to start it with `POST /work/jobs/{id}/start`; the server starts nothing by itself here (a printer with `auto_start_queue` set starts its own queue, as it always does). A printer that refuses the job because of the limits of its model is skipped and told in `tried`. `409 farm_no_free_printer` when no copy could be placed.",
    example={"request": {"kind": "print", "text": "G28\nM104 S200\nG1 X10 Y10 F3000"}, "copies": 2, "machines": ["p1", "p2"]})
 op("POST", "/slice", "slice", "operator", "Slice a mesh into G-code inside the limits of a printer profile", scope="jobs:prepare", body="SliceRequest", ok=(200, "SliceResult", "application/json"),
-   errors=["slice_off", "bad_mesh", "slice_limit", "slice_failed", "bad_plugin_request", "unknown_artifact", "unknown_machine", "too_big", "blob_damaged", "storage", "not_supported", "program_over_limit", "temperature_over_limit", "out_of_travel", "bad_gcode"],
-   desc="Off until the switch `slice_enabled` of the security page is on. The small slicer of the server cuts a closed mesh (STL, or a 3MF whose model is stored without compression) into layers with an outline and a rectilinear infill; the engine `phoenix` runs the program of the suite that `slice_phoenix_bin` names, with a time limit and no input. The program that comes out is read again against the limits of the profile: an object that does not fit, a temperature or a feed over the limit is a refusal and nothing is cut down. The mesh, the layers, the work and the program have limits (`slice_*` in `server.cfg`).",
+   errors=["slice_off", "bad_mesh", "slice_limit", "slice_failed", "bad_plugin_request", "unknown_artifact", "unknown_machine", "too_big", "blob_damaged", "storage", "not_supported", "program_over_limit", "temperature_over_limit", "out_of_travel", "bad_gcode", "bad_bgcode"],
+   desc="Off until the switch `slice_enabled` of the security page is on. The small slicer of the server cuts a closed mesh (STL, or a 3MF whose model is stored or deflated) into layers with an outline and a rectilinear infill; the engine `phoenix` runs the program of the suite that `slice_phoenix_bin` names, with a time limit and no input. The program that comes out is read again against the limits of the profile: an object that does not fit, a temperature or a feed over the limit is a refusal and nothing is cut down. The mesh, the layers, the work and the program have limits (`slice_*` in `server.cfg`).",
    example={"mesh": {"base64": "<an STL in base64>"}, "profile": {"model": "bambu_a1", "layer_mm": 0.2, "infill_pct": 15}})
+op("POST", "/slice/bgcode", "slice", "operator", "Read a binary G-code file", scope="jobs:prepare", body="BgcodeReadRequest", ok=(200, "BgcodeInfo", "application/json"),
+   errors=["slice_off", "bad_bgcode", "bgcode_unsupported", "bad_plugin_request", "unknown_artifact", "too_big", "blob_damaged"],
+   desc="Off until the switch `slice_enabled` of the security page is on. Reads a `.bgcode` file (the header, every block with its CRC-32, deflate or heatshrink data) and says what it holds: the metadata, the pictures, the blocks and, when asked, the G-code. A file that is cut, damaged, out of order or too big is `bad_bgcode`; one packed with MeatPack, or of another version of the format, is `bgcode_unsupported`. Nothing is guessed. The format was written from its public description and has only been tried on files this server wrote.",
+   example={"bgcode": {"base64": "<a .bgcode file in base64>"}, "include_gcode": False})
 op("GET", "/work/machines/{id}/compat/key", "work", "admin", "Whether a 3D printer has a key for the compatibility routes", scope="machines:manage", ok=(200, "CompatKeyState", "application/json"),
    errors=MACHINE_ERR + ["not_supported"], desc="Only for a machine of the `printer3d` plugin. The key itself is never shown again.")
 op("POST", "/work/machines/{id}/compat/key", "work", "admin", "Make the key of a 3D printer for the compatibility routes", scope="machines:manage", ok=(200, "CompatKey", "application/json"),

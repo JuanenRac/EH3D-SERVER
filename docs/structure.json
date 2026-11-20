@@ -283,7 +283,21 @@
             "pt": "as impressoras Marlin e Bambu Lab (simuladas) e o pequeno laminador"
           },
           "name": "printer_lan.rs  slicer.rs",
-          "tree_name": "marlin.rs bambu.rs printer_lan.rs slicer.rs api_slice.rs multipart.rs"
+          "tree_name": "marlin.rs bambu.rs bambu_mqtt.rs tls_pin.rs printer_lan.rs slicer.rs api_slice.rs multipart.rs"
+        },
+        {
+          "desc": {
+            "en": "binary G-code files (.bgcode) and the compression they use",
+            "es": "archivos G-code binarios (.bgcode) y la compresión que usan",
+            "de": "binäre G-code-Dateien (.bgcode) und die Kompression, die sie verwenden",
+            "fr": "fichiers G-code binaires (.bgcode) et la compression qu'ils utilisent",
+            "it": "file G-code binari (.bgcode) e la compressione che usano",
+            "ja": "バイナリG-codeファイル（.bgcode）と、それが使う圧縮",
+            "zh": "二进制 G-code 文件（.bgcode）及其使用的压缩",
+            "pt": "ficheiros G-code binários (.bgcode) e a compressão que usam"
+          },
+          "name": "bgcode.rs  inflate.rs",
+          "tree_name": "bgcode.rs inflate.rs heatshrink.rs"
         },
         {
           "desc": {

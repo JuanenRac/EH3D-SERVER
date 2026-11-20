@@ -1,7 +1,8 @@
 //! A Bambu Lab printer in LAN mode, as far as the server needs it: what the printer reports over MQTT (the temperatures, the layer, the progress), the commands the server
 //! sends it (hold, go on, cancel, a line of G-code, start a file it was given over FTPS), the chain of trust of the connection and a printer in memory that does all of that so
-//! the driver (`src/printer_lan.rs`) is tried without one. This is an EXPERIMENT: the connection to a real printer (MQTT over TLS on port 8883 and FTPS on port 990, with the
-//! access code of the printer) is not served; the only line the server opens is the simulated one, and nothing has run on a real A1, P1S or other Bambu printer.
+//! the driver (`src/printer_lan.rs`) is tried without one. This is an EXPERIMENT: the connection to a real printer (MQTT over TLS on port 8883, with the access code
+//! of the printer) is `src/bambu_mqtt.rs`, behind the switch `bambu_lan_enabled`, and the file transfer over FTPS is not served; the line the server opens by default is the simulated
+//! one, and nothing has run on a real A1, P1S or other Bambu printer.
 //!
 //! **The chain of trust.** A Bambu printer shows a certificate it signed itself, so there is no authority to ask. The server never accepts a certificate it did not check:
 //! the connection names the SHA-256 fingerprint of the certificate it expects (`connection.fingerprint`), and a connection whose printer shows another one, or one with no
