@@ -7,11 +7,17 @@ use std::sync::Arc;
 use serde_json::{json, Map, Value};
 
 use crate::plugins::{
-    work_machine_ids, work_machine_settings, MachineInfo, MachinePlugin, PluginError, PluginResult,
-    PluginStatus, Prepared,
+    work_machine_ids, work_machine_settings, MachineInfo, MachinePlugin, MachineRoute, PluginError,
+    PluginResult, PluginStatus, Prepared,
 };
 use crate::pnp::{PnpConfig, PnpEngine, MAX_COUNT, MAX_SLOTS, SETTINGS_HELP};
 use crate::state::AppState;
+
+/// The routes the plugin adds under `/api/v1/work/machines/{id}/`.
+const ROUTES: &[MachineRoute] = &[
+    MachineRoute::new("GET", "feeders", "viewer", "machines:view"),
+    MachineRoute::new("PUT", "feeders", "operator", "jobs:prepare"),
+];
 
 /// The pick-and-place machines of the server.
 #[derive(Default)]
@@ -42,7 +48,7 @@ impl MachinePlugin for PnpPlugin {
             settings.insert((*key).to_string(), json!(help));
         }
         json!({
-            "requests": ["place", "load_feeders"],
+            "requests": ["place", "load_feeders", "calibrate"],
             "pause": "all",
             "confirm": false,
             "stop": true,
@@ -55,6 +61,28 @@ impl MachinePlugin for PnpPlugin {
 
     fn manages_machines(&self) -> bool {
         true
+    }
+
+    fn routes(&self) -> &'static [MachineRoute] {
+        ROUTES
+    }
+
+    fn operation(
+        &self,
+        st: &Arc<AppState>,
+        machine: &str,
+        route: &str,
+        body: &Value,
+        _by: &str,
+    ) -> PluginResult<Value> {
+        let cfg = Self::config(st, machine)?;
+        match route {
+            "feeders" if body.is_null() => Ok(self.engine.feeders_view(machine, &cfg)),
+            "feeders" => self.engine.set_feeder(machine, &cfg, body),
+            _ => Err(PluginError::NotSupported(
+                "the machine has no such operation",
+            )),
+        }
     }
 
     fn check_settings(&self, settings: &Value) -> PluginResult<()> {

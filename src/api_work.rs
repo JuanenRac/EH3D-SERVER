@@ -57,6 +57,10 @@ pub fn routes() -> Router<Shared> {
         )
         .route("/api/v1/work/machines/:id/tools", get(op_tools))
         .route(
+            "/api/v1/work/machines/:id/feeders",
+            get(op_feeders).put(op_set_feeder),
+        )
+        .route(
             "/api/v1/work/machines/:id/temperatures",
             get(op_temperatures).put(op_set_temperature),
         )
@@ -383,6 +387,8 @@ machine_op!(op_release, "POST", "release");
 machine_op!(op_test_fire, "POST", "laser/test-fire");
 machine_op!(op_laser_release, "POST", "laser/release");
 machine_op!(op_tools, "GET", "tools");
+machine_op!(op_feeders, "GET", "feeders");
+machine_op!(op_set_feeder, "PUT", "feeders");
 machine_op!(op_temperatures, "GET", "temperatures");
 machine_op!(op_set_temperature, "PUT", "temperatures");
 machine_op!(op_layer, "GET", "layer");

@@ -9402,6 +9402,178 @@ paths:
               example:
                 error: not_supported
                 detail: ""
+  "/work/machines/{id}/feeders":
+    get:
+      operationId: get_work_machines_id_feeders
+      tags:
+        - work
+      summary: The feeders of a pick-and-place machine
+      description: "Only for a machine of the `pnp` plugin: every slot that holds a part (`slot`, `part`, `count`, `empty`, where it is picked from and the `offset_mm` its calibration found) and the slots that are free. Role viewer or higher. Scope `machines:view` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "machines:view"
+      x-error-codes:
+        - forbidden_scope
+        - not_supported
+        - unauthorized
+        - unknown_machine
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/MachineOperation"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
+        "404":
+          description: "Refused with `unknown_machine`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_machine
+                detail: ""
+        "501":
+          description: "Refused with `not_supported`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: not_supported
+                detail: ""
+    put:
+      operationId: put_work_machines_id_feeders
+      tags:
+        - work
+      summary: "Declare, refill or empty a feeder at once"
+      description: "Only for a machine of the `pnp` plugin: `{\"slot\": 3, \"part\": \"R_0603_10k\", \"count\": 150}` sets the slot, `{\"slot\": 3, \"clear\": true}` empties it; with no job. Refused while a job runs on the machine. The answer is the list of feeders. Role operator or higher. Scope `jobs:prepare` if the token is limited by scopes."
+      x-role: operator
+      x-scope: "jobs:prepare"
+      x-error-codes:
+        - bad_plugin_request
+        - bad_request
+        - forbidden
+        - forbidden_scope
+        - machine_busy
+        - not_supported
+        - unauthorized
+        - unknown_machine
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/MachineOperation"
+            example:
+              slot: 3
+              part: R_0603_10k
+              count: 150
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/MachineOperation"
+              example:
+                slot: 3
+                part: R_0603_10k
+                count: 150
+        "400":
+          description: "Refused with `bad_request`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_request
+                detail: ""
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_machine`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_machine
+                detail: ""
+        "409":
+          description: "Refused with `machine_busy`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: machine_busy
+                detail: ""
+        "422":
+          description: "Refused with `bad_plugin_request`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_plugin_request
+                detail: ""
+        "501":
+          description: "Refused with `not_supported`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: not_supported
+                detail: ""
   "/work/machines/{id}/temperatures":
     get:
       operationId: get_work_machines_id_temperatures
@@ -12429,7 +12601,7 @@ components:
         request:
           type: object
           additionalProperties: true
-          description: "What the plugin of the machine takes: for `bungard` a drill, route or gcode request (`JobRequest`), for `demo` `{\"kind\": \"demo\", \"steps\": 10}`, for `laser` `gcode`, `vector` or `test_fire`, for `pnp` `place` or `load_feeders`, for `pcb` `rules_check`, `drill_report`, `bom_report` or `inspect`, for `cnc` `gcode` or `file`, for `gerber` `load`, `drc` or `report`, for `cam` `drill`, `outline`, `isolate`, `stencil`, `autolevel`, `inspect` or `verify` (a `cam` request with `output: \"artifact\"` keeps the program it made as an artifact of the caller) and for `printer3d` `print`, `preheat` or `gcode` (`GET /plugins` says what each takes). A request that names an artifact (`artifact`, or `job` in a `place` request) is given the text of that artifact by the server."
+          description: "What the plugin of the machine takes: for `bungard` a drill, route or gcode request (`JobRequest`), for `demo` `{\"kind\": \"demo\", \"steps\": 10}`, for `laser` `gcode`, `vector` or `test_fire`, for `pnp` `place` (with `dry_run`), `load_feeders` or `calibrate`, for `pcb` `rules_check`, `drill_report`, `bom_report` or `inspect`, for `cnc` `gcode` or `file`, for `gerber` `load`, `drc` or `report`, for `cam` `drill`, `outline`, `isolate`, `stencil`, `autolevel`, `inspect` or `verify` (a `cam` request with `output: \"artifact\"` keeps the program it made as an artifact of the caller) and for `printer3d` `print`, `preheat` or `gcode` (`GET /plugins` says what each takes). A request that names an artifact (`artifact`, or `job` in a `place` request) is given the text of that artifact by the server."
         name:
           type: string
           maxLength: 80

@@ -1666,3 +1666,121 @@ M2
     .await;
     assert_eq!(again["view"]["result"]["cut_moves"], 1);
 }
+
+#[tokio::test]
+async fn a_pick_and_place_machine_has_routes_for_its_feeders_and_takes_a_dry_run_and_a_calibration()
+{
+    let s = common::server("sim-pnp-feeders");
+    let boss = admin(&s).await;
+    let operator = user(&s, &boss, "oper1", "operator").await;
+    let viewer = user(&s, &boss, "view1", "viewer").await;
+    make_machine(&s, &boss, "p1", "pnp", json!({"sim_rate": 0, "feeders": 4})).await;
+    let feeders = "/api/v1/work/machines/p1/feeders";
+    let (status, empty) = call(&s, Method::GET, feeders, Some(&viewer), None).await;
+    assert_eq!(status, StatusCode::OK, "{empty}");
+    assert_eq!(empty["free"], json!([1, 2, 3, 4]));
+    // a viewer reads, an operator writes
+    let part = json!({"slot": 2, "part": "R_0603_10k", "count": 20});
+    let (status, _) = call(&s, Method::PUT, feeders, Some(&viewer), Some(part.clone())).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, set) = call(&s, Method::PUT, feeders, Some(&operator), Some(part)).await;
+    assert_eq!(status, StatusCode::OK, "{set}");
+    assert_eq!(set["feeders"][0]["part"], "R_0603_10k");
+    assert_eq!(set["free"], json!([1, 3, 4]));
+    let (status, bad) = call(
+        &s,
+        Method::PUT,
+        feeders,
+        Some(&operator),
+        Some(json!({"slot": 9, "part": "A", "count": 1})),
+    )
+    .await;
+    assert_eq!(
+        (status, bad["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_plugin_request"))
+    );
+    // a dry run takes nothing off the feeder
+    let placements = json!([{"ref": "R1", "part": "R_0603_10k", "x": 20, "y": 30}, {"ref": "R2", "part": "R_0603_10k", "x": 25, "y": 30}]);
+    let dry = run_to_done(
+        &s,
+        &operator,
+        "p1",
+        json!({"kind": "place", "placements": placements, "dry_run": true}),
+    )
+    .await;
+    assert_eq!(dry["view"]["dry_run"], true);
+    let (_, after) = call(&s, Method::GET, feeders, Some(&viewer), None).await;
+    assert_eq!(after["feeders"][0]["count"], 20);
+    let real = run_to_done(
+        &s,
+        &operator,
+        "p1",
+        json!({"kind": "place", "placements": placements}),
+    )
+    .await;
+    assert_eq!(real["view"]["dry_run"], false);
+    let (_, after) = call(&s, Method::GET, feeders, Some(&viewer), None).await;
+    assert_eq!(after["feeders"][0]["count"], 18);
+    // a calibration moves where the slot is picked from
+    run_to_done(&s, &operator, "p1", json!({"kind": "calibrate", "what": "feeder", "target": "2", "offset_mm": {"x": 1.0, "y": 0.5}})).await;
+    let (_, moved) = call(&s, Method::GET, feeders, Some(&viewer), None).await;
+    assert_eq!(moved["feeders"][0]["offset_mm"]["x"], 1.0);
+    assert_eq!(moved["feeders"][0]["x_mm"], 19.0);
+    let d = detail(&s, &viewer, "p1").await;
+    assert_eq!(d["calibrations"]["feeder:2"]["evidence"], "simulator");
+    let (status, r) = prepare(
+        &s,
+        &operator,
+        "p1",
+        json!({"kind": "calibrate", "what": "feeder", "target": "7"}),
+    )
+    .await;
+    assert_eq!(
+        (status, r["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_plugin_request"))
+    );
+    // the route belongs to the pnp plugin only
+    make_machine(&s, &boss, "l1", "laser", json!({})).await;
+    let (status, r) = call(
+        &s,
+        Method::GET,
+        "/api/v1/work/machines/l1/feeders",
+        Some(&viewer),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, r["error"].as_str()),
+        (StatusCode::NOT_IMPLEMENTED, Some("not_supported"))
+    );
+    // while a job runs the feeders cannot be changed
+    make_machine(&s, &boss, "p2", "pnp", json!({"sim_rate": 1})).await;
+    let (status, _) = call(
+        &s,
+        Method::PUT,
+        "/api/v1/work/machines/p2/feeders",
+        Some(&operator),
+        Some(json!({"slot": 1, "part": "R_0603_10k", "count": 5})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, job) = prepare(&s, &operator, "p2", json!({"kind": "place", "placements": [{"ref": "R1", "part": "R_0603_10k", "x": 20, "y": 30}]})).await;
+    assert_eq!(status, StatusCode::CREATED, "{job}");
+    let id = job["id"].as_str().unwrap().to_string();
+    let (status, started) = act(&s, &operator, &id, "start").await;
+    assert_eq!(status, StatusCode::OK, "{started}");
+    let (status, busy) = call(
+        &s,
+        Method::PUT,
+        "/api/v1/work/machines/p2/feeders",
+        Some(&operator),
+        Some(json!({"slot": 1, "clear": true})),
+    )
+    .await;
+    assert_eq!(
+        (status, busy["error"].as_str()),
+        (StatusCode::CONFLICT, Some("machine_busy"))
+    );
+    let (status, _) = act(&s, &operator, &id, "cancel").await;
+    assert_eq!(status, StatusCode::OK);
+}

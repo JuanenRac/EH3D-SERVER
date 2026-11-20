@@ -252,6 +252,76 @@ pub fn parse_load(request: &Value, cfg: &PnpConfig) -> PluginResult<(FeederList,
     Ok((out, replace))
 }
 
+/// Whether a `place` request is a dry run: `dry_run` in the request or in its `options` (a value that is not true or false is refused).
+fn dry_run_of(request: &Value) -> PluginResult<bool> {
+    let from = |v: Option<&Value>| match v {
+        None => Ok(None),
+        Some(Value::Bool(b)) => Ok(Some(*b)),
+        Some(_) => bad("dry_run is true or false"),
+    };
+    let top = from(request.get("dry_run"))?;
+    let inner = from(request.get("options").and_then(|o| o.get("dry_run")))?;
+    Ok(top.or(inner).unwrap_or(false))
+}
+
+/// The most the offset of a calibration may be, in millimetres.
+pub const MAX_OFFSET_MM: f64 = 5.0;
+
+type Calibration = (&'static str, String, Option<u32>, (f64, f64));
+
+/// A `calibrate` request: `what` is `feeder`, `nozzle` or `camera`; the `target` of a feeder is its slot, the one of a nozzle or a camera a name; `offset_mm` is `{x, y}`
+/// (0 and 0 when it is not there, which puts the feeder back to its nominal place).
+fn parse_calibrate(request: &Value, cfg: &PnpConfig) -> PluginResult<Calibration> {
+    let what: &'static str = match request.get("what").and_then(Value::as_str) {
+        Some("feeder") => "feeder",
+        Some("nozzle") => "nozzle",
+        Some("camera") => "camera",
+        _ => return bad("what is `feeder`, `nozzle` or `camera`"),
+    };
+    let target = match request.get("target") {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Number(n)) => n.to_string(),
+        _ => {
+            return bad("target is the slot of the feeder or the name of the nozzle or the camera")
+        }
+    };
+    let slot = if what == "feeder" {
+        let slot = target
+            .parse::<u32>()
+            .ok()
+            .filter(|s| (1..=cfg.slots).contains(s));
+        match slot {
+            Some(s) => Some(s),
+            None => {
+                return bad(format!(
+                    "the target of a feeder is its slot, 1 to {}",
+                    cfg.slots
+                ))
+            }
+        }
+    } else {
+        if !label_ok(&target, 64, "_-./+:") {
+            return bad("target is a name of up to 64 letters, digits and _-./+:");
+        }
+        None
+    };
+    let axis = |key: &str| -> PluginResult<f64> {
+        match request.get("offset_mm").and_then(|o| o.get(key)) {
+            None => Ok(0.0),
+            Some(v) => match v.as_f64() {
+                Some(n) if n.is_finite() && n.abs() <= MAX_OFFSET_MM => Ok(n),
+                _ => bad(format!(
+                    "offset_mm.{key} is a number from -{MAX_OFFSET_MM} to {MAX_OFFSET_MM}"
+                )),
+            },
+        }
+    };
+    if request.get("offset_mm").is_some_and(|o| !o.is_object()) {
+        return bad("offset_mm is {\"x\": .., \"y\": ..}");
+    }
+    Ok((what, target, slot, (axis("x")?, axis("y")?)))
+}
+
 /// The placements of a `place` request.
 /// The fields of one line of a CSV list, with the quotes taken off (a field may hold the separator inside quotes).
 fn csv_fields(line: &str, separator: char) -> Vec<String> {
@@ -515,11 +585,32 @@ pub struct Schedule {
     pub travel_mm: f64,
 }
 
+/// The offsets found by the calibration of the feeders: slot and the millimetres the pick position is moved by.
+pub type Offsets = BTreeMap<u32, (f64, f64)>;
+
+/// Where the head picks from slot `slot`, with the offset the calibration of that slot found.
+pub fn pick_at(cfg: &PnpConfig, offsets: &Offsets, slot: u32) -> (f64, f64) {
+    let (x, y) = cfg.pick_pos(slot);
+    let (dx, dy) = offsets.get(&slot).copied().unwrap_or((0.0, 0.0));
+    (x + dx, y + dy)
+}
+
 pub fn schedule(
     placements: &[Placement],
     plan: &[u32],
     cfg: &PnpConfig,
     start: (f64, f64),
+) -> Schedule {
+    schedule_with(placements, plan, cfg, start, &Offsets::new())
+}
+
+/// [`schedule`] with the offsets of the feeders in force.
+pub fn schedule_with(
+    placements: &[Placement],
+    plan: &[u32],
+    cfg: &PnpConfig,
+    start: (f64, f64),
+    offsets: &Offsets,
 ) -> Schedule {
     let mut t = 0.0;
     let mut pos = start;
@@ -527,7 +618,7 @@ pub fn schedule(
     let mut pick_t = Vec::with_capacity(placements.len());
     let mut place_t = Vec::with_capacity(placements.len());
     for (p, slot) in placements.iter().zip(plan) {
-        let pick = cfg.pick_pos(*slot);
+        let pick = pick_at(cfg, offsets, *slot);
         let d1 = (pick.0 - pos.0).hypot(pick.1 - pos.1);
         t += d1 / cfg.travel_mm_s + cfg.pick_ms / 1000.0;
         pick_t.push(t);
@@ -553,6 +644,10 @@ struct PnpMachine {
     y: f64,
     placed_total: u64,
     failed_picks: u64,
+    /// What the calibration of each feeder found.
+    offsets: Offsets,
+    /// The last calibration of each thing, by `what:target`.
+    calibrations: BTreeMap<String, Value>,
 }
 
 struct PlaceJob {
@@ -566,6 +661,10 @@ struct PlaceJob {
     applied: usize,
     /// Placements finished.
     placed: usize,
+    /// A dry run: the head goes through the job but no part leaves a feeder, nothing is counted as placed and the vacuum is never lost.
+    dry: bool,
+    /// The offsets of the feeders when the job started.
+    offsets: Offsets,
 }
 
 enum JobKind {
@@ -574,6 +673,13 @@ enum JobKind {
         replace: bool,
     },
     Place(Box<PlaceJob>),
+    /// A calibration: what is calibrated, which one, and the offset it is set to (the feeders use it, the nozzle and the camera only keep it).
+    Calibrate {
+        what: &'static str,
+        target: String,
+        slot: Option<u32>,
+        offset: (f64, f64),
+    },
 }
 
 struct PnpJob {
@@ -626,7 +732,9 @@ fn advance(job: &mut PnpJob, m: &mut PnpMachine) {
         let slot = p.plan[i];
         let taken = match m.feeders.get_mut(&slot) {
             Some(f) if f.count > 0 => {
-                f.count -= 1;
+                if !p.dry {
+                    f.count -= 1;
+                }
                 true
             }
             _ => false,
@@ -638,7 +746,7 @@ fn advance(job: &mut PnpJob, m: &mut PnpMachine) {
             break;
         }
         p.applied += 1;
-        if p.fail_at == Some(i) {
+        if !p.dry && p.fail_at == Some(i) {
             m.failed_picks += 1;
             *message = format!("the vacuum was lost picking {reference} from feeder {slot}");
             stopped = Some(i);
@@ -650,7 +758,9 @@ fn advance(job: &mut PnpJob, m: &mut PnpMachine) {
         None => finished_items(&p.place_t, work).min(p.placements.len()),
     };
     if placed > p.placed {
-        m.placed_total += (placed - p.placed) as u64;
+        if !p.dry {
+            m.placed_total += (placed - p.placed) as u64;
+        }
         p.placed = placed;
     }
     if placed > 0 {
@@ -660,7 +770,7 @@ fn advance(job: &mut PnpJob, m: &mut PnpMachine) {
         }
     }
     if let Some(i) = stopped {
-        let (px, py) = p.cfg.pick_pos(p.plan[i]);
+        let (px, py) = pick_at(&p.cfg, &p.offsets, p.plan[i]);
         m.x = px;
         m.y = py;
         *state = WorkState::Failed;
@@ -691,11 +801,12 @@ impl PnpEngine {
             .feeders
             .iter()
             .map(|(slot, f)| {
-                let (x, y) = cfg.pick_pos(*slot);
+                let (x, y) = pick_at(cfg, &m.offsets, *slot);
                 json!({ "slot": slot, "part": f.part, "count": f.count, "x_mm": x, "y_mm": y })
             })
             .collect();
         json!({
+            "calibrations": m.calibrations,
             "feeders": feeders,
             "slots": cfg.slots,
             "head": { "x_mm": m.x, "y_mm": m.y },
@@ -704,6 +815,63 @@ impl PnpEngine {
             "bed_mm": { "x": cfg.bed_x, "y": cfg.bed_y },
             "require_stock": cfg.require_stock,
         })
+    }
+
+    /// Every slot of the machine with what it holds, where the head picks from it (the offset of its calibration included) and which slots are free.
+    pub fn feeders_view(&self, machine: &str, cfg: &PnpConfig) -> Value {
+        let m = self
+            .machines
+            .locked()
+            .get(machine)
+            .cloned()
+            .unwrap_or_default();
+        let mut feeders: Vec<Value> = Vec::new();
+        let mut free: Vec<u32> = Vec::new();
+        for slot in 1..=cfg.slots {
+            let (x, y) = pick_at(cfg, &m.offsets, slot);
+            let (dx, dy) = m.offsets.get(&slot).copied().unwrap_or((0.0, 0.0));
+            match m.feeders.get(&slot) {
+                Some(f) => feeders.push(json!({
+                    "slot": slot, "part": f.part, "count": f.count, "empty": f.count == 0,
+                    "x_mm": x, "y_mm": y, "offset_mm": { "x": dx, "y": dy },
+                })),
+                None => free.push(slot),
+            }
+        }
+        json!({ "slots": cfg.slots, "feeders": feeders, "free": free })
+    }
+
+    /// Declares, refills or empties one slot at once, with no job: `{"slot", "part", "count"}` or `{"slot", "clear": true}`. Refused while a job runs on the machine.
+    pub fn set_feeder(&self, machine: &str, cfg: &PnpConfig, body: &Value) -> PluginResult<Value> {
+        if self.busy(machine) {
+            return Err(PluginError::Busy);
+        }
+        let slot = body
+            .get("slot")
+            .and_then(Value::as_u64)
+            .filter(|s| (1..=u64::from(cfg.slots)).contains(s))
+            .ok_or_else(|| {
+                PluginError::Bad(format!("slot is a whole number from 1 to {}", cfg.slots))
+            })? as u32;
+        match body.get("clear") {
+            None => {
+                let (list, _) = parse_load(&json!({ "feeders": [body] }), cfg)?;
+                let (_, part, count) = list.into_iter().next().ok_or_else(missing)?;
+                self.machines
+                    .locked()
+                    .entry(machine.to_string())
+                    .or_default()
+                    .feeders
+                    .insert(slot, Feeder { part, count });
+            }
+            Some(Value::Bool(true)) => {
+                if let Some(m) = self.machines.locked().get_mut(machine) {
+                    m.feeders.remove(&slot);
+                }
+            }
+            Some(_) => return bad("clear is true"),
+        }
+        Ok(self.feeders_view(machine, cfg))
     }
 
     pub fn prepare(
@@ -719,17 +887,36 @@ impl PnpEngine {
                     json!({ "kind": "load_feeders", "slots": feeders.len(), "replace": replace });
                 (JobKind::Load { feeders, replace }, view)
             }
+            Some("calibrate") => {
+                let (what, target, slot, offset) = parse_calibrate(request, cfg)?;
+                let view = json!({
+                    "kind": "calibrate", "what": what, "target": target,
+                    "offset_mm": { "x": offset.0, "y": offset.1 },
+                    "note": "the offset is the one the request gives: the simulated machine measures nothing",
+                });
+                (
+                    JobKind::Calibrate {
+                        what,
+                        target,
+                        slot,
+                        offset,
+                    },
+                    view,
+                )
+            }
             Some("place") => {
                 let request = with_artifact_list(request)?;
                 let placements = parse_place(&request, cfg)?;
-                let (feeders, start) = {
+                let dry = dry_run_of(&request)?;
+                let (feeders, start, offsets) = {
                     let machines = self.machines.locked();
                     let m = machines.get(machine).cloned().unwrap_or_default();
-                    (m.feeders, (m.x, m.y))
+                    (m.feeders, (m.x, m.y), m.offsets)
                 };
                 let plan = assign(&placements, &feeders, cfg.require_stock)?;
-                let sched = schedule(&placements, &plan, cfg, start);
-                let view = place_view(&placements, &plan, &sched);
+                let sched = schedule_with(&placements, &plan, cfg, start, &offsets);
+                let mut view = place_view(&placements, &plan, &sched);
+                view["dry_run"] = json!(dry);
                 let job = PlaceJob {
                     placements,
                     cfg: cfg.clone(),
@@ -739,11 +926,13 @@ impl PnpEngine {
                     fail_at: None,
                     applied: 0,
                     placed: 0,
+                    dry,
+                    offsets: Offsets::new(),
                 };
                 (JobKind::Place(Box::new(job)), view)
             }
             _ => {
-                return bad("the request has to be {\"kind\": \"place\" | \"load_feeders\", ...}");
+                return bad("the request has to be {\"kind\": \"place\" | \"load_feeders\" | \"calibrate\", ...}");
             }
         };
         let native_id = crate::ids::new(crate::ids::Kind::Work);
@@ -791,12 +980,32 @@ impl PnpEngine {
                     );
                 }
             }
+            JobKind::Calibrate {
+                what,
+                target,
+                slot,
+                offset,
+            } => {
+                if let Some(slot) = slot {
+                    if *offset == (0.0, 0.0) {
+                        m.offsets.remove(slot);
+                    } else {
+                        m.offsets.insert(*slot, *offset);
+                    }
+                }
+                m.calibrations.insert(
+                    format!("{what}:{target}"),
+                    json!({ "what": what, "target": target, "offset_mm": { "x": offset.0, "y": offset.1 }, "evidence": "simulator" }),
+                );
+            }
             JobKind::Place(p) => {
                 // the feeders may have changed since the job was prepared: the plan is made again from what they hold now
                 let plan = assign(&p.placements, &m.feeders, job.require_stock)?;
-                let sched = schedule(&p.placements, &plan, &p.cfg, (m.x, m.y));
-                p.fail_at = (p.cfg.fail_every > 0 && p.placements.len() >= p.cfg.fail_every)
-                    .then(|| p.cfg.fail_every - 1);
+                p.offsets = m.offsets.clone();
+                let sched = schedule_with(&p.placements, &plan, &p.cfg, (m.x, m.y), &p.offsets);
+                p.fail_at =
+                    (!p.dry && p.cfg.fail_every > 0 && p.placements.len() >= p.cfg.fail_every)
+                        .then(|| p.cfg.fail_every - 1);
                 p.plan = plan;
                 p.pick_t = sched.pick_t;
                 p.place_t = sched.place_t;
@@ -878,7 +1087,9 @@ impl PnpEngine {
             native_id,
             |job, _| {
                 let (done, total) = match &job.kind {
-                    JobKind::Load { .. } => (u64::from(job.state == WorkState::Done), 1),
+                    JobKind::Load { .. } | JobKind::Calibrate { .. } => {
+                        (u64::from(job.state == WorkState::Done), 1)
+                    }
                     JobKind::Place(p) => (p.placed as u64, p.placements.len() as u64),
                 };
                 Ok(PluginStatus {
@@ -963,6 +1174,227 @@ mod tests {
             {"slot": 1, "part": "R_0603_10k", "count": 5},
             {"slot": 3, "part": "C_0603_100n", "count": 100},
         ])
+    }
+
+    #[test]
+    fn a_dry_run_goes_through_the_job_and_leaves_the_feeders_and_the_counters_alone() {
+        let e = PnpEngine::default();
+        let cfg = PnpConfig {
+            fail_every: 2,
+            ..quick()
+        };
+        load(&e, &cfg, feeders(), false);
+        let request = json!({"kind": "place", "placements": two_parts(), "dry_run": true});
+        let p = e.prepare("p1", &cfg, &request).unwrap();
+        assert_eq!(p.view["dry_run"], true);
+        e.start("p1", &p.native_id).unwrap();
+        let s = e.status(&p.native_id).unwrap();
+        // the vacuum that the machine would lose at the second placement is not lost in a dry run
+        assert_eq!((s.state, s.done, s.total), (WorkState::Done, 3, 3));
+        let d = e.detail("p1", &cfg);
+        assert_eq!(d["placed_total"], 0);
+        assert_eq!(d["failed_picks"], 0);
+        assert_eq!(d["feeders"][0]["count"], 5);
+        assert_eq!(d["feeders"][1]["count"], 100);
+        // the same request, not dry, takes the parts and loses the vacuum
+        let real = e
+            .prepare(
+                "p1",
+                &cfg,
+                &json!({"kind": "place", "placements": two_parts()}),
+            )
+            .unwrap();
+        assert_eq!(real.view["dry_run"], false);
+        e.start("p1", &real.native_id).unwrap();
+        assert_eq!(e.status(&real.native_id).unwrap().state, WorkState::Failed);
+        assert_eq!(e.detail("p1", &cfg)["feeders"][0]["count"], 3);
+    }
+
+    #[test]
+    fn a_dry_run_still_needs_the_parts_to_be_there_and_can_be_asked_in_the_options() {
+        let e = PnpEngine::default();
+        let cfg = quick();
+        load(
+            &e,
+            &cfg,
+            json!([{"slot": 1, "part": "R_0603_10k", "count": 1}]),
+            false,
+        );
+        let short = e.prepare(
+            "p1",
+            &cfg,
+            &json!({"kind": "place", "placements": two_parts(), "dry_run": true}),
+        );
+        assert_eq!(short.err().map(|x| x.code()), Some("pnp_feeder_short"));
+        load(&e, &cfg, feeders(), false);
+        let p = e
+            .prepare(
+                "p1",
+                &cfg,
+                &json!({"kind": "place", "placements": two_parts(), "options": {"dry_run": true}}),
+            )
+            .unwrap();
+        assert_eq!(p.view["dry_run"], true);
+        for bad in [
+            json!({"dry_run": "yes"}),
+            json!({"options": {"dry_run": 1}}),
+        ] {
+            let mut request = json!({"kind": "place", "placements": two_parts()});
+            request
+                .as_object_mut()
+                .unwrap()
+                .extend(bad.as_object().unwrap().clone());
+            assert_eq!(
+                e.prepare("p1", &cfg, &request).err().map(|x| x.code()),
+                Some("bad_plugin_request")
+            );
+        }
+    }
+
+    fn calibrate(e: &PnpEngine, cfg: &PnpConfig, request: Value) -> PluginResult<WorkState> {
+        let p = e.prepare("p1", cfg, &request)?;
+        e.start("p1", &p.native_id)?;
+        Ok(e.status(&p.native_id)?.state)
+    }
+
+    #[test]
+    fn the_calibration_of_a_feeder_moves_where_it_is_picked_from() {
+        let e = PnpEngine::default();
+        let cfg = quick();
+        load(&e, &cfg, feeders(), false);
+        let before = e
+            .prepare(
+                "p1",
+                &cfg,
+                &json!({"kind": "place", "placements": two_parts()}),
+            )
+            .unwrap();
+        let state = calibrate(
+            &e,
+            &cfg,
+            json!({"kind": "calibrate", "what": "feeder", "target": 3, "offset_mm": {"x": 0.5, "y": -0.25}}),
+        )
+        .unwrap();
+        assert_eq!(state, WorkState::Done);
+        let d = e.detail("p1", &cfg);
+        // slot 3 is picked from (26, -20) nominally
+        assert_eq!(d["feeders"][1]["x_mm"], 26.5);
+        assert_eq!(d["feeders"][1]["y_mm"], -20.25);
+        assert_eq!(d["calibrations"]["feeder:3"]["offset_mm"]["x"], 0.5);
+        assert_eq!(d["calibrations"]["feeder:3"]["evidence"], "simulator");
+        let view = e.feeders_view("p1", &cfg);
+        assert_eq!(view["feeders"][1]["offset_mm"]["y"], -0.25);
+        // a job made later picks from the new place, so it travels another distance than the one made before
+        let after = e
+            .prepare(
+                "p1",
+                &cfg,
+                &json!({"kind": "place", "placements": two_parts()}),
+            )
+            .unwrap();
+        assert_ne!(before.view["travel_mm"], after.view["travel_mm"]);
+        // calibrating again with no offset puts it back
+        calibrate(
+            &e,
+            &cfg,
+            json!({"kind": "calibrate", "what": "feeder", "target": "3"}),
+        )
+        .unwrap();
+        assert_eq!(e.detail("p1", &cfg)["feeders"][1]["x_mm"], 26.0);
+    }
+
+    #[test]
+    fn a_nozzle_or_a_camera_is_calibrated_by_name_and_a_wrong_request_is_refused() {
+        let e = PnpEngine::default();
+        let cfg = quick();
+        let nozzle =
+            json!({"kind": "calibrate", "what": "nozzle", "target": "N1", "offset_mm": {"x": 0.1}});
+        assert_eq!(calibrate(&e, &cfg, nozzle).unwrap(), WorkState::Done);
+        let camera = json!({"kind": "calibrate", "what": "camera", "target": "up"});
+        assert_eq!(calibrate(&e, &cfg, camera).unwrap(), WorkState::Done);
+        let d = e.detail("p1", &cfg);
+        assert_eq!(d["calibrations"]["nozzle:N1"]["offset_mm"]["x"], 0.1);
+        assert_eq!(d["calibrations"]["nozzle:N1"]["offset_mm"]["y"], 0.0);
+        assert!(d["calibrations"]["camera:up"].is_object());
+        for bad in [
+            json!({"kind": "calibrate"}),
+            json!({"kind": "calibrate", "what": "laser", "target": "x"}),
+            json!({"kind": "calibrate", "what": "feeder", "target": 0}),
+            json!({"kind": "calibrate", "what": "feeder", "target": 41}),
+            json!({"kind": "calibrate", "what": "feeder", "target": "left"}),
+            json!({"kind": "calibrate", "what": "nozzle"}),
+            json!({"kind": "calibrate", "what": "nozzle", "target": "a b"}),
+            json!({"kind": "calibrate", "what": "nozzle", "target": "N1", "offset_mm": {"x": 6}}),
+            json!({"kind": "calibrate", "what": "nozzle", "target": "N1", "offset_mm": {"y": "up"}}),
+            json!({"kind": "calibrate", "what": "nozzle", "target": "N1", "offset_mm": 3}),
+        ] {
+            assert_eq!(
+                e.prepare("p1", &cfg, &bad).err().map(|x| x.code()),
+                Some("bad_plugin_request"),
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_feeder_is_declared_refilled_and_emptied_with_no_job() {
+        let e = PnpEngine::default();
+        let cfg = PnpConfig {
+            slots: 4,
+            ..quick()
+        };
+        let v = e.feeders_view("p1", &cfg);
+        assert_eq!(v["feeders"].as_array().unwrap().len(), 0);
+        assert_eq!(v["free"], json!([1, 2, 3, 4]));
+        let part = json!({"slot": 2, "part": "C_0603_100n", "count": 50});
+        let v = e.set_feeder("p1", &cfg, &part).unwrap();
+        assert_eq!(v["feeders"][0]["slot"], 2);
+        assert_eq!(v["feeders"][0]["count"], 50);
+        assert_eq!(v["free"], json!([1, 3, 4]));
+        let empty = json!({"slot": 2, "part": "C_0603_100n", "count": 0});
+        let v = e.set_feeder("p1", &cfg, &empty).unwrap();
+        assert_eq!(v["feeders"][0]["empty"], true);
+        let v = e
+            .set_feeder("p1", &cfg, &json!({"slot": 2, "clear": true}))
+            .unwrap();
+        assert_eq!(v["free"], json!([1, 2, 3, 4]));
+        for bad in [
+            json!({}),
+            json!({"slot": 5, "part": "A", "count": 1}),
+            json!({"slot": 1, "count": 1}),
+            json!({"slot": 1, "part": "A"}),
+            json!({"slot": 1, "part": "A", "count": 1000000}),
+            json!({"slot": 1, "clear": false}),
+        ] {
+            assert_eq!(
+                e.set_feeder("p1", &cfg, &bad).err().map(|x| x.code()),
+                Some("bad_plugin_request"),
+                "{bad}"
+            );
+        }
+        // not while a job runs on the machine
+        let slow = PnpConfig {
+            sim_rate: 1.0,
+            ..cfg.clone()
+        };
+        load(
+            &e,
+            &slow,
+            json!([{"slot": 1, "part": "R_0603_10k", "count": 5}]),
+            false,
+        );
+        let one = json!([{"ref": "R1", "part": "R_0603_10k", "x": 20, "y": 30}]);
+        let job = e
+            .prepare("p1", &slow, &json!({"kind": "place", "placements": one}))
+            .unwrap();
+        e.start("p1", &job.native_id).unwrap();
+        let clear = json!({"slot": 2, "clear": true});
+        assert_eq!(
+            e.set_feeder("p1", &slow, &clear).err().map(|x| x.code()),
+            Some("machine_busy")
+        );
+        e.stop(&job.native_id).unwrap();
+        assert!(e.set_feeder("p1", &slow, &clear).is_ok());
     }
 
     #[test]

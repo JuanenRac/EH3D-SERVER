@@ -145,6 +145,8 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/work/machines/:id/compat/moonraker` | GET | viewer + `machines:view` | The state of a 3D printer shaped as Moonraker answers it |
 | `/api/v1/work/machines/:id/compat/octoprint` | GET | viewer + `machines:view` | The state of a 3D printer shaped as OctoPrint answers it |
 | `/api/v1/work/machines/:id/emergency-stop` | POST | operator + `jobs:cancel` | Stop a CNC machine or a 3D printer at once and latch it |
+| `/api/v1/work/machines/:id/feeders` | GET | viewer + `machines:view` | The feeders of a pick-and-place machine |
+| `/api/v1/work/machines/:id/feeders` | PUT | operator + `jobs:prepare` | Declare, refill or empty a feeder at once |
 | `/api/v1/work/machines/:id/jog` | POST | operator + `jobs:start` | Jog a CNC machine |
 | `/api/v1/work/machines/:id/laser/release` | POST | admin + `machines:manage` | Release the latch of an emergency stop of a laser machine |
 | `/api/v1/work/machines/:id/laser/test-fire` | POST | operator + `jobs:start` | Fire a laser machine for a moment, to focus |

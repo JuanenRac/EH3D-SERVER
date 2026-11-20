@@ -604,7 +604,7 @@ SCHEMAS.update({
                              ["id", "name", "plugin", "settings"]),
     "WorkMachineChange": obj({"name": s(minLength=1, maxLength=80), "settings": {"type": "object", "additionalProperties": True}}),
     "NewWorkJob": obj({
-        "machine": s("The id of a machine of any plugin."), "request": {"type": "object", "additionalProperties": True, "description": "What the plugin of the machine takes: for `bungard` a drill, route or gcode request (`JobRequest`), for `demo` `{\"kind\": \"demo\", \"steps\": 10}`, for `laser` `gcode`, `vector` or `test_fire`, for `pnp` `place` or `load_feeders`, for `pcb` `rules_check`, `drill_report`, `bom_report` or `inspect`, for `cnc` `gcode` or `file`, for `gerber` `load`, `drc` or `report`, for `cam` `drill`, `outline`, `isolate`, `stencil`, `autolevel`, `inspect` or `verify` (a `cam` request with `output: \"artifact\"` keeps the program it made as an artifact of the caller) and for `printer3d` `print`, `preheat` or `gcode` (`GET /plugins` says what each takes). A request that names an artifact (`artifact`, or `job` in a `place` request) is given the text of that artifact by the server."},
+        "machine": s("The id of a machine of any plugin."), "request": {"type": "object", "additionalProperties": True, "description": "What the plugin of the machine takes: for `bungard` a drill, route or gcode request (`JobRequest`), for `demo` `{\"kind\": \"demo\", \"steps\": 10}`, for `laser` `gcode`, `vector` or `test_fire`, for `pnp` `place` (with `dry_run`), `load_feeders` or `calibrate`, for `pcb` `rules_check`, `drill_report`, `bom_report` or `inspect`, for `cnc` `gcode` or `file`, for `gerber` `load`, `drc` or `report`, for `cam` `drill`, `outline`, `isolate`, `stencil`, `autolevel`, `inspect` or `verify` (a `cam` request with `output: \"artifact\"` keeps the program it made as an artifact of the caller) and for `printer3d` `print`, `preheat` or `gcode` (`GET /plugins` says what each takes). A request that names an artifact (`artifact`, or `job` in a `place` request) is given the text of that artifact by the server."},
         "name": s(maxLength=80), "app": s("The application that asks; the default is the one of the login."),
     }, ["machine", "request"]),
     "WorkState": WORK_STATE,
@@ -717,6 +717,11 @@ op("POST", "/work/machines/{id}/laser/release", "work", "admin", "Release the la
    desc="Only an administrator: the operator who stopped the machine cannot release it.")
 op("GET", "/work/machines/{id}/tools", "work", "viewer", "What a CAM worker has built in", scope="machines:view", errors=MACHINE_ERR + ["not_supported"], **MOP,
    desc="Only for a machine of the `cam` plugin: the kinds of job and what makes each one.")
+op("GET", "/work/machines/{id}/feeders", "work", "viewer", "The feeders of a pick-and-place machine", scope="machines:view", errors=MACHINE_ERR + ["not_supported"], **MOP,
+   desc="Only for a machine of the `pnp` plugin: every slot that holds a part (`slot`, `part`, `count`, `empty`, where it is picked from and the `offset_mm` its calibration found) and the slots that are free.")
+op("PUT", "/work/machines/{id}/feeders", "work", "operator", "Declare, refill or empty a feeder at once", scope="jobs:prepare", errors=MACHINE_ERR + ["not_supported", "bad_plugin_request", "machine_busy"], **MOP,
+   desc="Only for a machine of the `pnp` plugin: `{\"slot\": 3, \"part\": \"R_0603_10k\", \"count\": 150}` sets the slot, `{\"slot\": 3, \"clear\": true}` empties it; with no job. Refused while a job runs on the machine. The answer is the list of feeders.",
+   body="MachineOperation", example={"slot": 3, "part": "R_0603_10k", "count": 150})
 op("GET", "/work/machines/{id}/temperatures", "work", "viewer", "The heaters of a 3D printer", scope="machines:view", errors=MACHINE_ERR + ["not_supported", "printer_disconnected"], **MOP,
    desc="Each heater with its reading, its target, how hard it works and the limit in force, and a short history. Asking also runs the checks of the heaters.")
 op("PUT", "/work/machines/{id}/temperatures", "work", "operator", "Set the target of a heater of a 3D printer", scope="jobs:start", body="TemperatureRequest",
