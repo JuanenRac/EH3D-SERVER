@@ -1674,7 +1674,7 @@ M2
 #[tokio::test]
 async fn a_pick_and_place_machine_has_routes_for_its_feeders_and_takes_a_dry_run_and_a_calibration()
 {
-    let s = common::server("sim-pnp-feeders");
+    let s = common::server("sim-pnp-feeder-routes");
     let boss = admin(&s).await;
     let operator = user(&s, &boss, "oper1", "operator").await;
     let viewer = user(&s, &boss, "view1", "viewer").await;

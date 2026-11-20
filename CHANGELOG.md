@@ -4,6 +4,7 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **Two tests no longer share a data folder:** two tests of the plugin tests built their server with the same name, so they kept their data in the same folder and the one that started later emptied it under the other, which then failed with `500 storage` on a random run; one is renamed, and `tests/unique_server_dirs.rs` fails when a test file builds two servers with the same name.
 ## [0.2.0] - Bambu LAN link over a pinned TLS certificate, bgcode files, kept logins and a contract of every setting
 
 - **A contract of every setting of the server, for Studio and the apps:** `GET /api/v1/settings/contract` (administrator, scope `admin:policy`) gives, for each of the 89 keys of `server.cfg`, its group, type (boolean, integer, string or list), range, default and unit, whether a change is in force at once or read when the server starts, the route that writes it, the role and scope it needs, whether it is a secret, the kind of risk, and a label, a short help and a warning in en, es, de, fr, it, ja, zh and pt. The answer also has `values` (the value in force of each key that is not a secret) and `server_version`, so a client can draw its whole settings page from it and turn any switch on or off.

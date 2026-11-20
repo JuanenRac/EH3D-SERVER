@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.2.0` |
 | Reifegrad | Funktionsfähig |
-| Tests | 716 |
+| Tests | 718 |
 | Technologie-Stack | Rust (axum, tokio) |
 | Auf echter Hardware | Nein: gegen den Simulator getestet; über den Server lief noch nichts auf einer echten Maschine |
 
@@ -45,7 +45,7 @@ Jede Zeile ist ein Teil dieses Repositorys, und die Ampel sagt, wie weit er heut
 | Bereich | Stand | Was das hier bedeutet |
 |---|---|---|
 | Software | 🟡 | Ein Rust-Server (axum) verwaltet Benutzer, Maschinen und Aufträge, plant Bohr- und Fräsaufträge mit den Bibliotheken von EH3D-DRILLPRO und EH3D-ROUTEPRO, zeigt eine Vorschau und führt den Auftrag mit Bedienerdialogen und einem Stopp aus. |
-| Tests | 🟡 | 716 Tests bestehen (`cargo test`): 472 in den Modulen und 244 an der Schnittstelle von Ende zu Ende, mit Aufträgen im Simulator (41 in `tests/api.rs`, 7 mit den echten Programmen in `tests/programs.rs`). |
+| Tests | 🟡 | 718 Tests bestehen (`cargo test`): 472 in den Modulen und 246 an der Schnittstelle von Ende zu Ende, mit Aufträgen im Simulator (41 in `tests/api.rs`, 7 mit den echten Programmen in `tests/programs.rs`). |
 | Schnittstelle für Clients (API) | 🟡 | Die REST-Anfragen und die Websocket-Ereignisse sind in `docs/API.md` (die Routen außerdem im OpenAPI-Vertrag `docs/openapi.yaml`) beschrieben und von den Tests abgedeckt; bisher nutzt sie nur die Serververbindung der Programme selbst. |
 | Gemeinsame Dienste | 🟠 | Projektspeicher, gemeinsame Kataloge, Maschinen-Plugins mit Warteschlange und Ereignissen und die einheitliche Anmeldung laufen in den Tests auf einem Rechner; keine Anwendung nutzt sie bisher, über die Warteschlange lief nichts auf einer echten Maschine, und die Kataloge wurden nicht mit den echten Daten ihrer Programme gefüllt. |
 | Clients | 🔴 | EH3D-STUDIO nutzt ihn (nie an einer echten Maschine probiert); die Android-App und das Touch-Panel an der Maschine gibt es noch nicht. |
