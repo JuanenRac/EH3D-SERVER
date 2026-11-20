@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.2.0` |
 | Maturité | Fonctionnel |
-| Tests | 718 |
+| Tests | 740 |
 | Pile technique | Rust (axum, tokio) |
 | Sur du matériel réel | Non : testé contre le simulateur ; rien n'a encore tourné sur une vraie machine par le serveur |
 
@@ -45,7 +45,7 @@ Chaque ligne est une partie de ce dépôt et le feu dit où elle en est aujourd'
 | Domaine | État | Ce que cela veut dire ici |
 |---|---|---|
 | Logiciel | 🟡 | Un serveur Rust (axum) garde utilisateurs, machines et travaux, planifie des travaux de perçage et de défonçage avec les bibliothèques d'EH3D-DRILLPRO et d'EH3D-ROUTEPRO, montre un aperçu et exécute le travail avec des dialogues d'opérateur et un arrêt. |
-| Tests | 🟡 | 718 tests réussissent (`cargo test`) : 472 dans les modules et 246 sur l'interface de bout en bout, avec des travaux sur le simulateur (41 dans `tests/api.rs`, 7 avec les vrais programmes dans `tests/programs.rs`). |
+| Tests | 🟡 | 740 tests réussissent (`cargo test`) : 480 dans les modules et 260 sur l'interface de bout en bout, avec des travaux sur le simulateur (41 dans `tests/api.rs`, 7 avec les vrais programmes dans `tests/programs.rs`). |
 | Interface pour les clients (API) | 🟡 | Les requêtes REST et les événements websocket sont décrits dans `docs/API.md` (les routes aussi dans le contrat OpenAPI `docs/openapi.yaml`) et couverts par les tests ; seule la connexion au serveur des programmes eux-mêmes les utilise pour l'instant. |
 | Services communs | 🟠 | Le magasin de projets, les catalogues partagés, les plugins de machine avec leur file et leurs événements, et la connexion unique tournent dans les tests sur un ordinateur ; aucune application ne les utilise encore, rien n'a tourné sur une vraie machine par la file et les catalogues n'ont pas été chargés avec les vraies données de leurs programmes. |
 | Clients | 🔴 | EH3D-STUDIO l'utilise (jamais essayé avec une vraie machine) ; l'application Android et le panneau tactile à côté de la machine n'existent pas encore. |
@@ -130,7 +130,7 @@ Comment les parties de ce dépôt s'articulent : qui l'utilise, ce qu'il contien
 | REST | `/api/v1/` : `health`, `setup`, `login`, `logout`, `session`, `account`, `users`, `tokens`, `updates`, `machines` (avec `preview` et `jobs`), `jobs` (avec `start`, `confirm`, `cancel`) ; JSON en entrée et en sortie, erreurs sous la forme `{"error","detail"}` | [docs/API.md](docs/API.md), `src/api.rs` |
 | Websocket | `GET /api/v1/events?ticket=...` : un `hello` avec les résumés des travaux, puis `job` et `job_removed` à chaque changement | [docs/API.md](docs/API.md) |
 | Vers la machine | la `connection` d'une machine est `node` (un EH3D-NODE-BUNGARD à une adresse avec son jeton) ou `demo` (le simulateur) | [docs/API.md](docs/API.md), `src/machines.rs` |
-| Ligne de commande | `eh3d-server [--config FICHIER]` ; `--help` la liste | `src/main.rs` |
+| Ligne de commande | `eh3d-server [--config FICHIER] [--check]` ; `--help` la liste ; `--check` vérifie les réglages et le dossier de données sans démarrer (code de sortie 2 si une vérification échoue) | `src/main.rs` |
 | Service | un binaire, port 18200 par défaut, une unité systemd | [docs/DEPLOY.md](docs/DEPLOY.md), `deploy/eh3d-server.service` |
 | Services communs | `/api/v1/apps/{app}/projects`, `catalogs`, `plugins`, `work`, `notifications`, `auth` ; `GET /api/v1/events/stream` envoie des événements serveur | [docs/SERVICES.md](docs/SERVICES.md), [docs/openapi.yaml](docs/openapi.yaml) |
 

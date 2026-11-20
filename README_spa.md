@@ -18,7 +18,7 @@
 
 ---
 
-**Comprobación de honestidad - lo que se ejecuta hoy:** un servidor en Rust (axum) con interfaz REST y websocket que guarda usuarios, máquinas y trabajos, planifica un trabajo de taladrado o de fresado (agujeros y trayectorias, o un fichero Excellon o HP-GL con su tabla de herramientas) con las bibliotecas de EH3D-DRILLPRO y EH3D-ROUTEPRO, muestra una vista previa y lo ejecuta en una máquina a través de su EH3D-NODE-BUNGARD o en un simulador, con los diálogos del operador, una parada y cada cambio contado según ocurre. 718 pruebas se ejecutan en un ordenador, los trabajos contra el simulador. **Todavía no se ha ejecutado nada en una máquina real a través de él**, no termina TLS y de los clientes además de los programas, EH3D-STUDIO existe (nunca probado con una máquina real) y la app de Android y el panel junto a la máquina todavía no existen. También es el servidor de toda aplicación de EH3D, con cuatro servicios comunes (un almacén de proyectos, catálogos compartidos, plugins de máquina con una cola de trabajos y un flujo de eventos, y un inicio de sesión único); solo se ejecutan en las pruebas y ninguna aplicación los usa todavía.
+**Comprobación de honestidad - lo que se ejecuta hoy:** un servidor en Rust (axum) con interfaz REST y websocket que guarda usuarios, máquinas y trabajos, planifica un trabajo de taladrado o de fresado (agujeros y trayectorias, o un fichero Excellon o HP-GL con su tabla de herramientas) con las bibliotecas de EH3D-DRILLPRO y EH3D-ROUTEPRO, muestra una vista previa y lo ejecuta en una máquina a través de su EH3D-NODE-BUNGARD o en un simulador, con los diálogos del operador, una parada y cada cambio contado según ocurre. 740 pruebas se ejecutan en un ordenador, los trabajos contra el simulador. **Todavía no se ha ejecutado nada en una máquina real a través de él**, no termina TLS y de los clientes además de los programas, EH3D-STUDIO existe (nunca probado con una máquina real) y la app de Android y el panel junto a la máquina todavía no existen. También es el servidor de toda aplicación de EH3D, con cuatro servicios comunes (un almacén de proyectos, catálogos compartidos, plugins de máquina con una cola de trabajos y un flujo de eventos, y un inicio de sesión único); solo se ejecutan en las pruebas y ninguna aplicación los usa todavía.
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|
 | Versión | `0.2.0` |
 | Madurez | Funcional |
-| Pruebas | 718 |
+| Pruebas | 740 |
 | Pila tecnológica | Rust (axum, tokio) |
 | En hardware real | No: probado contra el simulador; todavía no se ha ejecutado nada en una máquina real a través del servidor |
 
@@ -45,7 +45,7 @@ Cada línea es una parte de este repositorio y la luz dice hasta dónde llega ho
 | Área | Estado | Qué significa aquí |
 |---|---|---|
 | Software | 🟡 | Un servidor en Rust (axum) guarda usuarios, máquinas y trabajos, planifica trabajos de taladrado y fresado con las bibliotecas de EH3D-DRILLPRO y EH3D-ROUTEPRO, muestra una vista previa y ejecuta el trabajo con diálogos de operador y una parada. |
-| Pruebas | 🟡 | Pasan 718 pruebas (`cargo test`): 472 en los módulos y 246 de la interfaz de extremo a extremo, con trabajos en el simulador (41 en `tests/api.rs`, 7 con los programas reales en `tests/programs.rs`). |
+| Pruebas | 🟡 | Pasan 740 pruebas (`cargo test`): 480 en los módulos y 260 de la interfaz de extremo a extremo, con trabajos en el simulador (41 en `tests/api.rs`, 7 con los programas reales en `tests/programs.rs`). |
 | Interfaz para clientes (API) | 🟡 | Las peticiones REST y los eventos del websocket están escritos en `docs/API.md` (las rutas, además, en el contrato OpenAPI `docs/openapi.yaml`) y cubiertos por las pruebas; hasta ahora solo los usa la conexión al servidor de los propios programas. |
 | Servicios comunes | 🟠 | El almacén de proyectos, los catálogos compartidos, los plugins de máquina con su cola y sus eventos, y el inicio de sesión único funcionan en las pruebas en un ordenador; ninguna aplicación los usa todavía, nada ha corrido en una máquina real a través de la cola y los catálogos no se han cargado con los datos reales de sus programas. |
 | Clientes | 🔴 | EH3D-STUDIO lo usa (nunca probado con una máquina real); la app de Android y el panel táctil junto a la máquina todavía no existen. |
@@ -130,7 +130,7 @@ Cómo encajan las partes de este repositorio: quién lo usa, qué contiene y de 
 | REST | `/api/v1/`: `health`, `setup`, `login`, `logout`, `session`, `account`, `users`, `tokens`, `updates`, `machines` (con `preview` y `jobs`), `jobs` (con `start`, `confirm`, `cancel`); JSON de entrada y de salida, errores como `{"error","detail"}` | [docs/API.md](docs/API.md), `src/api.rs` |
 | Websocket | `GET /api/v1/events?ticket=...`: un `hello` con el resumen de los trabajos y luego `job` y `job_removed` en cada cambio | [docs/API.md](docs/API.md) |
 | Hacia la máquina | la `connection` de una máquina es `node` (un EH3D-NODE-BUNGARD en una dirección con su token) o `demo` (el simulador) | [docs/API.md](docs/API.md), `src/machines.rs` |
-| Línea de comandos | `eh3d-server [--config FICHERO]`; `--help` lo lista | `src/main.rs` |
+| Línea de comandos | `eh3d-server [--config FICHERO] [--check]`; `--help` lo lista; `--check` verifica los ajustes y la carpeta de datos sin arrancar (código de salida 2 si una comprobación falla) | `src/main.rs` |
 | Servicio | un binario, puerto 18200 por defecto, una unidad de systemd | [docs/DEPLOY.md](docs/DEPLOY.md), `deploy/eh3d-server.service` |
 | Servicios comunes | `/api/v1/apps/{app}/projects`, `catalogs`, `plugins`, `work`, `notifications`, `auth`; `GET /api/v1/events/stream` envía eventos del servidor | [docs/SERVICES.md](docs/SERVICES.md), [docs/openapi.yaml](docs/openapi.yaml) |
 

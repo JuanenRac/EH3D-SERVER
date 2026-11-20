@@ -30,7 +30,7 @@
 |---|---|
 | 版本 | `0.2.0` |
 | 成熟度 | 可用 |
-| 测试 | 718 |
+| 测试 | 740 |
 | 技术栈 | Rust (axum, tokio) |
 | 真实硬件 | 否：已针对模拟器测试；尚未通过服务器在真实机床上运行过任何东西 |
 
@@ -45,7 +45,7 @@
 | 领域 | 状态 | 在这里的含义 |
 |---|---|---|
 | 软件 | 🟡 | Rust 服务器（axum）保存用户、机床和作业，使用 EH3D-DRILLPRO 和 EH3D-ROUTEPRO 的库规划钻孔和铣削作业，显示预览，并带有操作员对话框和停止功能地运行作业。 |
-| 测试 | 🟡 | 718 个测试通过（`cargo test`）：模块内 472 个，接口端到端 246 个，作业在模拟器上运行（`tests/api.rs` 41 个，使用真实程序的 `tests/programs.rs` 7 个）。 |
+| 测试 | 🟡 | 740 个测试通过（`cargo test`）：模块内 480 个，接口端到端 260 个，作业在模拟器上运行（`tests/api.rs` 41 个，使用真实程序的 `tests/programs.rs` 7 个）。 |
 | 面向客户端的接口（API） | 🟡 | REST 请求和 websocket 事件已写在 `docs/API.md` 和路由的 OpenAPI 契约 `docs/openapi.yaml` 中并被测试覆盖；目前只有程序自带的服务器连接在使用。 |
 | 公共服务 | 🟠 | 项目存储、共享目录、带队列和事件的机床插件以及统一登录，都在计算机上的测试中运行；目前没有任何应用使用它们，没有任何东西通过队列在真实机床上运行过，目录也没有载入各程序的真实数据。 |
 | 客户端 | 🔴 | EH3D-STUDIO 在使用它（从未对真实机床试过）；Android 应用和机床旁的触摸面板尚不存在。 |
@@ -130,7 +130,7 @@ EH3D-SERVER 是 EH3D 家族的中心：程序把作业发给它，它通过节�
 | REST | `/api/v1/`：`health`、`setup`、`login`、`logout`、`session`、`account`、`users`、`tokens`、`machines`（含 `preview` 和 `jobs`）、`jobs`（含 `start`、`confirm`、`cancel`）；输入输出均为 JSON，错误形如 `{"error","detail"}` | [docs/API.md](docs/API.md)、`src/api.rs` |
 | Websocket | `GET /api/v1/events?ticket=...`：先发含作业摘要的 `hello`，之后每个变化发送 `job` 和 `job_removed` | [docs/API.md](docs/API.md) |
 | 通往机床 | 机床的 `connection` 为 `node`（位于某地址、带令牌的 EH3D-NODE-BUNGARD）或 `demo`（模拟器） | [docs/API.md](docs/API.md)、`src/machines.rs` |
-| 命令行 | `eh3d-server [--config FILE]`；`--help` 会列出 | `src/main.rs` |
+| 命令行 | `eh3d-server [--config FILE] [--check]`；`--help` 会列出；`--check` 不启动服务器即可校验设置和数据文件夹（校验未通过时退出码为 2） | `src/main.rs` |
 | 服务 | 一个可执行文件，默认端口 18200，一个 systemd 单元 | [docs/DEPLOY.md](docs/DEPLOY.md)、`deploy/eh3d-server.service` |
 | 公共服务 | `/api/v1/apps/{app}/projects`、`catalogs`、`plugins`、`work`、`notifications`、`auth`；`GET /api/v1/events/stream` 发送服务器发送事件 | [docs/SERVICES.md](docs/SERVICES.md)、[docs/openapi.yaml](docs/openapi.yaml) |
 

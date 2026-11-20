@@ -30,7 +30,7 @@
 |---|---|
 | バージョン | `0.2.0` |
 | 成熟度 | 機能する |
-| テスト | 718 |
+| テスト | 740 |
 | 技術スタック | Rust (axum, tokio) |
 | 実機での動作 | いいえ：シミュレーターでテスト済み。サーバー経由で実機を動かしたことはまだありません |
 
@@ -45,7 +45,7 @@
 | 領域 | 状態 | ここでの意味 |
 |---|---|---|
 | ソフトウェア | 🟡 | Rust サーバー（axum）がユーザー、機械、ジョブを保持し、EH3D-DRILLPRO と EH3D-ROUTEPRO のライブラリでドリル／ルーティングのジョブを計画し、プレビューを表示して、オペレーターのダイアログと停止付きで実行します。 |
-| テスト | 🟡 | 718 件のテストが通ります（`cargo test`）：モジュール内 472 件、シミュレーターでジョブを動かすインターフェースのエンドツーエンド 246 件（`tests/api.rs` に 41 件、実プログラムを使う `tests/programs.rs` に 7 件）。 |
+| テスト | 🟡 | 740 件のテストが通ります（`cargo test`）：モジュール内 480 件、シミュレーターでジョブを動かすインターフェースのエンドツーエンド 260 件（`tests/api.rs` に 41 件、実プログラムを使う `tests/programs.rs` に 7 件）。 |
 | クライアント向けインターフェース（API） | 🟡 | REST リクエストと WebSocket イベントは `docs/API.md` とルートの OpenAPI 契約 `docs/openapi.yaml` に記載され、テストで網羅されています。現時点で使っているのはプログラム自身のサーバー接続だけです。 |
 | 共通サービス | 🟠 | プロジェクトストア、共有カタログ、キューとイベントを持つマシンプラグイン、共通ログインは、コンピューター上のテストで動きます。まだどのアプリケーションも使っておらず、キュー経由で実機が動いたことはなく、カタログには各プログラムの実データを読み込んでいません。 |
 | クライアント | 🔴 | EH3D-STUDIO はこれを使います（実機では未試験）。Android アプリと機械の横のタッチ パネルはまだ存在しません。 |
@@ -130,7 +130,7 @@ EH3D-SERVER は EH3D ファミリーの中心です。プログラムはジョ�
 | REST | `/api/v1/`：`health`、`setup`、`login`、`logout`、`session`、`account`、`users`、`tokens`、`machines`（`preview` と `jobs` 付き）、`jobs`（`start`、`confirm`、`cancel` 付き）。入出力は JSON、エラーは `{"error","detail"}` | [docs/API.md](docs/API.md)、`src/api.rs` |
 | WebSocket | `GET /api/v1/events?ticket=...`：ジョブの概要を持つ `hello`、その後の変更ごとの `job` と `job_removed` | [docs/API.md](docs/API.md) |
 | 機械へ | 機械の `connection` は `node`（アドレスとトークンを持つ EH3D-NODE-BUNGARD）または `demo`（シミュレーター） | [docs/API.md](docs/API.md)、`src/machines.rs` |
-| コマンドライン | `eh3d-server [--config FILE]`。`--help` で一覧表示 | `src/main.rs` |
+| コマンドライン | `eh3d-server [--config FILE] [--check]`。`--help` で一覧表示。`--check` は起動せずに設定とデータフォルダーを検証（検証に失敗すると終了コード 2） | `src/main.rs` |
 | サービス | 1 つのバイナリ、既定ポート 18200、systemd ユニット | [docs/DEPLOY.md](docs/DEPLOY.md)、`deploy/eh3d-server.service` |
 | 共通サービス | `/api/v1/apps/{app}/projects`、`catalogs`、`plugins`、`work`、`notifications`、`auth`。`GET /api/v1/events/stream` はサーバー送信イベントを送ります | [docs/SERVICES.md](docs/SERVICES.md)、[docs/openapi.yaml](docs/openapi.yaml) |
 
