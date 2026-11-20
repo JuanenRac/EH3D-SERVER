@@ -30,7 +30,7 @@
 |---|---|
 | 版本 | `0.1.9` |
 | 成熟度 | 可用 |
-| 测试 | 598 |
+| 测试 | 663 |
 | 技术栈 | Rust (axum, tokio) |
 | 真实硬件 | 否：已针对模拟器测试；尚未通过服务器在真实机床上运行过任何东西 |
 
@@ -45,7 +45,7 @@
 | 领域 | 状态 | 在这里的含义 |
 |---|---|---|
 | 软件 | 🟡 | Rust 服务器（axum）保存用户、机床和作业，使用 EH3D-DRILLPRO 和 EH3D-ROUTEPRO 的库规划钻孔和铣削作业，显示预览，并带有操作员对话框和停止功能地运行作业。 |
-| 测试 | 🟡 | 598 个测试通过（`cargo test`）：模块内 384 个，接口端到端 214 个，作业在模拟器上运行（`tests/api.rs` 41 个，使用真实程序的 `tests/programs.rs` 7 个）。 |
+| 测试 | 🟡 | 663 个测试通过（`cargo test`）：模块内 427 个，接口端到端 236 个，作业在模拟器上运行（`tests/api.rs` 41 个，使用真实程序的 `tests/programs.rs` 7 个）。 |
 | 面向客户端的接口（API） | 🟡 | REST 请求和 websocket 事件已写在 `docs/API.md` 和路由的 OpenAPI 契约 `docs/openapi.yaml` 中并被测试覆盖；目前只有程序自带的服务器连接在使用。 |
 | 公共服务 | 🟠 | 项目存储、共享目录、带队列和事件的机床插件以及统一登录，都在计算机上的测试中运行；目前没有任何应用使用它们，没有任何东西通过队列在真实机床上运行过，目录也没有载入各程序的真实数据。 |
 | 客户端 | 🔴 | EH3D-STUDIO 在使用它（从未对真实机床试过）；Android 应用和机床旁的触摸面板尚不存在。 |
@@ -97,7 +97,7 @@ EH3D-SERVER 是 EH3D 家族的中心：程序把作业发给它，它通过节�
 * **通过钻头摄像头进行质量检查：** 服务器打开 LED 环形灯，从节点取一张图像，用工坊的分析器判断（每台机床的配置由服务器保存），让环形灯显示结果（绿色或红色闪烁），并保存最近一次检查，供机床旁的屏幕和手机显示：`GET/POST .../head/light`、`GET .../head/snapshot`、`POST/GET .../head/inspect`、`GET/PUT .../head/inspect/profile` 和 `POST .../head/inspect/calibrate`。
 * **机床的主轴：** `GET` 和 `PUT /api/v1/machines/:id/spindle` 说明机床装的是哪个主轴（`original` 或 `vfd`）及其限值（转速、切削进给、下刀进给、最粗的钻头）；要求超出的作业会被 `spindle_limit` 拒绝（安全开关 `guard` 默认为 `reject`；设为 `warn` 时作业通过，转速被削减到主轴最大值，每项超出列在 `spindle_warnings` 中）。
 * **带版本的项目存储：** 文件从不被覆盖，每次写入都是带 SHA-256 的新版本；对已有文件的写入必须说明它基于哪个版本（`If-Match`）；每次读取都用哈希校验字节；可能跳出文件夹或属于 Windows 的名称会被拒绝。
-* **插件背后的机床：** Bungard 机床就是 `bungard` 插件（同样的机床、同样的作业、同样的旧路由），无硬件的 `demo` 插件供测试使用，模拟器 `laser`（功率和进给上限、会锁定的急停）、`pnp`（供料器和贴装作业）和 `pcb`（检查和报告）供激光、贴片和电路板程序使用；`cnc`（受行程限制的程序、有限制的点动、需管理员解除的急停锁定）、`gerber` 和 `cam`（Gerber 检查，用于钻孔、轮廓和隔离的 G 代码）以及 `printer3d`（按型号的温度上限、受监视的加热器、Moonraker 与 OctoPrint 驱动）同样供 CNC、电路板工具和 3D 打印程序使用；通用队列保存每个作业的历史，事件流（`GET /api/v1/events/stream`）让客户端凭 `Last-Event-ID` 重新连接而不丢失任何内容。这些插件全部**仅限模拟器**：其能力中写有 `evidence: simulator`，每台机器的详情中写有 `simulator_only`，尚未通过服务器在真实的激光机、雕刻机、贴片机、电路板工作站或打印机上运行过。服务器可以在本地网络中发布自己（`_eh3d._tcp`，默认关闭），通过 `GET /api/v1/openapi.json` 提供自己的接口契约，并在默认关闭的开关和每台机器一把密钥之后，为 Moonraker 和 OctoPrint 客户端提供只读路由。
+* **插件背后的机床：** Bungard 机床就是 `bungard` 插件（同样的机床、同样的作业、同样的旧路由），无硬件的 `demo` 插件供测试使用，模拟器 `laser`（功率和进给上限、会锁定的急停）、`pnp`（供料器和贴装作业）和 `pcb`（检查和报告）供激光、贴片和电路板程序使用；`cnc`（受行程限制的程序、有限制的点动、需管理员解除的急停锁定）、`gerber` 和 `cam`（Gerber 检查，用于钻孔、轮廓和隔离的 G 代码）以及 `printer3d`（按型号的温度上限、受监视的加热器、Moonraker 与 OctoPrint 驱动）同样供 CNC、电路板工具和 3D 打印程序使用；通用队列保存每个作业的历史，事件流（`GET /api/v1/events/stream`）让客户端凭 `Last-Event-ID` 重新连接而不丢失任何内容。这些插件全部**仅限模拟器**：其能力中写有 `evidence: simulator`，每台机器的详情中写有 `simulator_only`，尚未通过服务器在真实的激光机、雕刻机、贴片机、电路板工作站或打印机上运行过。服务器可以在本地网络中发布自己（`_eh3d._tcp`，默认关闭），通过 `GET /api/v1/openapi.json` 提供自己的接口契约，并在默认关闭的开关和每台机器一把密钥之后，为 Moonraker 和 OctoPrint 客户端提供只读路由。 同样是模拟的：`vision`（相机程序的结果，保存为 `vision-<kind>.json` 制品）和 `cad`（PHOENIX-CAD 项目文件的检查与报告）、模拟串口线路上的 Marlin 打印机，以及作为实验的局域网模式 Bambu Lab 打印机（绝不接受不是已固定的证书）；农场路由把一次打印分给空闲的打印机，并让每份副本等待人工启动；在另外两个默认关闭的开关之后，兼容路由也可以写入（上传到队列、暂停、取消），服务器还可以在打印机配置文件的限制内把网格切片为 G-code。
 * **每个应用共用的登录：** 登录会说明它属于哪个应用，每个人可以查看并关闭自己已打开的会话，管理员可以处理任何人的会话；密码与锁定遵循设置，审计记录登录、拒绝和关闭，绝不记录秘密；`GET /api/v1/auth/policy` 向 Studio 展示安全开关。
 
 ## 🔒 安全与防护
@@ -195,40 +195,41 @@ python -I tools/ci_validate.py
 ```text
 EH3D-SERVER/
 ├── src/
-│   ├── api.rs                                                              REST 路由和 websocket
-│   ├── auth.rs                                                             用户、角色、令牌和对错误密码的减速
-│   ├── plan.rs                                                             从请求到机床执行的项目
-│   ├── jobs.rs state.rs                                                    作业以及服务器运行时的组成
-│   ├── audit.rs errors.rs panic.rs                                         审计、作业记录、错误代码、panic 退出
-│   ├── machines.rs store.rs                                                机床以及通过临时文件写入的文件
-│   ├── config.rs lib.rs main.rs                                            设置文件、库根和程序
-│   ├── updates.rs  head.rs                                                 服务的更新
-│   ├── inspect.rs                                                          通过钻头摄像头进行质量检查
-│   ├── gcode.rs gcode_run.rs                                               自由 G 代码：清理、解析，以及在模拟器或 GRBL 上运行
-│   ├── spindle.rs                                                          机床的主轴、其限值和安全开关
-│   ├── pstore.rs api_pstore.rs                                             项目存储：版本、锁、容器
-│   ├── catalogs.rs api_catalogs.rs                                         共享目录：材料、刀具、库
-│   ├── plugins.rs work.rs feed.rs api_work.rs                              机床插件、作业队列、事件、通知
-│   ├── laser.rs pnp.rs pcb.rs plugin_*.rs                                  模拟的激光、贴片和电路板机床
-│   ├── cnc.rs gerber.rs cam.rs                                             模拟的 CNC 机床以及 Gerber 和 CAM 工作进程
-│   ├── mdns.rs compat.rs                                                   mDNS 发布与兼容密钥
-│   ├── printer3d.rs printer_drivers.rs simjobs.rs simclock.rs secrets.rs   3D 打印机、其驱动以及各模拟共用的部分
-│   └── apps.rs api_auth.rs                                                 各个应用以及它们共用的统一登录
-├── tests/                                                                  模拟器上的接口端到端测试，以及真实程序对真实服务器
-├── docs/                                                                   API、其 OpenAPI 契约、运行服务器的指南和两张图的数据
-├── deploy/                                                                 systemd 单元和服务的辅助程序
-├── server.cfg.example                                                      为每个键附有说明的设置文件
-├── tools/                                                                  CI 与 README 检查、OpenAPI、脚本面板和绘图工具
-├── images/                                                                 横幅图以及架构和仓库结构图片
-├── .github/                                                                CI 与发布工作流、Issue 和 PR 模板
-├── build.sh build.bat                                                      在实时面板中编译发布二进制
-├── run.sh run.bat                                                          启动服务器（需要时先编译）
-├── eh3d.project.json                                                       清单：版本、角色、成熟度和构建命令
-├── Cargo.toml Cargo.lock                                                   Rust 包、其依赖及两个程序的库
-├── rust-toolchain.toml                                                     固定的 Rust 工具链
-├── CHANGELOG.md                                                            每个版本的变更
-├── SECURITY.md SUPPORT.md                                                  如何报告漏洞及在哪里提问
-└── CONTRIBUTING.md CODE_OF_CONDUCT.md LICENSE                              参与贡献、行为准则和许可证
+│   ├── api.rs                                                                  REST 路由和 websocket
+│   ├── auth.rs                                                                 用户、角色、令牌和对错误密码的减速
+│   ├── plan.rs                                                                 从请求到机床执行的项目
+│   ├── jobs.rs state.rs                                                        作业以及服务器运行时的组成
+│   ├── audit.rs errors.rs panic.rs                                             审计、作业记录、错误代码、panic 退出
+│   ├── machines.rs store.rs                                                    机床以及通过临时文件写入的文件
+│   ├── config.rs lib.rs main.rs                                                设置文件、库根和程序
+│   ├── updates.rs  head.rs                                                     服务的更新
+│   ├── inspect.rs                                                              通过钻头摄像头进行质量检查
+│   ├── gcode.rs gcode_run.rs                                                   自由 G 代码：清理、解析，以及在模拟器或 GRBL 上运行
+│   ├── spindle.rs                                                              机床的主轴、其限值和安全开关
+│   ├── pstore.rs api_pstore.rs                                                 项目存储：版本、锁、容器
+│   ├── catalogs.rs api_catalogs.rs                                             共享目录：材料、刀具、库
+│   ├── plugins.rs work.rs feed.rs api_work.rs                                  机床插件、作业队列、事件、通知
+│   ├── laser.rs pnp.rs pcb.rs plugin_*.rs                                      模拟的激光、贴片和电路板机床
+│   ├── cnc.rs gerber.rs cam.rs                                                 模拟的 CNC 机床以及 Gerber 和 CAM 工作进程
+│   ├── mdns.rs compat.rs                                                       mDNS 发布与兼容密钥
+│   ├── printer3d.rs printer_drivers.rs simjobs.rs simclock.rs secrets.rs       3D 打印机、其驱动以及各模拟共用的部分
+│   ├── marlin.rs bambu.rs printer_lan.rs slicer.rs api_slice.rs multipart.rs   Marlin 与 Bambu Lab 打印机（模拟）和小型切片器
+│   └── apps.rs api_auth.rs                                                     各个应用以及它们共用的统一登录
+├── tests/                                                                      模拟器上的接口端到端测试，以及真实程序对真实服务器
+├── docs/                                                                       API、其 OpenAPI 契约、运行服务器的指南和两张图的数据
+├── deploy/                                                                     systemd 单元和服务的辅助程序
+├── server.cfg.example                                                          为每个键附有说明的设置文件
+├── tools/                                                                      CI 与 README 检查、OpenAPI、脚本面板和绘图工具
+├── images/                                                                     横幅图以及架构和仓库结构图片
+├── .github/                                                                    CI 与发布工作流、Issue 和 PR 模板
+├── build.sh build.bat                                                          在实时面板中编译发布二进制
+├── run.sh run.bat                                                              启动服务器（需要时先编译）
+├── eh3d.project.json                                                           清单：版本、角色、成熟度和构建命令
+├── Cargo.toml Cargo.lock                                                       Rust 包、其依赖及两个程序的库
+├── rust-toolchain.toml                                                         固定的 Rust 工具链
+├── CHANGELOG.md                                                                每个版本的变更
+├── SECURITY.md SUPPORT.md                                                      如何报告漏洞及在哪里提问
+└── CONTRIBUTING.md CODE_OF_CONDUCT.md LICENSE                                  参与贡献、行为准则和许可证
 ```
 
 </details>

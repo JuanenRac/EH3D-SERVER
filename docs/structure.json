@@ -273,6 +273,20 @@
         },
         {
           "desc": {
+            "en": "the Marlin and Bambu Lab printers (simulated) and the small slicer",
+            "es": "las impresoras Marlin y Bambu Lab (simuladas) y el laminador pequeño",
+            "de": "die Marlin- und Bambu-Lab-Drucker (simuliert) und der kleine Slicer",
+            "fr": "les imprimantes Marlin et Bambu Lab (simulées) et le petit trancheur",
+            "it": "le stampanti Marlin e Bambu Lab (simulate) e il piccolo slicer",
+            "ja": "MarlinとBambu Labのプリンター（模擬）と小さなスライサー",
+            "zh": "Marlin 与 Bambu Lab 打印机（模拟）和小型切片器",
+            "pt": "as impressoras Marlin e Bambu Lab (simuladas) e o pequeno laminador"
+          },
+          "name": "printer_lan.rs  slicer.rs",
+          "tree_name": "marlin.rs bambu.rs printer_lan.rs slicer.rs api_slice.rs multipart.rs"
+        },
+        {
+          "desc": {
             "en": "the applications and the single login for all of them",
             "es": "las aplicaciones y el login único para todas",
             "de": "die Anwendungen und die einmalige Anmeldung für alle",
