@@ -240,6 +240,11 @@
     "status": 409
   },
   {
+    "code": "compat_off",
+    "description": "The routes of Moonraker and OctoPrint at the root of the address are off: the switch compat_api of the security page is not on.",
+    "status": 404
+  },
+  {
     "code": "design_run_unavailable",
     "description": "The server is not set up to run the design program: design_run is off or design_program is not set.",
     "status": 501

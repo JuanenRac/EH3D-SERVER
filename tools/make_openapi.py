@@ -627,6 +627,9 @@ SCHEMAS.update({
     "NotificationList": obj({"notifications": arr(ref("Notification"))}, ["notifications"]),
     "ReadNotifications": obj({"ids": arr(I), "all": B}, description="The ones named, or all of those the caller sees."),
     "Marked": obj({"marked": I}, ["marked"]),
+    "CompatKeyState": obj({"machine": s(), "set": B}, ["machine", "set"]),
+    "CompatKey": obj({"machine": s(), "key": s("Shown this once."), "header": s("The header the key is sent in: `X-Api-Key`.")}, ["machine", "key", "header"]),
+    "CompatKeyRevoked": obj({"machine": s(), "revoked": B}, ["machine", "revoked"]),
     "MachineOperation": {"type": "object", "additionalProperties": True, "description": "What the operation of the plugin answers; each route says what it has."},
     "JogRequest": obj({"axis": s("`x`, `y` or `z`."), "distance_mm": N, "feed": N}, ["axis", "distance_mm"], description="The distance is signed and at most `jog_max_mm`; the feed at most `jog_max_feed` (mm/min)."),
     "TestFireRequest": obj({"power_pct": N, "seconds": N}, ["power_pct"], description="At most `test_fire_max_pct` of the full power and `test_fire_max_s` seconds."),
@@ -729,8 +732,15 @@ op("PUT", "/work/machines/{id}/temperatures", "work", "operator", "Set the targe
    desc="Refused above the limit of the heater (the profile of the model, or the limit set for the machine).", example={"heater": "bed", "target_c": 60})
 op("GET", "/work/machines/{id}/layer", "work", "viewer", "The layer a 3D printer is at", scope="machines:view", errors=MACHINE_ERR + ["not_supported", "printer_disconnected"], **MOP,
    desc="The layer, the layers of the program when the printer says them, the height and an estimate of the time left.")
+op("GET", "/work/machines/{id}/compat/key", "work", "admin", "Whether a 3D printer has a key for the compatibility routes", scope="machines:manage", ok=(200, "CompatKeyState", "application/json"),
+   errors=MACHINE_ERR + ["not_supported"], desc="Only for a machine of the `printer3d` plugin. The key itself is never shown again.")
+op("POST", "/work/machines/{id}/compat/key", "work", "admin", "Make the key of a 3D printer for the compatibility routes", scope="machines:manage", ok=(200, "CompatKey", "application/json"),
+   errors=MACHINE_ERR + ["not_supported", "storage"],
+   desc="Only for a machine of the `printer3d` plugin. The key is shown this once, in the answer; the server keeps only its SHA-256. A key the machine had stops working. Programs written for Moonraker or OctoPrint send it in the header `X-Api-Key` to the routes at the root of the address (`docs/MACHINE_PLUGINS.md`, \"Compatibility routes\"), which answer only while the switch `compat_api` of the security page is on.")
+op("DELETE", "/work/machines/{id}/compat/key", "work", "admin", "Take the compatibility key of a 3D printer away", scope="machines:manage", ok=(200, "CompatKeyRevoked", "application/json"),
+   errors=MACHINE_ERR + ["not_supported", "storage"], desc="Only for a machine of the `printer3d` plugin. The key goes too when the machine is removed.")
 op("GET", "/work/machines/{id}/compat/moonraker", "work", "viewer", "The state of a 3D printer shaped as Moonraker answers it", scope="machines:view", errors=MACHINE_ERR + ["not_supported", "printer_disconnected"], **MOP,
-   desc="Only when the machine has `compat` set to `moonraker` or `both` (off by default). The shape of `GET /printer/objects/query`; the server does not answer at the root paths of Moonraker.")
+   desc="Only when the machine has `compat` set to `moonraker` or `both` (off by default). The shape of `GET /printer/objects/query`. The root paths of Moonraker answer too when the switch `compat_api` is on and the machine has a key (`docs/MACHINE_PLUGINS.md`).")
 op("GET", "/work/machines/{id}/compat/octoprint", "work", "viewer", "The state of a 3D printer shaped as OctoPrint answers it", scope="machines:view", errors=MACHINE_ERR + ["not_supported", "printer_disconnected"], **MOP,
    desc="Only when the machine has `compat` set to `octoprint` or `both` (off by default). The printer and the job of `GET /api/printer` and `GET /api/job`.")
 

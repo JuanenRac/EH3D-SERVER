@@ -95,6 +95,8 @@ pub struct AppState {
     pub job_log: crate::audit::LogFile,
     /// The switches of security that can change while the server runs (`PUT /api/v1/auth/policy`).
     pub policy: crate::policy::Policy,
+    /// The keys of the compatibility routes of Moonraker and OctoPrint, by machine.
+    pub compat_keys: crate::compat::CompatKeys,
 }
 
 #[derive(Debug, PartialEq)]
@@ -162,6 +164,7 @@ impl AppState {
             cfg.job_log,
             cfg.log_max_kb,
         );
+        let compat_keys = crate::compat::CompatKeys::open(&cfg.data_dir)?;
         let updates = cfg.updates_dir.clone().map(|d| {
             crate::updates::Updates::new(d, env!("CARGO_PKG_VERSION"), cfg.studio_dir.clone())
         });
@@ -189,6 +192,7 @@ impl AppState {
             audit,
             job_log,
             policy,
+            compat_keys,
         });
         // the tasks that were queued when the server stopped go on, and what waited long enough is cleaned
         state.tasks_pump();

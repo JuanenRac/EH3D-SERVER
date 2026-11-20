@@ -9840,13 +9840,226 @@ paths:
               example:
                 error: printer_disconnected
                 detail: ""
+  "/work/machines/{id}/compat/key":
+    get:
+      operationId: get_work_machines_id_compat_key
+      tags:
+        - work
+      summary: Whether a 3D printer has a key for the compatibility routes
+      description: "Only for a machine of the `printer3d` plugin. The key itself is never shown again. Role admin. Scope `machines:manage` if the token is limited by scopes."
+      x-role: admin
+      x-scope: "machines:manage"
+      x-error-codes:
+        - forbidden
+        - forbidden_scope
+        - not_supported
+        - unauthorized
+        - unknown_machine
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/CompatKeyState"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_machine`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_machine
+                detail: ""
+        "501":
+          description: "Refused with `not_supported`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: not_supported
+                detail: ""
+    post:
+      operationId: post_work_machines_id_compat_key
+      tags:
+        - work
+      summary: Make the key of a 3D printer for the compatibility routes
+      description: "Only for a machine of the `printer3d` plugin. The key is shown this once, in the answer; the server keeps only its SHA-256. A key the machine had stops working. Programs written for Moonraker or OctoPrint send it in the header `X-Api-Key` to the routes at the root of the address (`docs/MACHINE_PLUGINS.md`, \"Compatibility routes\"), which answer only while the switch `compat_api` of the security page is on. Role admin. Scope `machines:manage` if the token is limited by scopes."
+      x-role: admin
+      x-scope: "machines:manage"
+      x-error-codes:
+        - forbidden
+        - forbidden_scope
+        - not_supported
+        - storage
+        - unauthorized
+        - unknown_machine
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/CompatKey"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_machine`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_machine
+                detail: ""
+        "500":
+          description: "Refused with `storage`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: storage
+                detail: ""
+        "501":
+          description: "Refused with `not_supported`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: not_supported
+                detail: ""
+    delete:
+      operationId: delete_work_machines_id_compat_key
+      tags:
+        - work
+      summary: Take the compatibility key of a 3D printer away
+      description: "Only for a machine of the `printer3d` plugin. The key goes too when the machine is removed. Role admin. Scope `machines:manage` if the token is limited by scopes."
+      x-role: admin
+      x-scope: "machines:manage"
+      x-error-codes:
+        - forbidden
+        - forbidden_scope
+        - not_supported
+        - storage
+        - unauthorized
+        - unknown_machine
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/CompatKeyRevoked"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_machine`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_machine
+                detail: ""
+        "500":
+          description: "Refused with `storage`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: storage
+                detail: ""
+        "501":
+          description: "Refused with `not_supported`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: not_supported
+                detail: ""
   "/work/machines/{id}/compat/moonraker":
     get:
       operationId: get_work_machines_id_compat_moonraker
       tags:
         - work
       summary: The state of a 3D printer shaped as Moonraker answers it
-      description: "Only when the machine has `compat` set to `moonraker` or `both` (off by default). The shape of `GET /printer/objects/query`; the server does not answer at the root paths of Moonraker. Role viewer or higher. Scope `machines:view` if the token is limited by scopes."
+      description: "Only when the machine has `compat` set to `moonraker` or `both` (off by default). The shape of `GET /printer/objects/query`. The root paths of Moonraker answer too when the switch `compat_api` is on and the machine has a key (`docs/MACHINE_PLUGINS.md`). Role viewer or higher. Scope `machines:view` if the token is limited by scopes."
       x-role: viewer
       x-scope: "machines:view"
       x-error-codes:
@@ -12834,6 +13047,44 @@ components:
           type: integer
       required:
         - marked
+      additionalProperties: false
+    CompatKeyState:
+      type: object
+      properties:
+        machine:
+          type: string
+        set:
+          type: boolean
+      required:
+        - machine
+        - set
+      additionalProperties: false
+    CompatKey:
+      type: object
+      properties:
+        machine:
+          type: string
+        key:
+          type: string
+          description: Shown this once.
+        header:
+          type: string
+          description: "The header the key is sent in: `X-Api-Key`."
+      required:
+        - machine
+        - key
+        - header
+      additionalProperties: false
+    CompatKeyRevoked:
+      type: object
+      properties:
+        machine:
+          type: string
+        revoked:
+          type: boolean
+      required:
+        - machine
+        - revoked
       additionalProperties: false
     MachineOperation:
       type: object

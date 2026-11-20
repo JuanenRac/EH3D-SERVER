@@ -55,6 +55,7 @@ pub const ALL: &[(&str, u16, &str)] = &[
     ("blob_damaged", 500, "The bytes of an artifact are missing or are not what their hash says."),
     ("both_sources", 422, "The job brings the work as data and as files; it must be one of them."),
     ("catalog_readonly", 409, "The catalog is built in and is not written, not even by an administrator."),
+    ("compat_off", 404, "The routes of Moonraker and OctoPrint at the root of the address are off: the switch compat_api of the security page is not on."),
     ("design_run_unavailable", 501, "The server is not set up to run the design program: design_run is off or design_program is not set."),
     ("enclosure_open", 409, "The enclosure input of the laser machine says open and the machine requires it closed."),
     ("engine_missing", 422, "The kind of task is known but this build has no engine for it."),

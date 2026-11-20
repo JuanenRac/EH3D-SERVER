@@ -142,6 +142,9 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/work/machines/:id` | GET | viewer + `machines:view` | Read a machine of a plugin |
 | `/api/v1/work/machines/:id` | PUT | admin + `machines:manage` | Change a machine made through the plugins |
 | `/api/v1/work/machines/:id` | DELETE | admin + `machines:manage` | Remove a machine made through the plugins |
+| `/api/v1/work/machines/:id/compat/key` | GET | admin + `machines:manage` | Whether a 3D printer has a key for the compatibility routes |
+| `/api/v1/work/machines/:id/compat/key` | POST | admin + `machines:manage` | Make the key of a 3D printer for the compatibility routes |
+| `/api/v1/work/machines/:id/compat/key` | DELETE | admin + `machines:manage` | Take the compatibility key of a 3D printer away |
 | `/api/v1/work/machines/:id/compat/moonraker` | GET | viewer + `machines:view` | The state of a 3D printer shaped as Moonraker answers it |
 | `/api/v1/work/machines/:id/compat/octoprint` | GET | viewer + `machines:view` | The state of a 3D printer shaped as OctoPrint answers it |
 | `/api/v1/work/machines/:id/emergency-stop` | POST | operator + `jobs:cancel` | Stop a CNC machine or a 3D printer at once and latch it |

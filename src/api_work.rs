@@ -73,6 +73,12 @@ pub fn routes() -> Router<Shared> {
             "/api/v1/work/machines/:id/compat/octoprint",
             get(op_compat_octoprint),
         )
+        .route(
+            "/api/v1/work/machines/:id/compat/key",
+            get(compat_key_state)
+                .post(compat_key_issue)
+                .delete(compat_key_revoke),
+        )
         .route("/api/v1/work/jobs", get(list_jobs).post(create_job))
         .route("/api/v1/work/jobs/:id", get(get_job).delete(remove_job))
         .route("/api/v1/work/jobs/:id/layers", get(job_layers))
@@ -294,6 +300,8 @@ async fn remove_machine(
         return Err(WError::MachineBusy.into());
     }
     s.work.machines.locked().remove(&id)?;
+    // the key of the compatibility routes goes with the machine
+    let _ = s.compat_keys.revoke(&id);
     crate::api::note(&s, "work_machine_remove", &who, &[("machine", &id)]);
     s.announce_machine("machine.removed", &id, &name);
     Ok(Json(json!({ "ok": true })))
@@ -394,6 +402,74 @@ machine_op!(op_set_temperature, "PUT", "temperatures");
 machine_op!(op_layer, "GET", "layer");
 machine_op!(op_compat_moonraker, "GET", "compat/moonraker");
 machine_op!(op_compat_octoprint, "GET", "compat/octoprint");
+
+/// The machine of the plugin `printer3d` whose compatibility key a route reads or changes.
+fn printer_for_key(s: &Shared, id: &str) -> Result<(), ApiError> {
+    let plugin = s
+        .work
+        .machines
+        .locked()
+        .get(id)
+        .map(|m| m.plugin.clone())
+        .ok_or(WError::UnknownMachine)?;
+    if plugin != "printer3d" {
+        return Err(PluginError::NotSupported(
+            "only a machine of the plugin printer3d has a key for the compatibility routes",
+        )
+        .into());
+    }
+    Ok(())
+}
+
+/// Whether the machine has a key for the routes of Moonraker and OctoPrint at the root of the address (the key itself is never shown again).
+async fn compat_key_state(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+) -> ApiResult {
+    crate::api::need(&who, Role::Admin)?;
+    crate::api::need_scope(&who, "machines:manage")?;
+    printer_for_key(&s, &id)?;
+    Ok(Json(
+        json!({ "machine": id, "set": s.compat_keys.has(&id) }),
+    ))
+}
+
+/// Makes a key for the machine and shows it this once; a key it had stops working.
+async fn compat_key_issue(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+) -> ApiResult {
+    crate::api::need(&who, Role::Admin)?;
+    crate::api::need_scope(&who, "machines:manage")?;
+    printer_for_key(&s, &id)?;
+    let key = s
+        .compat_keys
+        .issue(&id)
+        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "storage", ""))?;
+    crate::api::note(&s, "compat_key_issue", &who, &[("machine", &id)]);
+    Ok(Json(
+        json!({ "machine": id, "key": key, "header": "X-Api-Key" }),
+    ))
+}
+
+/// Takes the key of the machine away.
+async fn compat_key_revoke(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+) -> ApiResult {
+    crate::api::need(&who, Role::Admin)?;
+    crate::api::need_scope(&who, "machines:manage")?;
+    printer_for_key(&s, &id)?;
+    let revoked = s
+        .compat_keys
+        .revoke(&id)
+        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "storage", ""))?;
+    crate::api::note(&s, "compat_key_revoke", &who, &[("machine", &id)]);
+    Ok(Json(json!({ "machine": id, "revoked": revoked })))
+}
 
 // ---- the queue --------------------------------------------------------------------------------------------------------------------------
 
