@@ -37,6 +37,8 @@ pub struct Hot {
     pub slice_enabled: bool,
     /// Whether the server reaches a real Bambu Lab printer over the LAN (MQTT over TLS with a pinned certificate); off, only the simulated printer is served.
     pub bambu_lan_enabled: bool,
+    /// Whether the logins are kept on the disk (only the hash of each token, the user, the role, the application and the expiry) so that they outlive a restart.
+    pub persist_sessions: bool,
     pub login_ip_limit: u32,
     pub auth_max_failures: u32,
     pub auth_lockout_s: u64,
@@ -59,6 +61,7 @@ pub const KEYS: &[&str] = &[
     "compat_write",
     "slice_enabled",
     "bambu_lan_enabled",
+    "persist_sessions",
     "login_ip_limit",
     "auth_max_failures",
     "auth_lockout_s",
@@ -114,6 +117,7 @@ impl Hot {
             compat_write: c.compat_write,
             slice_enabled: c.slice_enabled,
             bambu_lan_enabled: c.bambu_lan_enabled,
+            persist_sessions: c.persist_sessions,
             login_ip_limit: c.login_ip_limit,
             auth_max_failures: c.auth_max_failures,
             auth_lockout_s: c.auth_lockout_s,
@@ -138,6 +142,7 @@ impl Hot {
             "compat_write" => json!(self.compat_write),
             "slice_enabled" => json!(self.slice_enabled),
             "bambu_lan_enabled" => json!(self.bambu_lan_enabled),
+            "persist_sessions" => json!(self.persist_sessions),
             "login_ip_limit" => json!(self.login_ip_limit),
             "auth_max_failures" => json!(self.auth_max_failures),
             "auth_lockout_s" => json!(self.auth_lockout_s),
@@ -163,6 +168,7 @@ impl Hot {
             "compat_write" => !self.compat_write,
             "slice_enabled" => !self.slice_enabled,
             "bambu_lan_enabled" => !self.bambu_lan_enabled,
+            "persist_sessions" => !self.persist_sessions,
             "login_ip_limit" => self.login_ip_limit > 0,
             "auth_max_failures" => self.auth_max_failures <= 10,
             "auth_lockout_s" => self.auth_lockout_s >= 10,
@@ -188,6 +194,7 @@ impl Hot {
             "compat_write" => self.compat_write = flag(value, key)?,
             "slice_enabled" => self.slice_enabled = flag(value, key)?,
             "bambu_lan_enabled" => self.bambu_lan_enabled = flag(value, key)?,
+            "persist_sessions" => self.persist_sessions = flag(value, key)?,
             "login_ip_limit" => self.login_ip_limit = whole(value, key, 0, 1_000)? as u32,
             "auth_max_failures" => self.auth_max_failures = whole(value, key, 1, 100)? as u32,
             "auth_lockout_s" => self.auth_lockout_s = whole(value, key, 1, 86_400)?,
@@ -332,6 +339,7 @@ mod tests {
             "compat_write",
             "slice_enabled",
             "bambu_lan_enabled",
+            "persist_sessions",
         ] {
             assert!(
                 KEYS.contains(&key),

@@ -439,9 +439,22 @@ impl Auth {
         })
     }
 
-    /// Turns on (or off) the keeping of the logins on the disk. On, the logins of the file that are still good and belong to a user that still counts are taken up now;
-    /// off, the file is removed, so that no hash of a login stays behind.
+    /// Whether the logins are being kept on the disk.
+    pub fn persists_sessions(&self) -> bool {
+        self.persist_sessions
+    }
+
+    /// Turns on (or off) the keeping of the logins on the disk. On, the logins of the file that are still good and belong to a user that still counts are taken up now
+    /// and the logins that are open are written; off, the file is removed, so that no hash of a login stays behind.
     pub fn set_persist_sessions(&mut self, on: bool) {
+        self.set_persist_sessions_inner(on);
+        if on {
+            self.save_sessions(crate::jobs::now());
+        }
+    }
+
+    /// The taking up and the removal of `set_persist_sessions`, without the writing.
+    fn set_persist_sessions_inner(&mut self, on: bool) {
         self.persist_sessions = on;
         let path = self.dir.join("sessions.json");
         if !on {
@@ -1503,6 +1516,35 @@ mod tests {
         c.set_persist_sessions(true);
         assert!(c.identify(&token, now + 2).is_none());
         assert!(c.identify(&ana, now + 2).is_none());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_damaged_file_of_logins_is_a_clean_start_and_turning_the_keeping_on_writes_the_open_logins()
+    {
+        let (mut a, d) = set_up("auth-sessions-damaged");
+        let now = crate::jobs::now();
+        // off: logins are made and nothing is written
+        let (open, _, _) = a.login("juan", "una-clave-larga", now).unwrap();
+        assert!(!d.join("sessions.json").exists());
+        // on, while the server runs: the login that is open is written, as a hash
+        a.set_persist_sessions(true);
+        let on_disk = std::fs::read_to_string(d.join("sessions.json")).unwrap();
+        assert!(on_disk.contains(&sha(&open)) && !on_disk.contains(&open));
+        // a file that does not read costs the logins and nothing else
+        std::fs::write(d.join("sessions.json"), "{ this is not json").unwrap();
+        let mut b = Auth::open(&d, 12).unwrap();
+        b.set_persist_sessions(true);
+        assert!(b.identify(&open, now + 1).is_none());
+        let (fresh, _, _) = b.login("juan", "una-clave-larga", now + 2).unwrap();
+        let mut c = Auth::open(&d, 12).unwrap();
+        c.set_persist_sessions(true);
+        assert!(c.identify(&fresh, now + 3).is_some());
+        // off again: the file goes and a login made after it is not written
+        c.set_persist_sessions(false);
+        assert!(!d.join("sessions.json").exists());
+        c.login("juan", "una-clave-larga", now + 4).unwrap();
+        assert!(!d.join("sessions.json").exists());
         let _ = std::fs::remove_dir_all(&d);
     }
 

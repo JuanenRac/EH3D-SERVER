@@ -395,7 +395,7 @@ async fn health(State(s): State<Shared>, headers: axum::http::HeaderMap) -> Json
             "local_until_setup": s.cfg.local_until_setup_in_force(s.policy.get().network_open),
             "trust_forwarded_for": s.cfg.trust_forwarded_for,
             "exit_on_panic": s.cfg.exit_on_panic,
-            "persist_sessions": s.cfg.persist_sessions,
+            "persist_sessions": s.policy.get().persist_sessions,
         });
     }
     Json(answer)

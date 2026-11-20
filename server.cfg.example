@@ -22,7 +22,7 @@ updates_dir =
 # Whether an update may be installed with no signature when its hash is right. Off by default: the helper of the updates (deploy/eh3d-update.py) installs only what is signed by
 # one of the allowed signers of the machine (/etc/eh3d-update.signers). A switch of the security page of Studio; the server passes it to the helper with each update.
 update_allow_unsigned = false
-# Whether the logins survive the restart of an update of the server. Off by default: the restart logs everybody out (unless persist_sessions is on). On, the server keeps the SHA-256
+# Whether the logins survive the restart of an update of the server. Off by default: the restart logs everybody out (unless persist_sessions is on; persist_sessions is also a switch of the security page of Studio that takes effect at once). On, the server keeps the SHA-256
 # of each login (never the token) in the data folder when an update of the server is asked for, and takes them up again only if it starts within update_keep_logins_s seconds. A switch of the security page of Studio.
 update_keep_logins = false
 # How long, in seconds, the logins kept for an update stay good (30 to 900).

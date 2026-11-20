@@ -249,8 +249,8 @@ async fn policy(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
         ),
         switch(
             "persist_sessions",
-            json!(c.persist_sessions),
-            !c.persist_sessions,
+            json!(h.persist_sessions),
+            h.is_safe("persist_sessions"),
         ),
         switch("exit_on_panic", json!(c.exit_on_panic), c.exit_on_panic),
         switch(

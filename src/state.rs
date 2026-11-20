@@ -130,6 +130,10 @@ pub fn apply_policy(auth: &mut Auth, hot: &crate::policy::Hot) {
         classes: hot.password_classes,
         deny_name: hot.password_deny_name,
     });
+    // the keeping of the logins on the disk is a switch that takes effect at once: on, the logins that are open are written now; off, the file goes
+    if hot.persist_sessions != auth.persists_sessions() {
+        auth.set_persist_sessions(hot.persist_sessions);
+    }
 }
 
 impl AppState {
@@ -138,7 +142,7 @@ impl AppState {
         let mut auth = Auth::open(&cfg.data_dir, cfg.session_hours)?;
         let policy = crate::policy::Policy::open(&cfg, &cfg.data_dir)?;
         apply_policy(&mut auth, &policy.get());
-        auth.set_persist_sessions(cfg.persist_sessions);
+        auth.set_persist_sessions(policy.get().persist_sessions);
         let kept = auth.restore_after_restart(policy.get().update_keep_logins, crate::jobs::now());
         if kept > 0 {
             eprintln!("eh3d-server: {kept} login(s) kept across the update");
