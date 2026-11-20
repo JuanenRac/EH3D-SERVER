@@ -1,5 +1,6 @@
-//! Slicing on the server: `POST /api/v1/slice` takes a mesh (an STL, or a 3MF whose model is stored without compression) and the profile of a printer and gives G-code that stays
-//! inside the limits of that profile. It is **off** unless the switch `slice_enabled` of the security page is on (`404 slice_off`), and it is for trying the chain of the server
+//! Slicing on the server: `POST /api/v1/slice` takes a mesh (an STL, or a 3MF whose model is stored or deflated) and the profile of a printer and gives G-code that stays
+//! inside the limits of that profile, as text or, with `format: "bgcode"`, as a binary G-code file (`src/bgcode.rs`); `POST /api/v1/slice/bgcode` reads such a file back (its
+//! metadata, its pictures and, when asked, its G-code). It is **off** unless the switch `slice_enabled` of the security page is on (`404 slice_off`), and it is for trying the chain of the server
 //! (a model, a program, a print that a person starts) with the small slicer of `src/slicer.rs`, or with the `phoenix-3dp` program of the suite when the server was told where it
 //! is (`slice_phoenix_bin`): then the server runs that one file, with arguments of its own, in a folder of its own, with a time limit, no environment and no input, and reads
 //! only the one file it writes. Whatever slices, the program that comes out is read again against the limits of the printer before it is given back, so a program over a limit
@@ -20,6 +21,7 @@ use serde_json::{json, Map, Value};
 use crate::api::{ApiError, ApiJson, ApiResult, Authed, Shared};
 use crate::artifacts::{InputRef, NewArtifact, Producer};
 use crate::auth::{Identity, Role};
+use crate::bgcode::{self, BgError, Bgcode, Limits, WriteOptions};
 use crate::plugins::{work_machine_settings, PluginError};
 use crate::printer3d::{scan_program, PrinterConfig};
 use crate::simjobs::number_in;
@@ -50,7 +52,9 @@ const KNOWN_BEDS: &[(&str, [f64; 3])] = &[
 ];
 
 pub fn routes() -> Router<Shared> {
-    Router::new().route("/api/v1/slice", post(slice_mesh))
+    Router::new()
+        .route("/api/v1/slice", post(slice_mesh))
+        .route("/api/v1/slice/bgcode", post(read_bgcode))
 }
 
 #[derive(Deserialize)]
@@ -67,6 +71,9 @@ struct SliceRequest {
     output: Option<String>,
     #[serde(default)]
     artifact_name: Option<String>,
+    /// `gcode` (the default) or `bgcode`: what the program is given as.
+    #[serde(default)]
+    format: Option<String>,
 }
 
 fn bad(why: impl Into<String>) -> ApiError {
@@ -102,10 +109,15 @@ async fn slice_mesh(
     if output != "view" && output != "artifact" {
         return Err(bad("output is view or artifact"));
     }
+    let format = b.format.clone().unwrap_or_else(|| "gcode".into());
+    if format != "gcode" && format != "bgcode" {
+        return Err(bad("format is gcode or bgcode"));
+    }
     let (state, by) = (s.clone(), who.clone());
-    let done = tokio::task::spawn_blocking(move || do_slice(&state, &by, &b, &engine, &output))
-        .await
-        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))??;
+    let done =
+        tokio::task::spawn_blocking(move || do_slice(&state, &by, &b, &engine, &output, &format))
+            .await
+            .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))??;
     let layers = done.layers.to_string();
     crate::api::note(
         &s,
@@ -133,12 +145,22 @@ fn read_mesh(
     who: &Identity,
     mesh: &Value,
 ) -> Result<(Vec<u8>, Option<InputRef>), ApiError> {
+    read_input(s, who, mesh, "mesh")
+}
+
+/// The bytes of an input (`{"artifact": "<id>"}` or `{"base64": "<bytes>"}`) and the artifact they came from, if they came from one; `what` is how the messages call it.
+fn read_input(
+    s: &Shared,
+    who: &Identity,
+    mesh: &Value,
+    what: &str,
+) -> Result<(Vec<u8>, Option<InputRef>), ApiError> {
     let limit = s.cfg.slice_max_mb * 1024 * 1024;
     let too_big = || {
         ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "too_big",
-            format!("the mesh is bigger than {} MiB", s.cfg.slice_max_mb),
+            format!("the {what} is bigger than {} MiB", s.cfg.slice_max_mb),
         )
     };
     if let Some(id) = mesh.get("artifact").and_then(Value::as_str) {
@@ -151,7 +173,7 @@ fn read_mesh(
                 ApiError::new(
                     StatusCode::NOT_FOUND,
                     "unknown_artifact",
-                    "the mesh is not an artifact you can see",
+                    format!("the {what} is not an artifact you can see"),
                 )
             })?;
         if record.size > limit {
@@ -161,7 +183,7 @@ fn read_mesh(
             ApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "blob_damaged",
-                "the bytes of the mesh cannot be read",
+                format!("the bytes of the {what} cannot be read"),
             )
         })?;
         let input = InputRef {
@@ -176,15 +198,15 @@ fn read_mesh(
         }
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(text.as_bytes())
-            .map_err(|_| bad("the mesh is not base64"))?;
+            .map_err(|_| bad(format!("the {what} is not base64")))?;
         if bytes.len() as u64 > limit {
             return Err(too_big());
         }
         return Ok((bytes, None));
     }
-    Err(bad(
-        "mesh is {\"artifact\": \"<id>\"} or {\"base64\": \"<bytes>\"}",
-    ))
+    Err(bad(format!(
+        "{what} is {{\"artifact\": \"<id>\"}} or {{\"base64\": \"<bytes>\"}}"
+    )))
 }
 
 /// The profile of the slice and the settings of the printer it is for, with the bed filled in.
@@ -262,6 +284,7 @@ fn do_slice(
     b: &SliceRequest,
     engine: &str,
     output: &str,
+    format: &str,
 ) -> Result<Done, ApiError> {
     let (bytes, input) = read_mesh(s, who, &b.mesh)?;
     let (profile, cfg) = build_profile(s, &b.profile)?;
@@ -292,6 +315,7 @@ fn do_slice(
         scan_program(&sliced.gcode, &cfg).map_err(|f| ApiError::from(PluginError::from(f)))?;
     let mut body = json!({
         "engine": engine,
+        "format": format,
         "layers": sliced.layers,
         "estimate_s": sliced.estimate_s,
         "filament_mm": sliced.filament_mm,
@@ -303,13 +327,22 @@ fn do_slice(
         },
         "read": {"lines": scan.lines, "max_hotend_c": scan.max_hotend_c, "max_bed_c": scan.max_bed_c, "max_feed_mm_s": scan.max_feed_mm_s},
     });
+    // what is given: the text of the program, or a binary G-code file made from it
+    let (payload, name, mime): (Vec<u8>, &str, &str) = if format == "bgcode" {
+        let file = slice_file(&sliced, &cfg, &profile, engine);
+        let bytes = bgcode::write(&file, &WriteOptions::default()).map_err(bg_error)?;
+        (bytes, "slice.bgcode", "application/x-bgcode")
+    } else {
+        (
+            sliced.gcode.clone().into_bytes(),
+            "slice.gcode",
+            "text/x-gcode",
+        )
+    };
     if output == "artifact" {
         let meta = NewArtifact {
-            name: b
-                .artifact_name
-                .clone()
-                .unwrap_or_else(|| "slice.gcode".into()),
-            format: "text/x-gcode".into(),
+            name: b.artifact_name.clone().unwrap_or_else(|| name.into()),
+            format: mime.into(),
             producer: Some(Producer {
                 tool: format!("eh3d-server slice ({engine})"),
                 version: env!("CARGO_PKG_VERSION").into(),
@@ -318,23 +351,24 @@ fn do_slice(
             inputs: input.into_iter().collect(),
             ..Default::default()
         };
-        let record = s
-            .add_artifact(who, meta, sliced.gcode.as_bytes())
-            .map_err(|e| match e {
-                crate::artifacts::ArtifactError::Bad(why) => bad(why),
-                other => ApiError::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "storage",
-                    format!(
-                        "the program could not be kept as an artifact: {}",
-                        other.code()
-                    ),
+        let record = s.add_artifact(who, meta, &payload).map_err(|e| match e {
+            crate::artifacts::ArtifactError::Bad(why) => bad(why),
+            other => ApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "storage",
+                format!(
+                    "the program could not be kept as an artifact: {}",
+                    other.code()
                 ),
-            })?;
+            ),
+        })?;
         body["artifact"] = json!({
             "artifact_id": record.artifact_id, "blob_sha256": record.blob_sha256, "size": record.size,
             "name": record.name, "format": record.format,
         });
+    } else if format == "bgcode" {
+        body["bgcode_base64"] = json!(base64::engine::general_purpose::STANDARD.encode(&payload));
+        body["bgcode_bytes"] = json!(payload.len());
     } else {
         body["gcode"] = json!(sliced.gcode);
     }
@@ -343,6 +377,136 @@ fn do_slice(
         engine: engine.to_string(),
         layers: sliced.layers,
     })
+}
+
+/// The refusal of the module of binary G-code as an answer.
+fn bg_error(e: BgError) -> ApiError {
+    ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, e.code, e.detail)
+}
+
+/// A binary G-code file for a program that was sliced: who made it, the printer, what the print is and how it was cut.
+fn slice_file(
+    sliced: &Sliced,
+    cfg: &PrinterConfig,
+    profile: &SliceProfile,
+    engine: &str,
+) -> Bgcode {
+    let pair = |k: &str, v: String| (k.to_string(), v);
+    Bgcode {
+        crc32: true,
+        file_meta: vec![pair(
+            "Producer",
+            format!("eh3d-server {}", env!("CARGO_PKG_VERSION")),
+        )],
+        printer_meta: vec![pair("printer_model", cfg.model.clone())],
+        thumbnails: Vec::new(),
+        print_meta: vec![
+            pair("layers", sliced.layers.to_string()),
+            pair(
+                "estimated printing time (s)",
+                format!("{:.0}", sliced.estimate_s),
+            ),
+            pair("filament used [mm]", format!("{:.1}", sliced.filament_mm)),
+        ],
+        slicer_meta: vec![
+            pair("engine", engine.to_string()),
+            pair("layer_height", format!("{}", profile.layer_mm)),
+            pair("infill_pct", format!("{}", profile.infill_pct)),
+        ],
+        gcode: sliced.gcode.clone(),
+        compressions: Vec::new(),
+    }
+}
+
+#[derive(Deserialize)]
+struct ReadBgcodeRequest {
+    /// `{"artifact": "<id>"}` or `{"base64": "<bytes>"}`.
+    bgcode: Value,
+    /// Whether the answer carries the G-code (it can be big).
+    #[serde(default)]
+    include_gcode: bool,
+}
+
+fn meta_object(meta: &[(String, String)]) -> Value {
+    Value::Object(
+        meta.iter()
+            .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+            .collect(),
+    )
+}
+
+/// `POST /api/v1/slice/bgcode`: reads a binary G-code file and says what is in it. Off with the switch of slicing.
+async fn read_bgcode(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    ApiJson(b): ApiJson<ReadBgcodeRequest>,
+) -> ApiResult {
+    crate::api::need(&who, Role::Operator)?;
+    crate::api::need_scope(&who, "jobs:prepare")?;
+    if !s.policy.get().slice_enabled {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "slice_off",
+            "slicing on the server is off (the switch slice_enabled)",
+        ));
+    }
+    let state = s.clone();
+    let by = who.clone();
+    let body = tokio::task::spawn_blocking(move || describe_bgcode(&state, &by, &b))
+        .await
+        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))??;
+    crate::api::note(&s, "slice_bgcode", &who, &[]);
+    Ok(Json(body))
+}
+
+fn describe_bgcode(s: &Shared, who: &Identity, b: &ReadBgcodeRequest) -> Result<Value, ApiError> {
+    let (bytes, _) = read_input(s, who, &b.bgcode, "bgcode")?;
+    let gcode_limit = (s.cfg.slice_max_gcode_mb * 1024 * 1024) as usize;
+    let limits = Limits {
+        max_block: gcode_limit,
+        max_gcode: gcode_limit,
+    };
+    let file = bgcode::read(&bytes, &limits).map_err(bg_error)?;
+    let pictures: Vec<Value> = file
+        .thumbnails
+        .iter()
+        .map(|t| {
+            json!({
+                "format": ["png", "jpg", "qoi"].get(usize::from(t.format)).copied().unwrap_or("unknown"),
+                "width": t.width, "height": t.height, "bytes": t.data.len(),
+            })
+        })
+        .collect();
+    let blocks: Vec<Value> = file
+        .compressions
+        .iter()
+        .map(|(kind, c)| json!({"type": kind, "compression": c.name()}))
+        .collect();
+    let layers = file
+        .gcode
+        .lines()
+        .filter(|l| {
+            let t = l.trim();
+            t.starts_with(";LAYER_CHANGE") || t.starts_with(";LAYER:")
+        })
+        .count();
+    let mut body = json!({
+        "version": 1,
+        "checksum": if file.crc32 { "crc32" } else { "none" },
+        "file": meta_object(&file.file_meta),
+        "printer": meta_object(&file.printer_meta),
+        "print": meta_object(&file.print_meta),
+        "slicer": meta_object(&file.slicer_meta),
+        "thumbnails": pictures,
+        "blocks": blocks,
+        "gcode_bytes": file.gcode.len(),
+        "layers": layers,
+        "evidence": "synthetic",
+    });
+    if b.include_gcode {
+        body["gcode"] = json!(file.gcode);
+    }
+    Ok(body)
 }
 
 fn failed(why: impl Into<String>) -> ApiError {

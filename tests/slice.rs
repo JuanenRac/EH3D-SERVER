@@ -490,3 +490,139 @@ async fn the_suite_slicer_that_fails_is_a_bad_gateway_and_leaves_nothing_behind(
     let left = std::fs::read_dir(&tmp).map(|d| d.count()).unwrap_or(0);
     assert_eq!(left, 0, "nothing is left in {}", tmp.display());
 }
+
+const BGCODE_ROUTE: &str = "/api/v1/slice/bgcode";
+
+async fn read_bg(s: &Server, token: &str, body: Value) -> (StatusCode, Value) {
+    call(s, Method::POST, BGCODE_ROUTE, Some(token), Some(body)).await
+}
+
+#[tokio::test]
+async fn a_program_can_be_given_as_binary_gcode_and_read_back_and_the_route_is_off_by_default() {
+    let s = server("slice-bgcode");
+    let boss = admin(&s).await;
+    let operator = user(&s, &boss, "oper1", "operator").await;
+    let own = json!({"bgcode": {"base64": "R0NERQ=="}});
+    let (status, body) = read_bg(&s, &operator, own.clone()).await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::NOT_FOUND, Some("slice_off")),
+        "{body}"
+    );
+    enable(&s, &boss).await;
+    let profile = json!({"model": "bambu_a1", "layer_mm": 0.2, "infill_pct": 15, "hotend_c": 215, "bed_c": 60});
+    let (status, text) = slice(
+        &s,
+        &operator,
+        json!({"mesh": mesh(20.0), "profile": profile}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{text}");
+    assert_eq!(text["format"], "gcode");
+    let (status, packed) = slice(
+        &s,
+        &operator,
+        json!({"mesh": mesh(20.0), "profile": profile, "format": "bgcode"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{packed}");
+    assert_eq!(packed["format"], "bgcode");
+    assert!(packed.get("gcode").is_none());
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(packed["bgcode_base64"].as_str().unwrap())
+        .unwrap();
+    assert_eq!(&bytes[..4], b"GCDE");
+    assert_eq!(packed["bgcode_bytes"], bytes.len());
+    // the file holds the same program as the text, read by the module itself
+    let file = eh3d_server::bgcode::read(&bytes, &eh3d_server::bgcode::Limits::default()).unwrap();
+    assert_eq!(file.gcode, text["gcode"].as_str().unwrap());
+    // and the route reads it back
+    let (status, read) = read_bg(
+        &s,
+        &operator,
+        json!({"bgcode": {"base64": packed["bgcode_base64"]}, "include_gcode": true}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{read}");
+    assert_eq!(read["checksum"], "crc32");
+    assert_eq!(read["printer"]["printer_model"], "bambu_a1");
+    assert_eq!(read["layers"], 100);
+    assert_eq!(read["gcode"], text["gcode"]);
+    assert_eq!(read["evidence"], "synthetic");
+    let (_, short) = read_bg(
+        &s,
+        &operator,
+        json!({"bgcode": {"base64": packed["bgcode_base64"]}}),
+    )
+    .await;
+    assert!(short.get("gcode").is_none());
+    // kept in the store as a file of its own kind
+    let (status, kept) = slice(
+        &s,
+        &operator,
+        json!({"mesh": mesh(20.0), "profile": profile, "format": "bgcode", "output": "artifact"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{kept}");
+    assert_eq!(kept["artifact"]["format"], "application/x-bgcode");
+    assert_eq!(kept["artifact"]["name"], "slice.bgcode");
+    let id = kept["artifact"]["artifact_id"].clone();
+    let (status, read) = read_bg(&s, &operator, json!({"bgcode": {"artifact": id}})).await;
+    assert_eq!(status, StatusCode::OK, "{read}");
+    // a format that is neither
+    refused(
+        &s,
+        &operator,
+        json!({"mesh": mesh(20.0), "profile": profile, "format": "stl"}),
+        "bad_plugin_request",
+        StatusCode::UNPROCESSABLE_ENTITY,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn a_binary_gcode_file_that_is_damaged_or_packed_in_a_way_not_read_is_refused() {
+    let s = server("slice-bgcode-bad");
+    let boss = admin(&s).await;
+    let operator = user(&s, &boss, "oper1", "operator").await;
+    enable(&s, &boss).await;
+    let file = eh3d_server::bgcode::Bgcode {
+        gcode: "G28\nG1 X10\n".into(),
+        ..Default::default()
+    };
+    let options = eh3d_server::bgcode::WriteOptions {
+        crc32: false,
+        gcode: eh3d_server::bgcode::Compression::None,
+        ..Default::default()
+    };
+    let bytes = eh3d_server::bgcode::write(&file, &options).unwrap();
+    let ask = |bytes: &[u8]| json!({"bgcode": {"base64": base64::engine::general_purpose::STANDARD.encode(bytes)}});
+    let (status, read) = read_bg(&s, &operator, ask(&bytes)).await;
+    assert_eq!(status, StatusCode::OK, "{read}");
+    // cut
+    let (status, body) = read_bg(&s, &operator, ask(&bytes[..bytes.len() - 3])).await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_bgcode")),
+        "{body}"
+    );
+    // not a binary G-code file at all
+    let (_, body) = read_bg(&s, &operator, ask(b"G28\nG1 X10\n; not binary")).await;
+    assert_eq!(body["error"], "bad_bgcode");
+    // packed with MeatPack (the encoding of the first G-code block is the two bytes after its header)
+    let mut packed = bytes.clone();
+    packed[18] = 1;
+    let (status, body) = read_bg(&s, &operator, ask(&packed)).await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("bgcode_unsupported")),
+        "{body}"
+    );
+    // the input is an object with an artifact or base64
+    let (status, body) = read_bg(&s, &operator, json!({"bgcode": "x"})).await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_plugin_request")),
+        "{body}"
+    );
+}

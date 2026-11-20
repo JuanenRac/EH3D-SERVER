@@ -1,4 +1,4 @@
-//! A small slicer of the server: a closed mesh (STL, or 3MF whose model is stored without compression) cut into flat layers, each with the outline of the object as its wall and a
+//! A small slicer of the server: a closed mesh (STL, or 3MF, whose model is stored or deflated) cut into flat layers, each with the outline of the object as its wall and a
 //! rectilinear infill, written as G-code that stays inside the limits of the profile it was asked for. It is the minimum that gives a program the printer plugin accepts; it has
 //! no supports, no bridges, no seams, no variable width and the wall is the outline itself (it is not moved inwards), so it is for trying the chain of the server and for simple
 //! objects, not for good prints. A refusal is always a refusal: an object that does not fit the bed, a temperature or a feed over the limit, too many layers or too much G-code
@@ -9,6 +9,8 @@
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
+
+use crate::inflate::inflate_raw;
 
 /// The diameter of the filament the extrusion is worked out for, in mm.
 const FILAMENT_MM: f64 = 1.75;
@@ -156,8 +158,11 @@ fn u32_at(b: &[u8], at: usize) -> Option<usize> {
     ]) as usize)
 }
 
-/// The bytes of a file stored without compression in a zip, by name.
-fn zip_stored(zip: &[u8], wanted: &str) -> Result<Vec<u8>, SliceError> {
+/// The most bytes the model of a 3MF file may give once it is read.
+const MAX_MODEL_BYTES: usize = 256 * 1024 * 1024;
+
+/// The bytes of a file in a zip, by name: stored, or deflated (the two ways a 3MF file keeps its model).
+fn zip_entry(zip: &[u8], wanted: &str) -> Result<Vec<u8>, SliceError> {
     let eocd = (0..zip.len().saturating_sub(21))
         .rev()
         .take(70_000)
@@ -178,16 +183,20 @@ fn zip_stored(zip: &[u8], wanted: &str) -> Result<Vec<u8>, SliceError> {
         }
         let method = u16_at(zip, at + 10).ok_or_else(broken)?;
         let size = u32_at(zip, at + 20).ok_or_else(broken)?;
+        let full_size = u32_at(zip, at + 24).ok_or_else(broken)?;
         let name_len = u16_at(zip, at + 28).ok_or_else(broken)?;
         let extra_len = u16_at(zip, at + 30).ok_or_else(broken)?;
         let comment_len = u16_at(zip, at + 32).ok_or_else(broken)?;
         let local = u32_at(zip, at + 42).ok_or_else(broken)?;
         let name = zip.get(at + 46..at + 46 + name_len).ok_or_else(broken)?;
         if name.eq_ignore_ascii_case(wanted.as_bytes()) {
-            if method != 0 {
-                return bad_mesh(
-                    "the model of the 3MF file is compressed and the slicer of the server reads only a stored one; save it as STL",
-                );
+            if method != 0 && method != 8 {
+                return bad_mesh(format!(
+                    "the model of the 3MF file is packed with the method {method} of zip, and only stored and deflated files are read; save it as STL"
+                ));
+            }
+            if full_size > MAX_MODEL_BYTES {
+                return bad_mesh("the model of the 3MF file is bigger than the slicer reads");
             }
             if zip.get(local..local + 4) != Some(&[0x50, 0x4b, 0x03, 0x04]) {
                 return Err(broken());
@@ -195,10 +204,20 @@ fn zip_stored(zip: &[u8], wanted: &str) -> Result<Vec<u8>, SliceError> {
             let skip = 30
                 + u16_at(zip, local + 26).ok_or_else(broken)?
                 + u16_at(zip, local + 28).ok_or_else(broken)?;
-            return zip
+            let packed = zip
                 .get(local + skip..local + skip + size)
-                .map(<[u8]>::to_vec)
-                .ok_or_else(broken);
+                .ok_or_else(broken)?;
+            if method == 0 {
+                return Ok(packed.to_vec());
+            }
+            let model = inflate_raw(packed, MAX_MODEL_BYTES).map_err(|e| SliceError {
+                code: "bad_mesh",
+                detail: format!("the model of the 3MF file: {}", e.text()),
+            })?;
+            if model.len() != full_size {
+                return bad_mesh("the model of the 3MF file does not have the size its zip says");
+            }
+            return Ok(model);
         }
         at += 46 + name_len + extra_len + comment_len;
     }
@@ -222,9 +241,9 @@ fn attribute(tag: &str, name: &str) -> Option<f64> {
     None
 }
 
-/// Reads a 3MF file whose model is stored (the objects with a mesh; the transforms of the build are not applied).
+/// Reads a 3MF file whose model is stored or deflated (the objects with a mesh; the transforms of the build are not applied).
 pub fn parse_3mf(bytes: &[u8], max_triangles: usize) -> Result<Mesh, SliceError> {
-    let model = zip_stored(bytes, "3D/3dmodel.model")?;
+    let model = zip_entry(bytes, "3D/3dmodel.model")?;
     let xml = String::from_utf8_lossy(&model);
     let mut triangles = Vec::new();
     for object in xml.split("<object").skip(1) {
@@ -817,8 +836,69 @@ mod tests {
         z
     }
 
+    /// A zip with one file kept with `method` (0 stored, 8 deflated): `packed` is what the file holds and `full` its size once read.
+    fn zip_with(name: &str, method: u8, packed: &[u8], full: usize) -> Vec<u8> {
+        let mut z = zip_of(name, packed);
+        let local = 8;
+        z[local] = method;
+        let at = z
+            .windows(4)
+            .position(|w| w == [0x50, 0x4b, 0x01, 0x02])
+            .unwrap();
+        z[at + 10] = method;
+        z[at + 24..at + 28].copy_from_slice(&(full as u32).to_le_bytes());
+        z
+    }
+
+    /// The model below packed by zlib at level 9 as raw deflate (a block with its own tables of codes), made by an independent program.
+    const PACKED_MODEL: [u8; 127] = [
+        125, 144, 75, 14, 195, 32, 12, 68, 175, 130, 124, 1, 215, 201, 214, 112, 151, 54, 177, 90,
+        170, 164, 72, 64, 81, 218, 211, 167, 224, 69, 89, 177, 25, 141, 244, 236, 241, 135, 247,
+        176, 202, 230, 56, 74, 10, 239, 184, 72, 114, 28, 110, 79, 89, 178, 241, 171, 5, 2, 199,
+        187, 164, 135, 227, 34, 49, 251, 134, 171, 147, 195, 28, 22, 46, 96, 62, 77, 191, 85, 177,
+        71, 52, 96, 138, 104, 192, 20, 81, 99, 248, 159, 156, 163, 191, 190, 238, 91, 111, 77, 161,
+        86, 94, 166, 186, 172, 41, 179, 133, 169, 118, 13, 248, 220, 82, 187, 44, 212, 11, 81, 239,
+        254, 153, 238, 23, 168, 239, 57, 1,
+    ];
+    const PACKED_MODEL_XML: &str = r#"<model><resources><object id="1"><mesh><vertices><vertex x="0" y="0" z="0"/><vertex x="10" y="0" z="0"/><vertex x="0" y="10" z="0"/><vertex x="0" y="0" z="10"/></vertices><triangles><triangle v1="0" v2="1" v3="2"/><triangle v1="0" v2="1" v3="3"/></triangles></mesh></object></resources></model>"#;
+
     #[test]
-    fn a_stored_3mf_is_read_and_a_compressed_one_is_refused() {
+    fn a_deflated_3mf_is_read() {
+        // packed by another program
+        let zip = zip_with("3D/3dmodel.model", 8, &PACKED_MODEL, PACKED_MODEL_XML.len());
+        let mesh = parse_3mf(&zip, 10).unwrap();
+        assert_eq!(mesh.triangles.len(), 2);
+        assert_eq!(mesh.triangles[1][2], [0.0, 0.0, 10.0]);
+        // packed by the module (stored blocks of deflate)
+        let own = crate::inflate::deflate_stored_raw(PACKED_MODEL_XML.as_bytes());
+        let zip = zip_with("3D/3dmodel.model", 8, &own, PACKED_MODEL_XML.len());
+        assert_eq!(parse_3mf(&zip, 10).unwrap().triangles.len(), 2);
+        // a size that the zip says wrong, damaged data and a cut stream are refused
+        let lying = zip_with(
+            "3D/3dmodel.model",
+            8,
+            &PACKED_MODEL,
+            PACKED_MODEL_XML.len() + 1,
+        );
+        assert!(parse_3mf(&lying, 10).unwrap_err().detail.contains("size"));
+        let mut damaged = PACKED_MODEL;
+        damaged[40] ^= 0xFF;
+        let zip = zip_with("3D/3dmodel.model", 8, &damaged, PACKED_MODEL_XML.len());
+        assert_eq!(parse_3mf(&zip, 10).unwrap_err().code, "bad_mesh");
+        let zip = zip_with(
+            "3D/3dmodel.model",
+            8,
+            &PACKED_MODEL[..60],
+            PACKED_MODEL_XML.len(),
+        );
+        assert_eq!(parse_3mf(&zip, 10).unwrap_err().code, "bad_mesh");
+        // a model that says it is far bigger than the slicer reads
+        let huge = zip_with("3D/3dmodel.model", 8, &PACKED_MODEL, MAX_MODEL_BYTES + 1);
+        assert!(parse_3mf(&huge, 10).unwrap_err().detail.contains("bigger"));
+    }
+
+    #[test]
+    fn a_stored_3mf_is_read_and_one_with_another_method_is_refused() {
         let xml = r#"<model><resources><object id="1"><mesh><vertices>
             <vertex x="0" y="0" z="0"/><vertex x="10" y="0" z="0"/><vertex x="0" y="10" z="0"/><vertex x="0" y="0" z="10"/>
             </vertices><triangles><triangle v1="0" v2="1" v3="2"/><triangle v1="0" v2="1" v3="3"/></triangles></mesh></object></resources></model>"#;
@@ -838,18 +918,18 @@ mod tests {
                 .code,
             "bad_mesh"
         );
-        let mut deflated = zip.clone();
-        // the method of the entry in the directory
-        let at = deflated
+        let mut odd = zip.clone();
+        // the method of the entry in the directory: 12 (bzip2) is not read
+        let at = odd
             .windows(4)
             .position(|w| w == [0x50, 0x4b, 0x01, 0x02])
             .unwrap()
             + 10;
-        deflated[at] = 8;
-        assert!(parse_3mf(&deflated, 10)
+        odd[at] = 12;
+        assert!(parse_3mf(&odd, 10)
             .unwrap_err()
             .detail
-            .contains("compressed"));
+            .contains("method 12"));
         let bad_index = xml
             .replace(r#"v3="3""#, r#"v3="9""#)
             .replace(r#"v3="2""#, r#"v3="9""#);
