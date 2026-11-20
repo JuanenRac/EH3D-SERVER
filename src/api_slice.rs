@@ -471,7 +471,10 @@ fn describe_bgcode(s: &Shared, who: &Identity, b: &ReadBgcodeRequest) -> Result<
         .thumbnails
         .iter()
         .map(|t| {
-            let format = ["png", "jpg", "qoi"].get(usize::from(t.format)).copied().unwrap_or("unknown");
+            let format = ["png", "jpg", "qoi"]
+                .get(usize::from(t.format))
+                .copied()
+                .unwrap_or("unknown");
             json!({
                 "format": format,
                 "width": t.width, "height": t.height, "bytes": t.data.len(),
