@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 
 use crate::bambu::normalize_fingerprint;
+use crate::bambu_mqtt::BambuTlsLink;
 use crate::gcode;
 use crate::plugins::{PluginError, PluginResult, PluginStatus, Prepared, WorkState};
 use crate::printer_drivers::{
@@ -52,7 +53,7 @@ pub const PROFILES: &[(&str, f64, f64, f64, &str)] = &[
 /// The settings a printer machine may have: key and what it takes.
 pub const SETTINGS_HELP: &[(&str, &str)] = &[
     ("model", "the model: generic (the default), bambu_a1, bambu_a1_mini or bambu_p1s; its profile gives the limits of temperature"),
-    ("connection", "how the printer is reached: {\"kind\": \"demo\"} (the simulator, the default), {\"kind\": \"moonraker\", \"url\": \"http://host:7125\", \"api_key\": \"...\"} or {\"kind\": \"octoprint\", \"url\": ..., \"api_key\": ...}; the key is never shown again; {\"kind\": \"marlin\", \"port\": \"sim\", \"baud\": 115200} is a Marlin printer on a serial line (only the simulated line is served); {\"kind\": \"bambu_lan\", \"host\": \"sim\", \"serial\": \"...\", \"fingerprint\": \"<sha256 of the certificate>\", \"api_key\": \"<access code>\"} is a Bambu Lab printer in LAN mode, an EXPERIMENT served only as a simulator: a certificate is never accepted unless it is the pinned one"),
+    ("connection", "how the printer is reached: {\"kind\": \"demo\"} (the simulator, the default), {\"kind\": \"moonraker\", \"url\": \"http://host:7125\", \"api_key\": \"...\"} or {\"kind\": \"octoprint\", \"url\": ..., \"api_key\": ...}; the key is never shown again; {\"kind\": \"marlin\", \"port\": \"sim\", \"baud\": 115200} is a Marlin printer on a serial line (only the simulated line is served); {\"kind\": \"bambu_lan\", \"host\": \"sim\", \"serial\": \"...\", \"fingerprint\": \"<sha256 of the certificate>\", \"api_key\": \"<access code>\"} is a Bambu Lab printer in LAN mode, an EXPERIMENT: host \"sim\" is the simulated printer and the address of a real printer is reached only when the server allows it (bambu_lan_enabled, off by default); a certificate is never accepted unless it is the pinned one"),
     ("hotend_max_c", "the hottest the hotend may be asked, 0 to 450 (the profile of the model by default)"),
     ("bed_max_c", "the hottest the bed may be asked, 0 to 150 (the profile by default)"),
     ("chamber_max_c", "the hottest the chamber may be asked, 0 to 100 (the profile by default; 0 is a printer with no chamber heater)"),
@@ -124,6 +125,28 @@ impl Connection {
     }
 }
 
+/// What the server allows for the LAN link to a real Bambu Lab printer: the switch and the numbers of `server.cfg`. It is not a setting of a machine, so a machine cannot turn it
+/// on; the plugin fills it in from the server each time it reads the settings of a machine.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BambuLanPolicy {
+    /// Off by default: only the simulated printer (`host` is `sim`) is served.
+    pub enabled: bool,
+    /// The port of the broker of the printer.
+    pub port: u16,
+    /// How long, in seconds, a connection and each answer may take.
+    pub timeout_s: u64,
+}
+
+impl Default for BambuLanPolicy {
+    fn default() -> Self {
+        BambuLanPolicy {
+            enabled: false,
+            port: 8883,
+            timeout_s: 5,
+        }
+    }
+}
+
 /// The settings of a printer machine, checked.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PrinterConfig {
@@ -145,6 +168,8 @@ pub struct PrinterConfig {
     pub step_ms: f64,
     pub sim_rate: f64,
     pub sim_fault: String,
+    /// What the server allows for a real Bambu Lab printer (not read from the settings of the machine).
+    pub bambu_lan: BambuLanPolicy,
 }
 
 impl Default for PrinterConfig {
@@ -168,6 +193,7 @@ impl Default for PrinterConfig {
             step_ms: 20.0,
             sim_rate: 1.0,
             sim_fault: "none".into(),
+            bambu_lan: BambuLanPolicy::default(),
         }
     }
 }
@@ -314,8 +340,9 @@ impl PrinterConfig {
                         .get("host")
                         .and_then(Value::as_str)
                         .ok_or("a connection to a Bambu printer has its `host`")?;
-                    if host != "sim" {
-                        return Err("the LAN link to a real Bambu printer (MQTT over TLS and FTPS) is not served yet: host is \"sim\", the simulated printer; bambu_lan is an experiment".into());
+                    let address_chars = |c: char| c.is_ascii_alphanumeric() || c == '.' || c == '-';
+                    if host.is_empty() || host.len() > 253 || !host.chars().all(address_chars) {
+                        return Err("host is \"sim\" (the simulated printer) or the IP address or the name of a real printer: letters, digits, dots and hyphens".into());
                     }
                     let serial = conn
                         .get("serial")
@@ -921,26 +948,44 @@ fn real_driver(cfg: &PrinterConfig) -> PluginResult<Arc<dyn PrinterDriver>> {
             cfg.sim_rate,
         ))),
         Connection::BambuLan {
+            host,
             serial,
+            access_code,
             fingerprint,
-            ..
         } => {
-            // a layer takes a hundred steps in the simulation
-            let link = SimBambu::new(
-                serial,
-                cfg.limits[0],
-                cfg.limits[1],
-                cfg.step_ms / 10.0,
-                cfg.sim_rate,
-            );
-            let driver =
-                BambuDriver::connect(link, fingerprint.as_deref()).map_err(|e| match e {
-                    ConnectError::Untrusted(why) => {
-                        PluginError::Coded("printer_untrusted", why.text())
-                    }
-                    ConnectError::Down(text) => disconnected(&text),
-                })?;
-            Arc::new(driver)
+            let refused = |e: ConnectError| match e {
+                ConnectError::Untrusted(why) => PluginError::Coded("printer_untrusted", why.text()),
+                ConnectError::Down(text) => disconnected(&text),
+            };
+            if host == "sim" {
+                // a layer takes a hundred steps in the simulation
+                let link = SimBambu::new(
+                    serial,
+                    cfg.limits[0],
+                    cfg.limits[1],
+                    cfg.step_ms / 10.0,
+                    cfg.sim_rate,
+                );
+                Arc::new(BambuDriver::connect(link, fingerprint.as_deref()).map_err(refused)?)
+                    as Arc<dyn PrinterDriver>
+            } else {
+                if !cfg.bambu_lan.enabled {
+                    return Err(PluginError::Coded(
+                        "bambu_lan_off",
+                        "the LAN link to a real Bambu printer is off on this server (the switch bambu_lan_enabled): only the simulated printer, host \"sim\", is reached".into(),
+                    ));
+                }
+                let link = BambuTlsLink::new(
+                    host,
+                    cfg.bambu_lan.port,
+                    serial,
+                    access_code.as_deref(),
+                    fingerprint.as_deref(),
+                    Duration::from_secs(cfg.bambu_lan.timeout_s),
+                );
+                Arc::new(BambuDriver::connect(link, fingerprint.as_deref()).map_err(refused)?)
+                    as Arc<dyn PrinterDriver>
+            }
         }
     })
 }
@@ -1030,11 +1075,12 @@ impl Printer3dEngine {
 
     fn connection_key(cfg: &PrinterConfig) -> String {
         format!(
-            "{:?}|{}|{}|{}",
+            "{:?}|{}|{}|{}|{:?}",
             cfg.connection,
             cfg.step_ms,
             cfg.sim_rate,
-            cfg.limits[2] > 0.0
+            cfg.limits[2] > 0.0,
+            cfg.bambu_lan
         )
     }
 
@@ -1276,9 +1322,14 @@ impl Printer3dEngine {
             "compat": cfg.compat,
             "compat_start": cfg.compat_start,
         });
-        if let Connection::BambuLan { fingerprint, .. } = &cfg.connection {
-            v["bambu_lan"] =
-                json!({"experimental": true, "fingerprint_pinned": fingerprint.is_some()});
+        if let Connection::BambuLan {
+            host, fingerprint, ..
+        } = &cfg.connection
+        {
+            v["bambu_lan"] = json!({
+                "experimental": true, "fingerprint_pinned": fingerprint.is_some(),
+                "real_printer": host != "sim", "lan_enabled": cfg.bambu_lan.enabled,
+            });
         }
         if let Ok(s) = state {
             v["state"] = json!(s.state);
@@ -2816,12 +2867,21 @@ mod tests {
             (bambu.model.as_str(), bambu.limits),
             ("bambu_p1s", [300.0, 100.0, 0.0])
         );
+        // the address of a real printer is accepted as a setting; whether it is reached is up to the switch of the server
+        let real = PrinterConfig::from_settings(&json!({"connection": {
+            "kind": "bambu_lan", "host": "192.168.1.9", "serial": "01P00A111111111", "api_key": "12345678"}}))
+        .unwrap();
+        assert!(
+            matches!(&real.connection, Connection::BambuLan { host, .. } if host == "192.168.1.9")
+        );
+        assert!(!real.bambu_lan.enabled);
         for bad in [
             json!({"connection": {"kind": "marlin"}}),
             json!({"connection": {"kind": "marlin", "port": "COM3"}}),
             json!({"connection": {"kind": "marlin", "port": "sim", "baud": 5}}),
             json!({"connection": {"kind": "bambu_lan", "serial": "01P00A111111111"}}),
-            json!({"connection": {"kind": "bambu_lan", "host": "192.168.1.9", "serial": "01P00A111111111"}}),
+            json!({"connection": {"kind": "bambu_lan", "host": "192.168.1.9/x", "serial": "01P00A111111111"}}),
+            json!({"connection": {"kind": "bambu_lan", "host": "", "serial": "01P00A111111111"}}),
             json!({"connection": {"kind": "bambu_lan", "host": "sim", "serial": "short"}}),
             json!({"connection": {"kind": "bambu_lan", "host": "sim", "serial": "01P00A111111111", "fingerprint": "abc"}}),
             json!({"connection": {"kind": "bambu_lan", "host": "sim", "serial": "01P00A111111111", "fingerprint": 5}}),
@@ -2902,5 +2962,56 @@ mod tests {
         assert_eq!(detail["connection"], "bambu_lan");
         assert_eq!(detail["bambu_lan"]["experimental"], true);
         assert_eq!(detail["bambu_lan"]["fingerprint_pinned"], true);
+    }
+
+    #[test]
+    fn a_real_bambu_printer_is_not_reached_while_the_switch_of_the_server_is_off() {
+        let e = engine();
+        let real = |enabled: bool, fingerprint: Option<String>| PrinterConfig {
+            model: "bambu_a1".into(),
+            limits: [300.0, 100.0, 0.0],
+            connection: Connection::BambuLan {
+                host: "127.0.0.1".into(),
+                serial: "01P00A111111111".into(),
+                access_code: Some("12345678".into()),
+                fingerprint,
+            },
+            bambu_lan: BambuLanPolicy {
+                enabled,
+                port: 9,
+                timeout_s: 1,
+            },
+            ..quick()
+        };
+        // off: a named refusal, before any address is touched
+        let off = real(false, Some("ab".repeat(32)));
+        let p = e.prepare("r1", &off, &print(PART)).unwrap();
+        let refused = e.start("r1", &off, &p.native_id).unwrap_err();
+        assert_eq!(refused.code(), "bambu_lan_off");
+        assert!(refused.detail().contains("bambu_lan_enabled"));
+        // on, but nothing listens on the port: the printer does not answer (and nothing is trusted or sent)
+        let on = real(true, Some("ab".repeat(32)));
+        let refused = e.start("r1", &on, &p.native_id).unwrap_err();
+        assert_eq!(refused.code(), "printer_disconnected");
+    }
+
+    #[test]
+    fn the_models_of_bambu_keep_their_limits_and_the_a1_mini_bed_can_be_raised_by_hand() {
+        let limits = |settings: Value| PrinterConfig::from_settings(&settings).unwrap().limits;
+        assert_eq!(
+            limits(json!({"model": "bambu_a1_mini"})),
+            [300.0, 80.0, 0.0]
+        );
+        assert_eq!(limits(json!({"model": "bambu_a1"})), [300.0, 100.0, 0.0]);
+        assert_eq!(limits(json!({"model": "bambu_p1s"})), [300.0, 100.0, 0.0]);
+        // the person who owns the printer can set another limit, up to the hard maximum
+        assert_eq!(
+            limits(json!({"model": "bambu_a1_mini", "bed_max_c": 100}))[1],
+            100.0
+        );
+        assert!(
+            PrinterConfig::from_settings(&json!({"model": "bambu_a1_mini", "bed_max_c": 151}))
+                .is_err()
+        );
     }
 }

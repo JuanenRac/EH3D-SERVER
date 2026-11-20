@@ -352,6 +352,11 @@ async fn policy(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
             json!(h.slice_enabled),
             h.is_safe("slice_enabled"),
         ),
+        switch(
+            "bambu_lan_enabled",
+            json!(h.bambu_lan_enabled),
+            h.is_safe("bambu_lan_enabled"),
+        ),
     ];
     let attention: Vec<String> = switches
         .iter()

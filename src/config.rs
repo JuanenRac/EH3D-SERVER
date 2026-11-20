@@ -34,6 +34,13 @@ pub struct ServerConfig {
     pub compat_write: bool,
     /// Whether the server may slice a mesh into G-code (`POST /api/v1/slice`). Off by default. It is a switch of the security page and takes effect at once.
     pub slice_enabled: bool,
+    /// Whether the server reaches a real Bambu Lab printer over the LAN (MQTT over TLS on `bambu_lan_port`, the certificate of the printer pinned by its fingerprint). Off by
+    /// default: with it off, only the simulated printer (`host` is `sim`) is served. It is a switch of the security page and takes effect at once.
+    pub bambu_lan_enabled: bool,
+    /// The port of the MQTT broker of a Bambu Lab printer in LAN mode (1 to 65535).
+    pub bambu_lan_port: u16,
+    /// How long, in seconds, the connection to a Bambu Lab printer and each of its answers may take (1 to 60).
+    pub bambu_lan_timeout_s: u64,
     /// The program of the suite that slices (`phoenix-3dp`), by its full path, for the requests that ask for it. Empty: only the small slicer of the server is used.
     pub slice_phoenix_bin: Option<PathBuf>,
     /// The longest a slice may take, in seconds (1 to 600).
@@ -241,6 +248,9 @@ impl Default for ServerConfig {
             compat_api: false,
             compat_write: false,
             slice_enabled: false,
+            bambu_lan_enabled: false,
+            bambu_lan_port: 8883,
+            bambu_lan_timeout_s: 5,
             slice_phoenix_bin: None,
             slice_timeout_s: 60,
             slice_max_mb: 20,
@@ -554,6 +564,13 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
             "compat_api" => c.compat_api = flag(&key, value).map_err(at)?,
             "compat_write" => c.compat_write = flag(&key, value).map_err(at)?,
             "slice_enabled" => c.slice_enabled = flag(&key, value).map_err(at)?,
+            "bambu_lan_enabled" => c.bambu_lan_enabled = flag(&key, value).map_err(at)?,
+            "bambu_lan_port" => {
+                c.bambu_lan_port = number(&key, value, 1, 65_535).map_err(at)? as u16
+            }
+            "bambu_lan_timeout_s" => {
+                c.bambu_lan_timeout_s = number(&key, value, 1, 60).map_err(at)?
+            }
             "slice_phoenix_bin" => {
                 c.slice_phoenix_bin = if value.is_empty() {
                     None
@@ -691,6 +708,27 @@ mod tests {
             .unwrap()
             .slice_phoenix_bin
             .is_none());
+    }
+
+    #[test]
+    fn the_lan_link_to_a_bambu_printer_is_off_unless_the_file_turns_it_on_and_is_checked() {
+        let c = parse("").unwrap();
+        assert!(!c.bambu_lan_enabled);
+        assert_eq!((c.bambu_lan_port, c.bambu_lan_timeout_s), (8883, 5));
+        let c = parse("bambu_lan_enabled = yes\nbambu_lan_port = 990\nbambu_lan_timeout_s = 12\n")
+            .unwrap();
+        assert!(c.bambu_lan_enabled);
+        assert_eq!((c.bambu_lan_port, c.bambu_lan_timeout_s), (990, 12));
+        for bad in [
+            "bambu_lan_enabled = maybe",
+            "bambu_lan_port = 0",
+            "bambu_lan_port = 65536",
+            "bambu_lan_timeout_s = 0",
+            "bambu_lan_timeout_s = 61",
+        ] {
+            let e = parse(bad).unwrap_err();
+            assert!(e.contains("bambu_lan_"), "{bad}: {e}");
+        }
     }
 
     #[test]

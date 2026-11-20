@@ -41,6 +41,12 @@ compat_api = false
 compat_write = false
 # Let the server slice a mesh (STL, or a 3MF with a stored model) into G-code inside the limits of a printer profile (POST /api/v1/slice). Off by default. A switch of the security page of Studio.
 slice_enabled = false
+# Let the server reach a real Bambu Lab printer over the LAN (MQTT over TLS, the certificate of the printer pinned by the fingerprint in the settings of its machine; a connection with
+# no fingerprint, or another one, is refused and nothing is sent). Off by default: only the simulated printer is served. A switch of the security page of Studio. Experimental.
+bambu_lan_enabled = false
+# The port of the MQTT broker of the printer and how long, in seconds, a connection and each answer may take (1 to 60).
+bambu_lan_port = 8883
+bambu_lan_timeout_s = 5
 # The program of the suite that slices (phoenix-3dp), by its full path. Empty: only the small slicer of the server is used. The server runs only this one file, with arguments of its own.
 slice_phoenix_bin =
 # The longest a slice may take, in seconds (1 to 600), the biggest mesh in megabytes (1 to 200), the most layers (10 to 20000) and the biggest G-code in megabytes (1 to 200).

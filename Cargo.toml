@@ -33,6 +33,8 @@ tokio-util = { version = "0.7", features = ["io"] }
 # the stream of events (server-sent events) is built with futures_util::stream::unfold
 futures-util = "0.3"
 tower-http = { version = "0.5", features = ["limit", "fs"] }
+# the TLS of the LAN link to a Bambu Lab printer (src/tls_pin.rs): the certificate is pinned by its fingerprint; only the "ring" backend of the library, no system library, and a fixed version
+rustls = { version = "=0.23.28", default-features = false, features = ["ring", "std", "tls12"] }
 eh3d-drillpro = { version = ">=0.1.0", path = "../EH3D-DRILLPRO" }
 eh3d-routepro = { version = ">=0.1.0", path = "../EH3D-ROUTEPRO" }
 # the reader of G-code of the suite: the words of a line are read by it and not by a tokenizer of this repository
@@ -53,6 +55,8 @@ tokio = { version = "1", features = ["io-util"] }
 http-body-util = "0.1"
 # the test draws a board and sends it as the camera of the node would
 jpeg-encoder = "0.6"
+# the test of the TLS link makes a certificate for itself
+rcgen = "=0.13.2"
 
 [profile.dev]
 # a lighter debug build: the file and line of a panic stay, the full debug symbols (the bulk of the target folder) do not

@@ -10,7 +10,9 @@ use crate::plugins::{
     work_machine_ids, work_machine_settings, MachineInfo, MachinePlugin, MachineRoute, PluginError,
     PluginResult, PluginStatus, Prepared,
 };
-use crate::printer3d::{Printer3dEngine, PrinterConfig, MAX_COMMANDS, PROFILES, SETTINGS_HELP};
+use crate::printer3d::{
+    BambuLanPolicy, Printer3dEngine, PrinterConfig, MAX_COMMANDS, PROFILES, SETTINGS_HELP,
+};
 use crate::state::AppState;
 
 /// The routes the plugin adds under `/api/v1/work/machines/{id}/`.
@@ -34,7 +36,14 @@ impl Printer3dPlugin {
     fn config(st: &Arc<AppState>, machine: &str) -> PluginResult<PrinterConfig> {
         let settings =
             work_machine_settings(st, machine, "printer3d").ok_or(PluginError::UnknownMachine)?;
-        PrinterConfig::from_settings(&settings).map_err(PluginError::Bad)
+        let mut cfg = PrinterConfig::from_settings(&settings).map_err(PluginError::Bad)?;
+        // what the server allows for a real Bambu Lab printer: the switch (changed while the server runs) and the numbers of server.cfg
+        cfg.bambu_lan = BambuLanPolicy {
+            enabled: st.policy.get().bambu_lan_enabled,
+            port: st.cfg.bambu_lan_port,
+            timeout_s: st.cfg.bambu_lan_timeout_s,
+        };
+        Ok(cfg)
     }
 }
 
