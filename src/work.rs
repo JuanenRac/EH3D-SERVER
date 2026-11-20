@@ -674,6 +674,7 @@ impl AppState {
         let request = self.work_resolve_artifact(who, request)?;
         let mut prepared = plugin.prepare(self, machine, &request, &who.name)?;
         self.work_store_output(who, plugin.kind(), &request, &mut prepared.view)?;
+        self.work_store_result(who, plugin.kind(), &request, &mut prepared.view)?;
         let at = now();
         let name = name
             .map(str::to_string)
@@ -795,6 +796,86 @@ impl AppState {
             })?;
         if let Some(map) = view.as_object_mut() {
             map.remove("gcode");
+        }
+        view["artifact"] = json!({
+            "artifact_id": record.artifact_id, "blob_sha256": record.blob_sha256, "size": record.size,
+            "name": record.name, "format": record.format,
+        });
+        Ok(())
+    }
+
+    /// A `vision` or `cad` request with `"output": "artifact"` keeps the result the job made as a JSON artifact of the caller's store: the view then has `artifact` (its id, hash,
+    /// size, name and format) instead of the `result`, which is what `output: "view"` (the default) leaves in it. The name is `artifact_name` of the request, or the one the plugin
+    /// proposes (`vision-<kind>.json`, `cad-check.json`, `cad-report.json`). Other plugins ignore `output`.
+    fn work_store_result(
+        &self,
+        who: &Identity,
+        plugin: &str,
+        request: &Value,
+        view: &mut Value,
+    ) -> Result<(), Fail> {
+        let bad = |why: &str| Fail::Plugin(PluginError::Bad(why.into()));
+        if plugin != "vision" && plugin != "cad" {
+            return Ok(());
+        }
+        match request.get("output") {
+            None => return Ok(()),
+            Some(Value::String(s)) if s == "view" => return Ok(()),
+            Some(Value::String(s)) if s == "artifact" => {}
+            Some(_) => return Err(bad("output is `view` or `artifact`")),
+        }
+        let Some(result) = view.get("result").cloned() else {
+            return Err(bad(
+                "this kind of job makes no result to keep as an artifact",
+            ));
+        };
+        let name = request
+            .get("artifact_name")
+            .and_then(Value::as_str)
+            .or_else(|| view.get("artifact_name").and_then(Value::as_str))
+            .map_or_else(|| format!("{plugin}-result.json"), str::to_string);
+        let bytes = serde_json::to_vec_pretty(&result).map_err(|_| {
+            Fail::Plugin(PluginError::Failed("the result cannot be written".into()))
+        })?;
+        let inputs: Vec<crate::artifacts::InputRef> = request
+            .get("artifact")
+            .and_then(Value::as_str)
+            .and_then(|id| {
+                self.artifacts
+                    .store
+                    .locked()
+                    .get(id)
+                    .map(|r| crate::artifacts::InputRef {
+                        artifact_id: r.artifact_id.clone(),
+                        blob_sha256: r.blob_sha256.clone(),
+                    })
+            })
+            .into_iter()
+            .collect();
+        let meta = crate::artifacts::NewArtifact {
+            name,
+            format: "application/json".into(),
+            schema_version: result
+                .get("schema")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            producer: Some(crate::artifacts::Producer {
+                tool: format!("eh3d-server {plugin}"),
+                version: env!("CARGO_PKG_VERSION").into(),
+                config_sha256: None,
+            }),
+            inputs,
+            ..Default::default()
+        };
+        let record = self.add_artifact(who, meta, &bytes).map_err(|e| match e {
+            crate::artifacts::ArtifactError::Bad(why) => Fail::Plugin(PluginError::Bad(why)),
+            other => Fail::Plugin(PluginError::Failed(format!(
+                "the result could not be kept as an artifact: {}",
+                other.code()
+            ))),
+        })?;
+        if let Some(map) = view.as_object_mut() {
+            map.remove("result");
         }
         view["artifact"] = json!({
             "artifact_id": record.artifact_id, "blob_sha256": record.blob_sha256, "size": record.size,

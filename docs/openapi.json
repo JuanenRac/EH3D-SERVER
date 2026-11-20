@@ -62,6 +62,10 @@
       "description": "Shared catalogs the applications read: materials, tools, machine profiles, footprints, symbols and components."
     },
     {
+      "name": "slice",
+      "description": "Slicing a mesh into G-code inside the limits of a printer profile (off until the switch slice_enabled is on)."
+    },
+    {
       "name": "work",
       "description": "Plugins and their machines, the generic queue of jobs with its history, the stream of events and the notifications."
     }
@@ -12492,6 +12496,7 @@
           "pnp_feeder_short",
           "printer_disconnected",
           "printer_latched",
+          "printer_untrusted",
           "unauthorized",
           "unknown_job",
           "unknown_machine"
@@ -12589,7 +12594,7 @@
             }
           },
           "502": {
-            "description": "Refused with `plugin_failed`, `printer_disconnected`.",
+            "description": "Refused with `plugin_failed`, `printer_disconnected`, `printer_untrusted`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -14760,6 +14765,358 @@
         }
       }
     },
+    "/work/farm/jobs": {
+      "post": {
+        "operationId": "post_work_farm_jobs",
+        "tags": [
+          "work"
+        ],
+        "summary": "Share a print among the free 3D printers",
+        "description": "Each copy goes to the first free 3D printer that accepts it (not running, not latched and with no job waiting) and WAITS in its queue for a person to start it with `POST /work/jobs/{id}/start`; the server starts nothing by itself here (a printer with `auto_start_queue` set starts its own queue, as it always does). A printer that refuses the job because of the limits of its model is skipped and told in `tried`. `409 farm_no_free_printer` when no copy could be placed. Role operator or higher. Scope `jobs:prepare` if the token is limited by scopes.",
+        "x-role": "operator",
+        "x-scope": "jobs:prepare",
+        "x-error-codes": [
+          "bad_app",
+          "bad_gcode",
+          "bad_plugin_request",
+          "bad_request",
+          "farm_no_free_printer",
+          "forbidden",
+          "forbidden_scope",
+          "no_work",
+          "not_supported",
+          "out_of_travel",
+          "program_over_limit",
+          "queue_full",
+          "temperature_over_limit",
+          "too_big",
+          "unauthorized",
+          "unknown_machine"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FarmJobRequest"
+              },
+              "example": {
+                "request": {
+                  "kind": "print",
+                  "text": "G28\nM104 S200\nG1 X10 Y10 F3000"
+                },
+                "copies": 2,
+                "machines": [
+                  "p1",
+                  "p2"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FarmJobs"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused with `bad_request`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_request",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused with `unknown_machine`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unknown_machine",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Refused with `farm_no_free_printer`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "farm_no_free_printer",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Refused with `bad_app`, `bad_gcode`, `bad_plugin_request`, `no_work`, `out_of_travel`, `program_over_limit`, `temperature_over_limit`, `too_big`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_app",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Refused with `queue_full`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "queue_full",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refused with `not_supported`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "not_supported",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/slice": {
+      "post": {
+        "operationId": "post_slice",
+        "tags": [
+          "slice"
+        ],
+        "summary": "Slice a mesh into G-code inside the limits of a printer profile",
+        "description": "Off until the switch `slice_enabled` of the security page is on. The small slicer of the server cuts a closed mesh (STL, or a 3MF whose model is stored without compression) into layers with an outline and a rectilinear infill; the engine `phoenix` runs the program of the suite that `slice_phoenix_bin` names, with a time limit and no input. The program that comes out is read again against the limits of the profile: an object that does not fit, a temperature or a feed over the limit is a refusal and nothing is cut down. The mesh, the layers, the work and the program have limits (`slice_*` in `server.cfg`). Role operator or higher. Scope `jobs:prepare` if the token is limited by scopes.",
+        "x-role": "operator",
+        "x-scope": "jobs:prepare",
+        "x-error-codes": [
+          "bad_gcode",
+          "bad_mesh",
+          "bad_plugin_request",
+          "bad_request",
+          "blob_damaged",
+          "forbidden",
+          "forbidden_scope",
+          "not_supported",
+          "out_of_travel",
+          "program_over_limit",
+          "slice_failed",
+          "slice_limit",
+          "slice_off",
+          "storage",
+          "temperature_over_limit",
+          "too_big",
+          "unauthorized",
+          "unknown_artifact",
+          "unknown_machine"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SliceRequest"
+              },
+              "example": {
+                "mesh": {
+                  "base64": "<an STL in base64>"
+                },
+                "profile": {
+                  "model": "bambu_a1",
+                  "layer_mm": 0.2,
+                  "infill_pct": 15
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SliceResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused with `bad_request`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_request",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused with `slice_off`, `unknown_artifact`, `unknown_machine`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "slice_off",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Refused with `bad_gcode`, `bad_mesh`, `bad_plugin_request`, `out_of_travel`, `program_over_limit`, `slice_limit`, `temperature_over_limit`, `too_big`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_gcode",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Refused with `blob_damaged`, `storage`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "blob_damaged",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refused with `not_supported`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "not_supported",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Refused with `slice_failed`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "slice_failed",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/work/machines/{id}/compat/key": {
       "get": {
         "operationId": "get_work_machines_id_compat_key",
@@ -14863,10 +15220,11 @@
           "work"
         ],
         "summary": "Make the key of a 3D printer for the compatibility routes",
-        "description": "Only for a machine of the `printer3d` plugin. The key is shown this once, in the answer; the server keeps only its SHA-256. A key the machine had stops working. Programs written for Moonraker or OctoPrint send it in the header `X-Api-Key` to the routes at the root of the address (`docs/MACHINE_PLUGINS.md`, \"Compatibility routes\"), which answer only while the switch `compat_api` of the security page is on. Role admin. Scope `machines:manage` if the token is limited by scopes.",
+        "description": "Only for a machine of the `printer3d` plugin. The key is shown this once, in the answer; the server keeps only its SHA-256. A key the machine had stops working. Programs written for Moonraker or OctoPrint send it in the header `X-Api-Key` to the routes at the root of the address (`docs/MACHINE_PLUGINS.md`, \"Compatibility routes\"), which answer only while the switch `compat_api` of the security page is on. The body is optional: `{\"write\": true}` makes a key that may also write through those routes (pause, resume and cancel a print, start one that waits, upload a file to the queue), which still need the switch `compat_write`; a new key made without it never writes. Role admin. Scope `machines:manage` if the token is limited by scopes.",
         "x-role": "admin",
         "x-scope": "machines:manage",
         "x-error-codes": [
+          "bad_request",
           "forbidden",
           "forbidden_scope",
           "not_supported",
@@ -14885,6 +15243,19 @@
             }
           }
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompatKeyRequest"
+              },
+              "example": {
+                "write": false
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Done.",
@@ -14892,6 +15263,20 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CompatKey"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused with `bad_request`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_request",
+                  "detail": ""
                 }
               }
             }
@@ -19567,6 +19952,9 @@
           },
           "set": {
             "type": "boolean"
+          },
+          "write": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -19574,6 +19962,16 @@
           "set"
         ],
         "additionalProperties": false
+      },
+      "CompatKeyRequest": {
+        "type": "object",
+        "properties": {
+          "write": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "description": "`write: true` makes a key that may also write through the routes of Moonraker and OctoPrint (they still need the switch `compat_write`); the default is a key that only reads."
       },
       "CompatKey": {
         "type": "object",
@@ -19588,6 +19986,9 @@
           "header": {
             "type": "string",
             "description": "The header the key is sent in: `X-Api-Key`."
+          },
+          "write": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -19596,6 +19997,170 @@
           "header"
         ],
         "additionalProperties": false
+      },
+      "FarmJobRequest": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "A request of the plugin `printer3d` (`print`, `preheat` or `gcode`)."
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "app": {
+            "type": "string",
+            "description": "The application that asks; the default is the one of the login."
+          },
+          "machines": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The 3D printers to choose among, in the order to try them; none: all of them, in the order of the list."
+          },
+          "copies": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16,
+            "description": "How many copies, each on a printer of its own (1 by default)."
+          }
+        },
+        "required": [
+          "request"
+        ],
+        "additionalProperties": false
+      },
+      "FarmJobs": {
+        "type": "object",
+        "properties": {
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkJob"
+            }
+          },
+          "unplaced": {
+            "type": "integer"
+          },
+          "tried": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "confirm": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jobs",
+          "unplaced",
+          "tried",
+          "confirm"
+        ],
+        "additionalProperties": false,
+        "description": "Where each copy went. A printer that refused a copy is in `tried` with the code and the reason."
+      },
+      "SliceRequest": {
+        "type": "object",
+        "properties": {
+          "mesh": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "artifact": {
+                "type": "string",
+                "description": "The id of an artifact that holds the STL or 3MF."
+              },
+              "base64": {
+                "type": "string",
+                "description": "The bytes of the file, in base64."
+              }
+            },
+            "description": "One of the two."
+          },
+          "profile": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "`{\"machine\": \"<id of a 3D printer>\"}`, or the settings of a printer (`model`, `hotend_max_c`, `bed_x_mm`...) with the keys of slicing: `layer_mm`, `line_mm`, `infill_pct`, `solid_layers`, `hotend_c`, `bed_c`, `print_feed_mm_s`, `travel_feed_mm_s` and, for the engine `phoenix`, `phoenix_printer`."
+          },
+          "engine": {
+            "type": "string",
+            "enum": [
+              "builtin",
+              "phoenix"
+            ],
+            "description": "`builtin` (the default) is the small slicer of the server; `phoenix` runs the program of the suite that `slice_phoenix_bin` names."
+          },
+          "output": {
+            "type": "string",
+            "enum": [
+              "view",
+              "artifact"
+            ],
+            "description": "`view` (the default) gives the program in the answer, `artifact` keeps it in the store of the caller."
+          },
+          "artifact_name": {
+            "type": "string",
+            "maxLength": 120
+          }
+        },
+        "required": [
+          "mesh",
+          "profile"
+        ],
+        "additionalProperties": false
+      },
+      "SliceResult": {
+        "type": "object",
+        "properties": {
+          "engine": {
+            "type": "string"
+          },
+          "layers": {
+            "type": "integer"
+          },
+          "estimate_s": {
+            "type": "number"
+          },
+          "filament_mm": {
+            "type": "number"
+          },
+          "open_layers": {
+            "type": "integer"
+          },
+          "bounds_mm": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "limits": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "read": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "gcode": {
+            "type": "string",
+            "description": "The program, when `output` is `view`."
+          },
+          "artifact": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "The artifact that holds the program, when `output` is `artifact`."
+          }
+        },
+        "required": [
+          "engine",
+          "layers"
+        ],
+        "additionalProperties": false,
+        "description": "The program was read again against the limits of the printer before it was given back."
       },
       "CompatKeyRevoked": {
         "type": "object",

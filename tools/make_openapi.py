@@ -261,7 +261,8 @@ TAGS = [
     ("artifacts", "Files kept by identity: artifacts, blobs and uploads."),
     ("projects", "Projects with revisions and explicit sharing."),
     ("store", "The project store of every application: projects, files with versions, editing locks and the .eh3dproj container."),
-    ("catalogs", "Shared catalogs the applications read: materials, tools, machine profiles, footprints, symbols and components."),    ("work", "Plugins and their machines, the generic queue of jobs with its history, the stream of events and the notifications."),
+    ("catalogs", "Shared catalogs the applications read: materials, tools, machine profiles, footprints, symbols and components."),
+    ("slice", "Slicing a mesh into G-code inside the limits of a printer profile (off until the switch slice_enabled is on)."),    ("work", "Plugins and their machines, the generic queue of jobs with its history, the stream of events and the notifications."),
 ]
 SECURITY_BEARER = [{"bearerAuth": []}]
 SECURITY_OPEN = [{"bearerAuth": []}, {"ticketAuth": []}]
@@ -627,8 +628,31 @@ SCHEMAS.update({
     "NotificationList": obj({"notifications": arr(ref("Notification"))}, ["notifications"]),
     "ReadNotifications": obj({"ids": arr(I), "all": B}, description="The ones named, or all of those the caller sees."),
     "Marked": obj({"marked": I}, ["marked"]),
-    "CompatKeyState": obj({"machine": s(), "set": B}, ["machine", "set"]),
-    "CompatKey": obj({"machine": s(), "key": s("Shown this once."), "header": s("The header the key is sent in: `X-Api-Key`.")}, ["machine", "key", "header"]),
+    "CompatKeyState": obj({"machine": s(), "set": B, "write": B}, ["machine", "set"]),
+    "CompatKeyRequest": obj({"write": B}, description="`write: true` makes a key that may also write through the routes of Moonraker and OctoPrint (they still need the switch `compat_write`); the default is a key that only reads."),
+    "CompatKey": obj({"machine": s(), "key": s("Shown this once."), "header": s("The header the key is sent in: `X-Api-Key`."), "write": B}, ["machine", "key", "header"]),
+    "FarmJobRequest": obj({
+        "request": {"type": "object", "additionalProperties": True, "description": "A request of the plugin `printer3d` (`print`, `preheat` or `gcode`)."},
+        "name": s(maxLength=80), "app": s("The application that asks; the default is the one of the login."),
+        "machines": arr(s(), description="The 3D printers to choose among, in the order to try them; none: all of them, in the order of the list."),
+        "copies": {"type": "integer", "minimum": 1, "maximum": 16, "description": "How many copies, each on a printer of its own (1 by default)."},
+    }, ["request"]),
+    "FarmJobs": obj({
+        "jobs": arr(ref("WorkJob")), "unplaced": I, "tried": arr({"type": "object", "additionalProperties": True}), "confirm": s(),
+    }, ["jobs", "unplaced", "tried", "confirm"], description="Where each copy went. A printer that refused a copy is in `tried` with the code and the reason."),
+    "SliceRequest": obj({
+        "mesh": {"type": "object", "additionalProperties": False, "properties": {"artifact": s("The id of an artifact that holds the STL or 3MF."), "base64": s("The bytes of the file, in base64.")},
+                 "description": "One of the two."},
+        "profile": {"type": "object", "additionalProperties": True, "description": "`{\"machine\": \"<id of a 3D printer>\"}`, or the settings of a printer (`model`, `hotend_max_c`, `bed_x_mm`...) with the keys of slicing: `layer_mm`, `line_mm`, `infill_pct`, `solid_layers`, `hotend_c`, `bed_c`, `print_feed_mm_s`, `travel_feed_mm_s` and, for the engine `phoenix`, `phoenix_printer`."},
+        "engine": {"type": "string", "enum": ["builtin", "phoenix"], "description": "`builtin` (the default) is the small slicer of the server; `phoenix` runs the program of the suite that `slice_phoenix_bin` names."},
+        "output": {"type": "string", "enum": ["view", "artifact"], "description": "`view` (the default) gives the program in the answer, `artifact` keeps it in the store of the caller."},
+        "artifact_name": s(maxLength=120),
+    }, ["mesh", "profile"]),
+    "SliceResult": obj({
+        "engine": s(), "layers": I, "estimate_s": N, "filament_mm": N, "open_layers": I,
+        "bounds_mm": {"type": "object", "additionalProperties": True}, "limits": {"type": "object", "additionalProperties": True}, "read": {"type": "object", "additionalProperties": True},
+        "gcode": s("The program, when `output` is `view`."), "artifact": {"type": "object", "additionalProperties": True, "description": "The artifact that holds the program, when `output` is `artifact`."},
+    }, ["engine", "layers"], description="The program was read again against the limits of the printer before it was given back."),
     "CompatKeyRevoked": obj({"machine": s(), "revoked": B}, ["machine", "revoked"]),
     "MachineOperation": {"type": "object", "additionalProperties": True, "description": "What the operation of the plugin answers; each route says what it has."},
     "JogRequest": obj({"axis": s("`x`, `y` or `z`."), "distance_mm": N, "feed": N}, ["axis", "distance_mm"], description="The distance is signed and at most `jog_max_mm`; the feed at most `jog_max_feed` (mm/min)."),
@@ -676,7 +700,7 @@ op("GET", "/work/jobs/{id}/findings", "work", "viewer", "The findings a gerber j
 op("DELETE", "/work/jobs/{id}", "work", "operator", "Remove a finished job", scope="jobs:cancel", errors=["unknown_job", "job_active"])
 op("POST", "/work/jobs/{id}/start", "work", "operator", "Start a queued job", scope="jobs:start", ok=(200, "WorkJob", "application/json"),
    errors=WJOB_ERR + ["not_ready", "machine_busy", "unknown_machine", "bad_plugin_request", "laser_estop_latched", "pnp_feeder_short", "machine_alarm", "printer_latched",
-                                                    "printer_disconnected", "enclosure_open", "air_assist_off", "focus_not_checked"],
+                                                    "printer_disconnected", "printer_untrusted", "enclosure_open", "air_assist_off", "focus_not_checked"],
    desc="One job at a time on a machine. A queue does not start by itself unless the machine is set to (`auto_start_queue` of a `printer3d` machine, off by default).")
 op("POST", "/work/jobs/{id}/pause", "work", "operator", "Hold a running job", scope="jobs:start", ok=(200, "WorkJob", "application/json"),
    errors=WJOB_ERR + ["not_in_state", "not_supported"], desc="A `bungard` machine holds only free G-code jobs (`not_supported` otherwise).")
@@ -732,11 +756,19 @@ op("PUT", "/work/machines/{id}/temperatures", "work", "operator", "Set the targe
    desc="Refused above the limit of the heater (the profile of the model, or the limit set for the machine).", example={"heater": "bed", "target_c": 60})
 op("GET", "/work/machines/{id}/layer", "work", "viewer", "The layer a 3D printer is at", scope="machines:view", errors=MACHINE_ERR + ["not_supported", "printer_disconnected"], **MOP,
    desc="The layer, the layers of the program when the printer says them, the height and an estimate of the time left.")
+op("POST", "/work/farm/jobs", "work", "operator", "Share a print among the free 3D printers", scope="jobs:prepare", body="FarmJobRequest", ok=(201, "FarmJobs", "application/json"),
+   errors=["farm_no_free_printer", "unknown_machine", "bad_plugin_request", "bad_app", "queue_full", "bad_gcode", "no_work", "too_big", "out_of_travel", "temperature_over_limit", "program_over_limit", "not_supported"],
+   desc="Each copy goes to the first free 3D printer that accepts it (not running, not latched and with no job waiting) and WAITS in its queue for a person to start it with `POST /work/jobs/{id}/start`; the server starts nothing by itself here (a printer with `auto_start_queue` set starts its own queue, as it always does). A printer that refuses the job because of the limits of its model is skipped and told in `tried`. `409 farm_no_free_printer` when no copy could be placed.",
+   example={"request": {"kind": "print", "text": "G28\nM104 S200\nG1 X10 Y10 F3000"}, "copies": 2, "machines": ["p1", "p2"]})
+op("POST", "/slice", "slice", "operator", "Slice a mesh into G-code inside the limits of a printer profile", scope="jobs:prepare", body="SliceRequest", ok=(200, "SliceResult", "application/json"),
+   errors=["slice_off", "bad_mesh", "slice_limit", "slice_failed", "bad_plugin_request", "unknown_artifact", "unknown_machine", "too_big", "blob_damaged", "storage", "not_supported", "program_over_limit", "temperature_over_limit", "out_of_travel", "bad_gcode"],
+   desc="Off until the switch `slice_enabled` of the security page is on. The small slicer of the server cuts a closed mesh (STL, or a 3MF whose model is stored without compression) into layers with an outline and a rectilinear infill; the engine `phoenix` runs the program of the suite that `slice_phoenix_bin` names, with a time limit and no input. The program that comes out is read again against the limits of the profile: an object that does not fit, a temperature or a feed over the limit is a refusal and nothing is cut down. The mesh, the layers, the work and the program have limits (`slice_*` in `server.cfg`).",
+   example={"mesh": {"base64": "<an STL in base64>"}, "profile": {"model": "bambu_a1", "layer_mm": 0.2, "infill_pct": 15}})
 op("GET", "/work/machines/{id}/compat/key", "work", "admin", "Whether a 3D printer has a key for the compatibility routes", scope="machines:manage", ok=(200, "CompatKeyState", "application/json"),
    errors=MACHINE_ERR + ["not_supported"], desc="Only for a machine of the `printer3d` plugin. The key itself is never shown again.")
 op("POST", "/work/machines/{id}/compat/key", "work", "admin", "Make the key of a 3D printer for the compatibility routes", scope="machines:manage", ok=(200, "CompatKey", "application/json"),
-   errors=MACHINE_ERR + ["not_supported", "storage"],
-   desc="Only for a machine of the `printer3d` plugin. The key is shown this once, in the answer; the server keeps only its SHA-256. A key the machine had stops working. Programs written for Moonraker or OctoPrint send it in the header `X-Api-Key` to the routes at the root of the address (`docs/MACHINE_PLUGINS.md`, \"Compatibility routes\"), which answer only while the switch `compat_api` of the security page is on.")
+   body="CompatKeyRequest", body_required=False, example={"write": False}, errors=MACHINE_ERR + ["not_supported", "storage", "bad_request"],
+   desc="Only for a machine of the `printer3d` plugin. The key is shown this once, in the answer; the server keeps only its SHA-256. A key the machine had stops working. Programs written for Moonraker or OctoPrint send it in the header `X-Api-Key` to the routes at the root of the address (`docs/MACHINE_PLUGINS.md`, \"Compatibility routes\"), which answer only while the switch `compat_api` of the security page is on. The body is optional: `{\"write\": true}` makes a key that may also write through those routes (pause, resume and cancel a print, start one that waits, upload a file to the queue), which still need the switch `compat_write`; a new key made without it never writes.")
 op("DELETE", "/work/machines/{id}/compat/key", "work", "admin", "Take the compatibility key of a 3D printer away", scope="machines:manage", ok=(200, "CompatKeyRevoked", "application/json"),
    errors=MACHINE_ERR + ["not_supported", "storage"], desc="Only for a machine of the `printer3d` plugin. The key goes too when the machine is removed.")
 op("GET", "/work/machines/{id}/compat/moonraker", "work", "viewer", "The state of a 3D printer shaped as Moonraker answers it", scope="machines:view", errors=MACHINE_ERR + ["not_supported", "printer_disconnected"], **MOP,

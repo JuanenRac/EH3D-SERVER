@@ -14,12 +14,14 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+use crate::bambu::normalize_fingerprint;
 use crate::gcode;
 use crate::plugins::{PluginError, PluginResult, PluginStatus, Prepared, WorkState};
 use crate::printer_drivers::{
     moonraker_shape, octoprint_shape, DriverError, DriverResult, Heater, MoonrakerDriver,
     OctoPrintDriver, PrinterDriver, PrinterJob, PrinterState, TcpHttp,
 };
+use crate::printer_lan::{BambuDriver, ConnectError, MarlinDriver, SimBambu, SimSerial};
 use crate::simjobs::{flag_in, known_keys, num, number_in, round2};
 use crate::sync::Locked;
 
@@ -50,7 +52,7 @@ pub const PROFILES: &[(&str, f64, f64, f64, &str)] = &[
 /// The settings a printer machine may have: key and what it takes.
 pub const SETTINGS_HELP: &[(&str, &str)] = &[
     ("model", "the model: generic (the default), bambu_a1, bambu_a1_mini or bambu_p1s; its profile gives the limits of temperature"),
-    ("connection", "how the printer is reached: {\"kind\": \"demo\"} (the simulator, the default), {\"kind\": \"moonraker\", \"url\": \"http://host:7125\", \"api_key\": \"...\"} or {\"kind\": \"octoprint\", \"url\": ..., \"api_key\": ...}; the key is never shown again; bambu_lan is a sheet only"),
+    ("connection", "how the printer is reached: {\"kind\": \"demo\"} (the simulator, the default), {\"kind\": \"moonraker\", \"url\": \"http://host:7125\", \"api_key\": \"...\"} or {\"kind\": \"octoprint\", \"url\": ..., \"api_key\": ...}; the key is never shown again; {\"kind\": \"marlin\", \"port\": \"sim\", \"baud\": 115200} is a Marlin printer on a serial line (only the simulated line is served); {\"kind\": \"bambu_lan\", \"host\": \"sim\", \"serial\": \"...\", \"fingerprint\": \"<sha256 of the certificate>\", \"api_key\": \"<access code>\"} is a Bambu Lab printer in LAN mode, an EXPERIMENT served only as a simulator: a certificate is never accepted unless it is the pinned one"),
     ("hotend_max_c", "the hottest the hotend may be asked, 0 to 450 (the profile of the model by default)"),
     ("bed_max_c", "the hottest the bed may be asked, 0 to 150 (the profile by default)"),
     ("chamber_max_c", "the hottest the chamber may be asked, 0 to 100 (the profile by default; 0 is a printer with no chamber heater)"),
@@ -67,6 +69,7 @@ pub const SETTINGS_HELP: &[(&str, &str)] = &[
     ("poll_ms", "how often the printer is asked, 200 to 10000 (1000 by default)"),
     ("auto_start_queue", "the next queued job starts by itself when the printer is free (false by default: a person starts every print)"),
     ("compat", "the answers shaped like another program's (GET .../compat/moonraker and .../compat/octoprint): off (the default), moonraker, octoprint or both"),
+    ("compat_start", "a program that uses the write routes of Moonraker or OctoPrint may start a print that waits in the queue (false by default: a person starts it with the routes of the server; pausing and cancelling work for any key that may write)"),
     ("step_ms", "the milliseconds one line of a program takes in the simulator, 0 to 3600000 (20 by default)"),
     ("sim_rate", "how many times faster than real time the simulator works, 0 to 100000 (1 by default; 0 is no waiting)"),
     ("sim_fault", "makes the simulator fail: none (the default), thermal_runaway, sensor_lost or disconnect"),
@@ -93,6 +96,32 @@ pub enum Connection {
         url: String,
         api_key: Option<String>,
     },
+    /// A Marlin printer on a serial line. Only the simulated line (`port` is `sim`) is served.
+    Marlin {
+        port: String,
+        baud: u32,
+    },
+    /// A Bambu Lab printer in LAN mode (an experiment). Only the simulated printer (`host` is `sim`) is served. `access_code` is the access code of the printer (kept
+    /// like the key of the API of the other printers), `fingerprint` the SHA-256 of the certificate the printer must show: with none, the connection is refused.
+    BambuLan {
+        host: String,
+        serial: String,
+        access_code: Option<String>,
+        fingerprint: Option<String>,
+    },
+}
+
+impl Connection {
+    /// The word the settings and the detail of the machine call it by.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Connection::Demo => "demo",
+            Connection::Moonraker { .. } => "moonraker",
+            Connection::OctoPrint { .. } => "octoprint",
+            Connection::Marlin { .. } => "marlin",
+            Connection::BambuLan { .. } => "bambu_lan",
+        }
+    }
 }
 
 /// The settings of a printer machine, checked.
@@ -112,6 +141,7 @@ pub struct PrinterConfig {
     pub poll_ms: f64,
     pub auto_start_queue: bool,
     pub compat: String,
+    pub compat_start: bool,
     pub step_ms: f64,
     pub sim_rate: f64,
     pub sim_fault: String,
@@ -134,6 +164,7 @@ impl Default for PrinterConfig {
             poll_ms: 1000.0,
             auto_start_queue: false,
             compat: "off".into(),
+            compat_start: false,
             step_ms: 20.0,
             sim_rate: 1.0,
             sim_fault: "none".into(),
@@ -210,6 +241,9 @@ impl PrinterConfig {
         if let Some(b) = flag_in(settings, "auto_start_queue")? {
             c.auto_start_queue = b;
         }
+        if let Some(b) = flag_in(settings, "compat_start")? {
+            c.compat_start = b;
+        }
         if let Some(v) = settings.get("compat") {
             match v.as_str() {
                 Some(w @ ("off" | "moonraker" | "octoprint" | "both")) => c.compat = w.to_string(),
@@ -246,12 +280,69 @@ impl PrinterConfig {
             };
             c.connection = match conn.get("kind").and_then(Value::as_str) {
                 Some("demo") => Connection::Demo,
-                Some("moonraker") => Connection::Moonraker { url: url()?, api_key: key()? },
-                Some("octoprint") => Connection::OctoPrint { url: url()?, api_key: key()? },
-                Some("bambu_lan") => {
-                    return Err("the connection bambu_lan is a sheet only, an experiment that is not served yet".into())
+                Some("moonraker") => Connection::Moonraker {
+                    url: url()?,
+                    api_key: key()?,
+                },
+                Some("octoprint") => Connection::OctoPrint {
+                    url: url()?,
+                    api_key: key()?,
+                },
+                Some("marlin") => {
+                    let port = conn
+                        .get("port")
+                        .and_then(Value::as_str)
+                        .ok_or("a connection to a Marlin printer has its `port`")?;
+                    if port != "sim" {
+                        return Err("the serial line of a real Marlin printer is not served yet: port is \"sim\", the simulated line".into());
+                    }
+                    let baud = match conn.get("baud") {
+                        None => 115_200,
+                        Some(v) => v
+                            .as_u64()
+                            .filter(|b| (1200..=2_000_000).contains(b))
+                            .ok_or("baud is a number from 1200 to 2000000")?
+                            as u32,
+                    };
+                    Connection::Marlin {
+                        port: port.to_string(),
+                        baud,
+                    }
                 }
-                _ => return Err("connection.kind is demo, moonraker or octoprint".into()),
+                Some("bambu_lan") => {
+                    let host = conn
+                        .get("host")
+                        .and_then(Value::as_str)
+                        .ok_or("a connection to a Bambu printer has its `host`")?;
+                    if host != "sim" {
+                        return Err("the LAN link to a real Bambu printer (MQTT over TLS and FTPS) is not served yet: host is \"sim\", the simulated printer; bambu_lan is an experiment".into());
+                    }
+                    let serial = conn
+                        .get("serial")
+                        .and_then(Value::as_str)
+                        .filter(|s| {
+                            (8..=32).contains(&s.len()) && s.chars().all(|c| c.is_ascii_alphanumeric())
+                        })
+                        .ok_or("serial is the serial number of the printer: 8 to 32 letters and digits")?;
+                    let fingerprint = match conn.get("fingerprint") {
+                        None | Some(Value::Null) => None,
+                        Some(Value::String(f)) => Some(normalize_fingerprint(f).ok_or(
+                            "fingerprint is the SHA-256 of the certificate: 64 hexadecimal digits",
+                        )?),
+                        Some(_) => return Err("fingerprint is a text".into()),
+                    };
+                    Connection::BambuLan {
+                        host: host.to_string(),
+                        serial: serial.to_string(),
+                        access_code: key()?,
+                        fingerprint,
+                    }
+                }
+                _ => {
+                    return Err(
+                        "connection.kind is demo, moonraker, octoprint, marlin or bambu_lan".into(),
+                    )
+                }
             };
         }
         Ok(c)
@@ -823,6 +914,34 @@ fn real_driver(cfg: &PrinterConfig) -> PluginResult<Arc<dyn PrinterDriver>> {
             TcpHttp::new(url, timeout).map_err(PluginError::Bad)?,
             api_key.clone(),
         )),
+        Connection::Marlin { .. } => Arc::new(MarlinDriver::new(SimSerial::new(
+            (cfg.limits[0] + 15.0).min(450.0),
+            (cfg.limits[1] + 10.0).min(150.0),
+            cfg.step_ms / 1000.0,
+            cfg.sim_rate,
+        ))),
+        Connection::BambuLan {
+            serial,
+            fingerprint,
+            ..
+        } => {
+            // a layer takes a hundred steps in the simulation
+            let link = SimBambu::new(
+                serial,
+                cfg.limits[0],
+                cfg.limits[1],
+                cfg.step_ms / 10.0,
+                cfg.sim_rate,
+            );
+            let driver =
+                BambuDriver::connect(link, fingerprint.as_deref()).map_err(|e| match e {
+                    ConnectError::Untrusted(why) => {
+                        PluginError::Coded("printer_untrusted", why.text())
+                    }
+                    ConnectError::Down(text) => disconnected(&text),
+                })?;
+            Arc::new(driver)
+        }
     })
 }
 
@@ -1148,14 +1267,19 @@ impl Printer3dEngine {
         let latched = self.latched(machine);
         let mut v = json!({
             "model": cfg.model,
-            "connection": match &cfg.connection { Connection::Demo => "demo", Connection::Moonraker { .. } => "moonraker", Connection::OctoPrint { .. } => "octoprint" },
+            "connection": cfg.connection.name(),
             "online": reachable,
             "latched": latched.is_some(),
             "latched_by": latched,
             "limits_c": { "hotend": cfg.limits[0], "bed": cfg.limits[1], "chamber": cfg.limits[2] },
             "auto_start_queue": cfg.auto_start_queue,
             "compat": cfg.compat,
+            "compat_start": cfg.compat_start,
         });
+        if let Connection::BambuLan { fingerprint, .. } = &cfg.connection {
+            v["bambu_lan"] =
+                json!({"experimental": true, "fingerprint_pinned": fingerprint.is_some()});
+        }
         if let Ok(s) = state {
             v["state"] = json!(s.state);
             v["temperatures"] = json!(s
@@ -1794,7 +1918,7 @@ mod tests {
                 api_key: Some("k".into())
             }
         );
-        assert_eq!(SETTINGS_HELP.len(), 21);
+        assert_eq!(SETTINGS_HELP.len(), 22);
     }
 
     #[test]
@@ -2652,5 +2776,124 @@ mod tests {
         };
         apply_state(&mut seen, "print", &[], &idle, None);
         assert_eq!(seen.state, WorkState::Done);
+    }
+
+    #[test]
+    fn the_marlin_and_bambu_connections_are_checked_and_only_the_simulated_ones_are_served() {
+        let marlin = PrinterConfig::from_settings(
+            &json!({"connection": {"kind": "marlin", "port": "sim", "baud": 250000}}),
+        )
+        .unwrap();
+        assert_eq!(
+            marlin.connection,
+            Connection::Marlin {
+                port: "sim".into(),
+                baud: 250_000
+            }
+        );
+        assert_eq!(marlin.connection.name(), "marlin");
+        let default_baud =
+            PrinterConfig::from_settings(&json!({"connection": {"kind": "marlin", "port": "sim"}}))
+                .unwrap();
+        assert!(matches!(
+            default_baud.connection,
+            Connection::Marlin { baud: 115_200, .. }
+        ));
+        let colons = vec!["AB"; 32].join(":");
+        let bambu = PrinterConfig::from_settings(&json!({"model": "bambu_p1s", "connection": {
+            "kind": "bambu_lan", "host": "sim", "serial": "01P00A111111111", "api_key": "12345678", "fingerprint": colons}}))
+        .unwrap();
+        assert_eq!(
+            bambu.connection,
+            Connection::BambuLan {
+                host: "sim".into(),
+                serial: "01P00A111111111".into(),
+                access_code: Some("12345678".into()),
+                fingerprint: Some("ab".repeat(32))
+            }
+        );
+        assert_eq!(
+            (bambu.model.as_str(), bambu.limits),
+            ("bambu_p1s", [300.0, 100.0, 0.0])
+        );
+        for bad in [
+            json!({"connection": {"kind": "marlin"}}),
+            json!({"connection": {"kind": "marlin", "port": "COM3"}}),
+            json!({"connection": {"kind": "marlin", "port": "sim", "baud": 5}}),
+            json!({"connection": {"kind": "bambu_lan", "serial": "01P00A111111111"}}),
+            json!({"connection": {"kind": "bambu_lan", "host": "192.168.1.9", "serial": "01P00A111111111"}}),
+            json!({"connection": {"kind": "bambu_lan", "host": "sim", "serial": "short"}}),
+            json!({"connection": {"kind": "bambu_lan", "host": "sim", "serial": "01P00A111111111", "fingerprint": "abc"}}),
+            json!({"connection": {"kind": "bambu_lan", "host": "sim", "serial": "01P00A111111111", "fingerprint": 5}}),
+        ] {
+            assert!(PrinterConfig::from_settings(&bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_marlin_machine_runs_a_print_on_its_simulated_line_inside_its_limits() {
+        let e = engine();
+        let cfg = PrinterConfig {
+            connection: Connection::Marlin {
+                port: "sim".into(),
+                baud: 115_200,
+            },
+            ..quick()
+        };
+        let p = e.prepare("m1", &cfg, &print(PART)).unwrap();
+        e.start("m1", &cfg, &p.native_id).unwrap();
+        let st = e.status("m1", &cfg, &p.native_id).unwrap();
+        assert_eq!((st.state, st.done), (WorkState::Done, 100));
+        assert_eq!(e.detail("m1", &cfg)["connection"], "marlin");
+        // a target over the limit of the model is refused before the line is touched
+        let over = json!({"heater": "hotend", "target_c": 270});
+        assert!(e.set_temperature("m1", &cfg, &over).is_err());
+        let ok = json!({"heater": "hotend", "target_c": 200});
+        assert!(e.set_temperature("m1", &cfg, &ok).is_ok());
+    }
+
+    #[test]
+    fn a_bambu_machine_is_refused_until_the_certificate_is_pinned_and_then_prints_on_the_simulator()
+    {
+        let e = engine();
+        let serial = "01P00A111111111";
+        let conn = |fingerprint: Option<String>| Connection::BambuLan {
+            host: "sim".into(),
+            serial: serial.into(),
+            access_code: Some("12345678".into()),
+            fingerprint,
+        };
+        let model = |connection| PrinterConfig {
+            model: "bambu_a1".into(),
+            limits: [300.0, 100.0, 0.0],
+            connection,
+            ..quick()
+        };
+        // no fingerprint pinned: nothing is sent, and the refusal says what the printer showed
+        let open = model(conn(None));
+        let p = e.prepare("b1", &open, &print(PART)).unwrap();
+        let refused = e.start("b1", &open, &p.native_id).unwrap_err();
+        assert_eq!(refused.code(), "printer_untrusted");
+        assert!(
+            refused
+                .detail()
+                .contains(&crate::printer_lan::sim_fingerprint(serial)),
+            "{}",
+            refused.detail()
+        );
+        // another certificate than the pinned one
+        let wrong = model(conn(Some(crate::printer_lan::sim_fingerprint("other"))));
+        let refused = e.start("b1", &wrong, &p.native_id).unwrap_err();
+        assert_eq!(refused.code(), "printer_untrusted");
+        assert!(refused.detail().contains("not the pinned one"));
+        // the pinned one
+        let pinned = model(conn(Some(crate::printer_lan::sim_fingerprint(serial))));
+        e.start("b1", &pinned, &p.native_id).unwrap();
+        let st = e.status("b1", &pinned, &p.native_id).unwrap();
+        assert_eq!((st.state, st.done), (WorkState::Done, 100));
+        let detail = e.detail("b1", &pinned);
+        assert_eq!(detail["connection"], "bambu_lan");
+        assert_eq!(detail["bambu_lan"]["experimental"], true);
+        assert_eq!(detail["bambu_lan"]["fingerprint_pinned"], true);
     }
 }

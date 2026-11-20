@@ -290,7 +290,16 @@ pub(crate) fn work_machine_ids(st: &Arc<AppState>, kind: &str) -> Vec<(String, S
 pub fn in_memory(kind: &str) -> bool {
     matches!(
         kind,
-        "demo" | "laser" | "pnp" | "pcb" | "cnc" | "gerber" | "cam" | "printer3d"
+        "demo"
+            | "laser"
+            | "pnp"
+            | "pcb"
+            | "cnc"
+            | "gerber"
+            | "cam"
+            | "printer3d"
+            | "vision"
+            | "cad"
     )
 }
 
@@ -312,6 +321,8 @@ impl Registry {
                 Arc::new(crate::plugin_gerber::GerberPlugin::default()),
                 Arc::new(crate::plugin_cam::CamPlugin::default()),
                 Arc::new(crate::plugin_printer3d::Printer3dPlugin::default()),
+                Arc::new(crate::plugin_vision::VisionPlugin::default()),
+                Arc::new(crate::plugin_cad::CadPlugin::default()),
             ],
         }
     }
@@ -835,13 +846,23 @@ mod tests {
         let r = Registry::standard();
         assert!(r.get("bungard").is_some());
         assert!(r.get("demo").is_some());
-        for kind in ["laser", "pnp", "pcb", "cnc", "gerber", "cam", "printer3d"] {
+        for kind in [
+            "laser",
+            "pnp",
+            "pcb",
+            "cnc",
+            "gerber",
+            "cam",
+            "printer3d",
+            "vision",
+            "cad",
+        ] {
             assert!(r.get(kind).is_some(), "{kind}");
             assert!(in_memory(kind));
             assert!(r.get(kind).unwrap().manages_machines());
         }
         assert!(!in_memory("bungard"));
         assert!(r.get("nothing").is_none());
-        assert_eq!(r.all().len(), 9);
+        assert_eq!(r.all().len(), 11);
     }
 }

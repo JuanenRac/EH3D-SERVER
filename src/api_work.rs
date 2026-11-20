@@ -3,7 +3,7 @@
 //! and of the jobs (`/api/v1/machines`, `/api/v1/jobs`) are not touched; the `bungard` plugin works on the same machines and the same jobs. The rules are in `src/work.rs`
 //! and `src/plugins.rs`, and `docs/MACHINE_PLUGINS.md` explains them.
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::convert::Infallible;
 use std::time::Duration;
 
@@ -80,6 +80,7 @@ pub fn routes() -> Router<Shared> {
                 .delete(compat_key_revoke),
         )
         .route("/api/v1/work/jobs", get(list_jobs).post(create_job))
+        .route("/api/v1/work/farm/jobs", post(create_farm_jobs))
         .route("/api/v1/work/jobs/:id", get(get_job).delete(remove_job))
         .route("/api/v1/work/jobs/:id/layers", get(job_layers))
         .route("/api/v1/work/jobs/:id/findings", get(job_findings))
@@ -431,26 +432,65 @@ async fn compat_key_state(
     crate::api::need_scope(&who, "machines:manage")?;
     printer_for_key(&s, &id)?;
     Ok(Json(
-        json!({ "machine": id, "set": s.compat_keys.has(&id) }),
+        json!({ "machine": id, "set": s.compat_keys.has(&id), "write": s.compat_keys.can_write(&id) }),
     ))
 }
 
-/// Makes a key for the machine and shows it this once; a key it had stops working.
+/// Makes a key for the machine and shows it this once; a key it had stops working. The body is optional: `{"write": true}` makes a key that may also write through the
+/// routes of Moonraker and OctoPrint (start, pause and cancel a print, upload a file), which still need the switch `compat_write`.
 async fn compat_key_issue(
     State(s): State<Shared>,
     Authed(who, _): Authed,
     Path(id): Path<String>,
+    body: axum::body::Bytes,
 ) -> ApiResult {
     crate::api::need(&who, Role::Admin)?;
     crate::api::need_scope(&who, "machines:manage")?;
     printer_for_key(&s, &id)?;
+    let write = if body.iter().all(u8::is_ascii_whitespace) {
+        false
+    } else {
+        let asked: Value = serde_json::from_slice(&body).map_err(|_| {
+            ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "bad_request",
+                "the body is a JSON object, or empty",
+            )
+        })?;
+        if !asked.is_object() {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "bad_request",
+                "the body is a JSON object, or empty",
+            ));
+        }
+        match asked.get("write") {
+            None | Some(Value::Null) => false,
+            Some(Value::Bool(b)) => *b,
+            Some(_) => {
+                return Err(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "bad_request",
+                    "write is true or false",
+                ))
+            }
+        }
+    };
     let key = s
         .compat_keys
-        .issue(&id)
+        .issue(&id, write)
         .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "storage", ""))?;
-    crate::api::note(&s, "compat_key_issue", &who, &[("machine", &id)]);
+    crate::api::note(
+        &s,
+        "compat_key_issue",
+        &who,
+        &[
+            ("machine", &id),
+            ("write", if write { "true" } else { "false" }),
+        ],
+    );
     Ok(Json(
-        json!({ "machine": id, "key": key, "header": "X-Api-Key" }),
+        json!({ "machine": id, "key": key, "header": "X-Api-Key", "write": write }),
     ))
 }
 
@@ -516,6 +556,139 @@ async fn create_job(
         &[("job", &created.id), ("machine", &created.machine)],
     );
     Ok((StatusCode::CREATED, Json(job_view(&s, &created, true))))
+}
+
+#[derive(Deserialize)]
+struct FarmJob {
+    request: Value,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    app: Option<String>,
+    /// The 3D printers to choose among, in the order to try them; none: all of them, in the order of the list.
+    #[serde(default)]
+    machines: Option<Vec<String>>,
+    /// How many copies, each on a printer of its own (1 to 16, 1 by default).
+    #[serde(default)]
+    copies: Option<u32>,
+}
+
+/// The 3D printers that are free, in the order to try them: not running or held, not latched and with no job waiting for a person. The list narrows the choice and sets the order.
+fn free_printers(s: &Shared, only: Option<&[String]>) -> Result<Vec<String>, Fail> {
+    let plugin = s
+        .plugins
+        .get("printer3d")
+        .ok_or(PluginError::NotSupported("this server has no 3D printers"))?;
+    let waiting: HashSet<String> = s
+        .work
+        .jobs
+        .locked()
+        .list()
+        .iter()
+        .filter(|j| j.plugin == "printer3d" && j.state == crate::plugins::WorkState::Queued)
+        .map(|j| j.machine.clone())
+        .collect();
+    let listed = plugin.machines(s);
+    let order: Vec<String> = match only {
+        Some(ids) => {
+            for id in ids {
+                if !listed.iter().any(|m| &m.id == id) {
+                    return Err(PluginError::UnknownMachine.into());
+                }
+            }
+            ids.to_vec()
+        }
+        None => listed.iter().map(|m| m.id.clone()).collect(),
+    };
+    Ok(order
+        .into_iter()
+        .filter(|id| {
+            listed.iter().any(|m| &m.id == id && m.state == "idle") && !waiting.contains(id)
+        })
+        .collect())
+}
+
+/// Shares a print among the 3D printers that are free: each copy goes to the first free printer that accepts it (the limits of its model hold) and WAITS there in the queue
+/// for a person to start it; nothing starts by itself. The answer says where each copy went and why a printer refused.
+async fn create_farm_jobs(
+    State(s): State<Shared>,
+    Authed(who, token): Authed,
+    ApiJson(b): ApiJson<FarmJob>,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    crate::api::need(&who, Role::Operator)?;
+    crate::api::need_scope(&who, "jobs:prepare")?;
+    let app = match b.app {
+        Some(a) if crate::apps::allowed(&s.cfg, &a) => a,
+        Some(_) => return Err(bad_app()),
+        None => s.auth.locked().app_of(&token).unwrap_or_default(),
+    };
+    let copies = b.copies.unwrap_or(1);
+    if !(1..=16).contains(&copies) {
+        return Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "bad_plugin_request",
+            "copies is from 1 to 16",
+        ));
+    }
+    let (state, by) = (s.clone(), who.clone());
+    let (request, name, only) = (b.request, b.name, b.machines);
+    let (placed, tried, free_count) = run(move || {
+        let mut free = free_printers(&state, only.as_deref())?.into_iter();
+        let free_count = free.len();
+        let (mut placed, mut tried): (Vec<Value>, Vec<Value>) = (Vec::new(), Vec::new());
+        'copies: for _ in 0..copies {
+            loop {
+                let Some(machine) = free.next() else {
+                    break 'copies;
+                };
+                match state.work_create(&by, &machine, name.as_deref(), &app, &request) {
+                    Ok(job) => {
+                        placed.push(job_view(&state, &job, true));
+                        break;
+                    }
+                    Err(e) => tried
+                        .push(json!({"machine": machine, "error": e.code(), "detail": e.detail()})),
+                }
+            }
+        }
+        Ok((placed, tried, free_count))
+    })
+    .await?;
+    if placed.is_empty() {
+        let why = if free_count == 0 {
+            "no 3D printer is free: each one is busy, latched or has a job waiting for a person"
+                .to_string()
+        } else {
+            format!("no free printer took the job: {}", Value::Array(tried))
+        };
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "farm_no_free_printer",
+            why,
+        ));
+    }
+    for job in &placed {
+        let (id, machine) = (
+            job["id"].as_str().unwrap_or(""),
+            job["machine"].as_str().unwrap_or(""),
+        );
+        crate::api::note(
+            &s,
+            "work_farm_job",
+            &who,
+            &[("job", id), ("machine", machine)],
+        );
+    }
+    let unplaced = copies as usize - placed.len();
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({
+            "jobs": placed,
+            "unplaced": unplaced,
+            "tried": tried,
+            "confirm": "each job waits in the queue of its printer: a person starts it with POST /api/v1/work/jobs/{id}/start",
+        })),
+    ))
 }
 
 #[derive(Deserialize)]

@@ -31,6 +31,10 @@ pub struct Hot {
     pub mdns_announce: bool,
     /// Whether the routes of Moonraker and OctoPrint at the root of the address answer (each machine also needs its key).
     pub compat_api: bool,
+    /// Whether the routes of Moonraker and OctoPrint that write answer (a machine also needs a key that allows writing).
+    pub compat_write: bool,
+    /// Whether the server slices a mesh into G-code.
+    pub slice_enabled: bool,
     pub login_ip_limit: u32,
     pub auth_max_failures: u32,
     pub auth_lockout_s: u64,
@@ -50,6 +54,8 @@ pub const KEYS: &[&str] = &[
     "update_keep_logins",
     "mdns_announce",
     "compat_api",
+    "compat_write",
+    "slice_enabled",
     "login_ip_limit",
     "auth_max_failures",
     "auth_lockout_s",
@@ -102,6 +108,8 @@ impl Hot {
             update_keep_logins: c.update_keep_logins,
             mdns_announce: c.mdns_announce,
             compat_api: c.compat_api,
+            compat_write: c.compat_write,
+            slice_enabled: c.slice_enabled,
             login_ip_limit: c.login_ip_limit,
             auth_max_failures: c.auth_max_failures,
             auth_lockout_s: c.auth_lockout_s,
@@ -123,6 +131,8 @@ impl Hot {
             "update_keep_logins" => json!(self.update_keep_logins),
             "mdns_announce" => json!(self.mdns_announce),
             "compat_api" => json!(self.compat_api),
+            "compat_write" => json!(self.compat_write),
+            "slice_enabled" => json!(self.slice_enabled),
             "login_ip_limit" => json!(self.login_ip_limit),
             "auth_max_failures" => json!(self.auth_max_failures),
             "auth_lockout_s" => json!(self.auth_lockout_s),
@@ -145,6 +155,8 @@ impl Hot {
             "update_keep_logins" => !self.update_keep_logins,
             "mdns_announce" => !self.mdns_announce,
             "compat_api" => !self.compat_api,
+            "compat_write" => !self.compat_write,
+            "slice_enabled" => !self.slice_enabled,
             "login_ip_limit" => self.login_ip_limit > 0,
             "auth_max_failures" => self.auth_max_failures <= 10,
             "auth_lockout_s" => self.auth_lockout_s >= 10,
@@ -167,6 +179,8 @@ impl Hot {
             "update_keep_logins" => self.update_keep_logins = flag(value, key)?,
             "mdns_announce" => self.mdns_announce = flag(value, key)?,
             "compat_api" => self.compat_api = flag(value, key)?,
+            "compat_write" => self.compat_write = flag(value, key)?,
+            "slice_enabled" => self.slice_enabled = flag(value, key)?,
             "login_ip_limit" => self.login_ip_limit = whole(value, key, 0, 1_000)? as u32,
             "auth_max_failures" => self.auth_max_failures = whole(value, key, 1, 100)? as u32,
             "auth_lockout_s" => self.auth_lockout_s = whole(value, key, 1, 86_400)?,
@@ -305,7 +319,12 @@ mod tests {
         let d = dir("mdns");
         let cfg = ServerConfig::default();
         let hot = Hot::from_config(&cfg);
-        for key in ["mdns_announce", "compat_api"] {
+        for key in [
+            "mdns_announce",
+            "compat_api",
+            "compat_write",
+            "slice_enabled",
+        ] {
             assert!(
                 KEYS.contains(&key),
                 "{key} can be changed while the server runs"

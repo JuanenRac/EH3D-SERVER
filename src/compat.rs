@@ -3,7 +3,7 @@
 //! (`POST /api/v1/work/machines/{id}/compat/key`), and a new one replaces the old. The routes themselves are in `src/api_compat.rs`; they answer only while the switch
 //! `compat_api` of the security page is on (off by default) and only for the machine the key belongs to.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -48,29 +48,63 @@ pub fn well_formed(key: &str) -> bool {
 pub struct CompatKeys {
     path: PathBuf,
     keys: Mutex<BTreeMap<String, String>>,
+    /// The machines whose key was made to write too (start, pause and cancel a print, upload a file); in `compat-writers.json`.
+    writers_path: PathBuf,
+    writers: Mutex<BTreeSet<String>>,
 }
 
 impl CompatKeys {
     pub fn open(dir: &Path) -> io::Result<CompatKeys> {
         let path = dir.join("compat-keys.json");
         let keys: BTreeMap<String, String> = store::read_json(&path)?.unwrap_or_default();
+        let writers_path = dir.join("compat-writers.json");
+        let writers: BTreeSet<String> = store::read_json(&writers_path)?.unwrap_or_default();
         Ok(CompatKeys {
             path,
             keys: Mutex::new(keys),
+            writers_path,
+            writers: Mutex::new(writers),
         })
     }
 
-    /// Makes a new key for the machine, keeps its hash (the old key stops working) and gives the key, which is not kept.
-    pub fn issue(&self, machine: &str) -> io::Result<String> {
+    /// Makes a new key for the machine, keeps its hash (the old key stops working) and gives the key, which is not kept. `write` says whether the key may also write; a key
+    /// made without it never does, and a new key replaces what the old one could do.
+    pub fn issue(&self, machine: &str, write: bool) -> io::Result<String> {
         let mut raw = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut raw);
         let key = format!("{PREFIX}{}", hex::encode(raw));
         let mut keys = self.keys.locked();
         let mut next = keys.clone();
         next.insert(machine.to_string(), hash_key(&key));
-        store::write_json(&self.path, &next)?;
+        let mut writers = self.writers.locked();
+        let mut now_writers = writers.clone();
+        if write {
+            now_writers.insert(machine.to_string());
+        } else {
+            now_writers.remove(machine);
+        }
+        // each of the two files is written in the order that leaves the machine with LESS than asked if the second write fails: a key that writes is kept
+        // before its permission, a key that does not is kept after the permission is taken away
+        let changed = now_writers != *writers;
+        if write {
+            store::write_json(&self.path, &next)?;
+            if changed {
+                store::write_json(&self.writers_path, &now_writers)?;
+            }
+        } else {
+            if changed {
+                store::write_json(&self.writers_path, &now_writers)?;
+            }
+            store::write_json(&self.path, &next)?;
+        }
         *keys = next;
+        *writers = now_writers;
         Ok(key)
+    }
+
+    /// Whether the key of the machine was made to write too.
+    pub fn can_write(&self, machine: &str) -> bool {
+        self.writers.locked().contains(machine)
     }
 
     /// Takes the key of the machine away. Whether there was one.
@@ -83,6 +117,10 @@ impl CompatKeys {
         next.remove(machine);
         store::write_json(&self.path, &next)?;
         *keys = next;
+        let mut writers = self.writers.locked();
+        if writers.remove(machine) {
+            let _ = store::write_json(&self.writers_path, &*writers);
+        }
         Ok(true)
     }
 
@@ -144,11 +182,34 @@ mod tests {
     }
 
     #[test]
+    fn a_key_writes_only_when_it_was_made_to_and_a_new_key_forgets_that() {
+        let d = dir("writers");
+        let keys = CompatKeys::open(&d).unwrap();
+        let read_only = keys.issue("p1", false).unwrap();
+        assert!(!keys.can_write("p1") && keys.find(&read_only).is_some());
+        let writes = keys.issue("p1", true).unwrap();
+        assert!(keys.can_write("p1") && !keys.can_write("p2"));
+        assert_eq!(keys.find(&read_only), None);
+        // the permission survives a restart
+        assert!(CompatKeys::open(&d).unwrap().can_write("p1"));
+        // a new key made without it takes it away
+        let again = keys.issue("p1", false).unwrap();
+        assert!(!keys.can_write("p1") && !CompatKeys::open(&d).unwrap().can_write("p1"));
+        assert_eq!(keys.find(&writes), None);
+        assert_eq!(keys.find(&again), Some("p1".to_string()));
+        // revoking takes the permission with the key
+        keys.issue("p1", true).unwrap();
+        assert!(keys.revoke("p1").unwrap());
+        assert!(!keys.can_write("p1") && !CompatKeys::open(&d).unwrap().can_write("p1"));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
     fn a_key_is_shown_once_found_by_its_machine_replaced_and_revoked() {
         let d = dir("keys");
         let keys = CompatKeys::open(&d).unwrap();
         assert!(!keys.has("p1"));
-        let first = keys.issue("p1").unwrap();
+        let first = keys.issue("p1", false).unwrap();
         assert!(well_formed(&first));
         assert!(keys.has("p1") && !keys.has("p2"));
         assert_eq!(keys.find(&first), Some("p1".to_string()));
@@ -157,9 +218,9 @@ mod tests {
         let file = std::fs::read_to_string(d.join("compat-keys.json")).unwrap();
         assert!(!file.contains(&first) && file.contains(&hash_key(&first)));
         // another machine, and a new key for the first one replaces the old
-        let other = keys.issue("p2").unwrap();
+        let other = keys.issue("p2", false).unwrap();
         assert_ne!(first, other);
-        let second = keys.issue("p1").unwrap();
+        let second = keys.issue("p1", false).unwrap();
         assert_eq!(keys.find(&first), None);
         assert_eq!(keys.find(&second), Some("p1".to_string()));
         assert_eq!(keys.find(&other), Some("p2".to_string()));

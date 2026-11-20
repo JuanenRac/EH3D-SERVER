@@ -29,6 +29,21 @@ pub struct ServerConfig {
     /// Whether the routes of Moonraker and OctoPrint at the root of the address answer (for the machines that have a key for them, `POST /api/v1/work/machines/:id/compat/key`).
     /// Off by default. It is a switch of the security page and takes effect at once.
     pub compat_api: bool,
+    /// Whether the routes of Moonraker and OctoPrint that WRITE (start, pause and cancel a print, upload a file to the queue) answer, for a machine whose key was made with
+    /// `write: true`. Off by default, and it only matters while `compat_api` is on. It is a switch of the security page and takes effect at once.
+    pub compat_write: bool,
+    /// Whether the server may slice a mesh into G-code (`POST /api/v1/slice`). Off by default. It is a switch of the security page and takes effect at once.
+    pub slice_enabled: bool,
+    /// The program of the suite that slices (`phoenix-3dp`), by its full path, for the requests that ask for it. Empty: only the small slicer of the server is used.
+    pub slice_phoenix_bin: Option<PathBuf>,
+    /// The longest a slice may take, in seconds (1 to 600).
+    pub slice_timeout_s: u64,
+    /// The biggest mesh a slice takes, in megabytes (1 to 200).
+    pub slice_max_mb: u64,
+    /// The most layers a slice may make (10 to 20000).
+    pub slice_max_layers: u64,
+    /// The biggest G-code a slice may give, in megabytes (1 to 200).
+    pub slice_max_gcode_mb: u64,
     /// Where users, tokens, machines and jobs are kept.
     pub data_dir: PathBuf,
     /// How long a login lasts, in hours.
@@ -224,6 +239,13 @@ impl Default for ServerConfig {
             mdns_announce: false,
             mdns_name: String::new(),
             compat_api: false,
+            compat_write: false,
+            slice_enabled: false,
+            slice_phoenix_bin: None,
+            slice_timeout_s: 60,
+            slice_max_mb: 20,
+            slice_max_layers: 2_000,
+            slice_max_gcode_mb: 32,
             data_dir: PathBuf::from("data"),
             session_hours: 12,
             max_body_mb: 8,
@@ -530,6 +552,29 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
                 c.mdns_name = value.to_string()
             }
             "compat_api" => c.compat_api = flag(&key, value).map_err(at)?,
+            "compat_write" => c.compat_write = flag(&key, value).map_err(at)?,
+            "slice_enabled" => c.slice_enabled = flag(&key, value).map_err(at)?,
+            "slice_phoenix_bin" => {
+                c.slice_phoenix_bin = if value.is_empty() {
+                    None
+                } else {
+                    let path = PathBuf::from(value);
+                    if !path.is_absolute() {
+                        return Err(at(
+                            "slice_phoenix_bin must be the full path of the program (it is never looked up in the search path)".into(),
+                        ));
+                    }
+                    Some(path)
+                }
+            }
+            "slice_timeout_s" => c.slice_timeout_s = number(&key, value, 1, 600).map_err(at)?,
+            "slice_max_mb" => c.slice_max_mb = number(&key, value, 1, 200).map_err(at)?,
+            "slice_max_layers" => {
+                c.slice_max_layers = number(&key, value, 10, 20_000).map_err(at)?
+            }
+            "slice_max_gcode_mb" => {
+                c.slice_max_gcode_mb = number(&key, value, 1, 200).map_err(at)?
+            }
             "update_keep_logins_s" => {
                 c.update_keep_logins_s = number(&key, value, 30, 900).map_err(at)?
             }
@@ -601,6 +646,51 @@ mod tests {
         assert!(parse("compat_api = 2").is_err());
         assert!(parse("mdns_name = a.b").is_err());
         assert!(parse(&format!("mdns_name = {}", "n".repeat(64))).is_err());
+    }
+
+    #[test]
+    fn the_write_routes_and_the_slicer_are_off_unless_the_file_turns_them_on_and_are_checked() {
+        let c = parse("").unwrap();
+        assert!(!c.compat_write && !c.slice_enabled && c.slice_phoenix_bin.is_none());
+        assert_eq!(
+            (
+                c.slice_timeout_s,
+                c.slice_max_mb,
+                c.slice_max_layers,
+                c.slice_max_gcode_mb
+            ),
+            (60, 20, 2_000, 32)
+        );
+        let c = parse(
+            "compat_write = yes\nslice_enabled = true\nslice_timeout_s = 5\nslice_max_mb = 2\nslice_max_layers = 50\nslice_max_gcode_mb = 4\n",
+        )
+        .unwrap();
+        assert!(c.compat_write && c.slice_enabled);
+        assert_eq!(
+            (
+                c.slice_timeout_s,
+                c.slice_max_mb,
+                c.slice_max_layers,
+                c.slice_max_gcode_mb
+            ),
+            (5, 2, 50, 4)
+        );
+        for bad in [
+            "compat_write = 2",
+            "slice_enabled = maybe",
+            "slice_timeout_s = 0",
+            "slice_timeout_s = 601",
+            "slice_max_mb = 201",
+            "slice_max_layers = 9",
+            "slice_max_gcode_mb = 0",
+            "slice_phoenix_bin = phoenix-3dp",
+        ] {
+            assert!(parse(bad).is_err(), "{bad}");
+        }
+        assert!(parse("slice_phoenix_bin =")
+            .unwrap()
+            .slice_phoenix_bin
+            .is_none());
     }
 
     #[test]

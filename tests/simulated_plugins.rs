@@ -103,6 +103,8 @@ async fn the_three_plugins_are_listed_with_what_they_take_and_say_they_are_simul
         ("gerber", "drc"),
         ("cam", "drill"),
         ("printer3d", "print"),
+        ("vision", "detect"),
+        ("cad", "check"),
     ] {
         let p = list.iter().find(|p| p["kind"] == kind).unwrap();
         assert_eq!(p["manages_machines"], true, "{kind}");
@@ -1291,6 +1293,8 @@ async fn every_simulated_machine_says_in_its_detail_that_it_is_only_a_simulator(
         ("e-gerber", "gerber"),
         ("e-cam", "cam"),
         ("e-printer", "printer3d"),
+        ("e-vision", "vision"),
+        ("e-cad", "cad"),
     ] {
         make_machine(&s, &boss, id, plugin, json!({})).await;
         let d = detail(&s, &boss, id).await;

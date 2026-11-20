@@ -36,6 +36,18 @@ mdns_name =
 # Answer the routes of Moonraker and OctoPrint at the root of the address (/printer/info, /api/version, ...) for the 3D printers that have a key for them (admin: POST
 # /api/v1/work/machines/:id/compat/key). Off by default. A switch of the security page of Studio that takes effect at once.
 compat_api = false
+# Let the routes of Moonraker and OctoPrint WRITE: start, pause and cancel a print, and upload a file to the queue of the printer (it waits there for a person to confirm it; nothing
+# starts by itself). It needs compat_api on and a key made with write: true (admin: POST /api/v1/work/machines/:id/compat/key). Off by default. A switch of the security page of Studio.
+compat_write = false
+# Let the server slice a mesh (STL, or a 3MF with a stored model) into G-code inside the limits of a printer profile (POST /api/v1/slice). Off by default. A switch of the security page of Studio.
+slice_enabled = false
+# The program of the suite that slices (phoenix-3dp), by its full path. Empty: only the small slicer of the server is used. The server runs only this one file, with arguments of its own.
+slice_phoenix_bin =
+# The longest a slice may take, in seconds (1 to 600), the biggest mesh in megabytes (1 to 200), the most layers (10 to 20000) and the biggest G-code in megabytes (1 to 200).
+slice_timeout_s = 60
+slice_max_mb = 20
+slice_max_layers = 2000
+slice_max_gcode_mb = 32
 # How long, in seconds, a G-code job waits for the machine to finish its last moves (the controller takes lines ahead of the movement) before the job is marked as failed.
 gcode_finish_wait_s = 900
 # How long, in seconds, a GRBL machine may take to answer a line of a G-code job. When a line does not end in time the machine is held (a homing cycle is reset, a jog is cancelled) and the job is marked as failed, with the line.

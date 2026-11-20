@@ -103,6 +103,7 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/session` | GET | any login or token | Say who is logged in |
 | `/api/v1/setup` | GET | none | Ask whether the first administrator is still needed |
 | `/api/v1/setup` | POST | none | Make the first administrator |
+| `/api/v1/slice` | POST | operator + `jobs:prepare` | Slice a mesh into G-code inside the limits of a printer profile |
 | `/api/v1/tasks` | GET | viewer + `tasks:read` | List the tasks the caller may see, newest first |
 | `/api/v1/tasks` | POST | operator + `tasks:run` | Make a task |
 | `/api/v1/tasks/:id` | GET | viewer + `tasks:read` | Read a task with its result |
@@ -127,6 +128,7 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/users` | POST | admin + `admin:users` | Create a user |
 | `/api/v1/users/:name` | PUT | admin + `admin:users` | Change a user |
 | `/api/v1/users/:name` | DELETE | admin + `admin:users` | Delete a user |
+| `/api/v1/work/farm/jobs` | POST | operator + `jobs:prepare` | Share a print among the free 3D printers |
 | `/api/v1/work/jobs` | GET | viewer + `machines:view` | List the jobs of the generic queue, newest first |
 | `/api/v1/work/jobs` | POST | operator + `jobs:prepare` | Prepare a job on a machine of any plugin |
 | `/api/v1/work/jobs/:id` | GET | viewer + `machines:view` | Read a job with its history |

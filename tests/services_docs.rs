@@ -132,6 +132,13 @@ fn the_new_settings_are_in_the_example_with_the_values_the_server_starts_with() 
         "mdns_announce",
         "mdns_name",
         "compat_api",
+        "compat_write",
+        "slice_enabled",
+        "slice_phoenix_bin",
+        "slice_timeout_s",
+        "slice_max_mb",
+        "slice_max_layers",
+        "slice_max_gcode_mb",
     ] {
         assert!(
             text.lines()

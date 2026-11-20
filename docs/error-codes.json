@@ -110,6 +110,11 @@
     "status": 422
   },
   {
+    "code": "bad_mesh",
+    "description": "The mesh to slice is not a closed STL or 3MF the slicer can read, or has no closed outline.",
+    "status": 422
+  },
+  {
     "code": "bad_name",
     "description": "A name is empty, too long or has characters that are not allowed.",
     "status": 422
@@ -245,6 +250,11 @@
     "status": 404
   },
   {
+    "code": "compat_write_off",
+    "description": "The write routes of Moonraker and OctoPrint are off: the switch compat_write of the security page is not on.",
+    "status": 404
+  },
+  {
     "code": "design_run_unavailable",
     "description": "The server is not set up to run the design program: design_run is off or design_program is not set.",
     "status": 501
@@ -258,6 +268,11 @@
     "code": "engine_missing",
     "description": "The kind of task is known but this build has no engine for it.",
     "status": 422
+  },
+  {
+    "code": "farm_no_free_printer",
+    "description": "No printer of the list is free, unlatched and able to take the job.",
+    "status": 409
   },
   {
     "code": "file_too_big",
@@ -490,6 +505,11 @@
     "status": 409
   },
   {
+    "code": "printer_untrusted",
+    "description": "The certificate of the printer is not the pinned one, or none is pinned: the connection is refused.",
+    "status": 502
+  },
+  {
     "code": "program_over_limit",
     "description": "A program for a 3D printer asks for a temperature or a feed over a limit of the machine, so the whole program is refused.",
     "status": 422
@@ -518,6 +538,21 @@
     "code": "shares_off",
     "description": "Sharing is switched off on this server (shares_enabled).",
     "status": 501
+  },
+  {
+    "code": "slice_failed",
+    "description": "The program that slices did not give a result.",
+    "status": 502
+  },
+  {
+    "code": "slice_limit",
+    "description": "The object or the profile goes past a limit of the printer or of the slicer; nothing is cut down to fit.",
+    "status": 422
+  },
+  {
+    "code": "slice_off",
+    "description": "Slicing on the server is off: the switch slice of the security page is not on.",
+    "status": 404
   },
   {
     "code": "spindle_limit",

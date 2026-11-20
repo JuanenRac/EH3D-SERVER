@@ -15,7 +15,12 @@ async fn both_switches_are_listed_as_safe_and_editable_and_need_no_restart() {
     let boss = admin(&s).await;
     let (status, policy) = call(&s, Method::GET, POLICY, Some(&boss), None).await;
     assert_eq!(status, StatusCode::OK, "{policy}");
-    for key in ["mdns_announce", "compat_api"] {
+    for key in [
+        "mdns_announce",
+        "compat_api",
+        "compat_write",
+        "slice_enabled",
+    ] {
         let switch = policy["switches"]
             .as_array()
             .unwrap()
@@ -41,7 +46,12 @@ async fn turning_them_on_needs_the_confirmation_and_an_administrator_and_off_doe
     let s = server("mdns-change");
     let boss = admin(&s).await;
     let ana = user(&s, &boss, "ana", "operator").await;
-    for key in ["mdns_announce", "compat_api"] {
+    for key in [
+        "mdns_announce",
+        "compat_api",
+        "compat_write",
+        "slice_enabled",
+    ] {
         let (status, body) = call(
             &s,
             Method::PUT,

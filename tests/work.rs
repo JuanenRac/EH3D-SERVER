@@ -91,7 +91,9 @@ async fn the_plugins_and_their_machines_are_listed_and_managed_by_an_administrat
             "cnc",
             "gerber",
             "cam",
-            "printer3d"
+            "printer3d",
+            "vision",
+            "cad"
         ]
     );
     // only an administrator makes machines
