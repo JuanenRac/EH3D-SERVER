@@ -24,6 +24,8 @@ A machine plugin is a value of a type that implements `MachinePlugin` (`src/plug
 | `routes`, `operation` | the routes a kind adds under `/work/machines/{id}/` (a jog, a test fire, the heaters of a printer), each with its verb, its role and its scope, and the work they do; optional |
 | `auto_start` | whether the queue starts the next job of a free machine by itself; a switch of the machine, off unless the machine says so |
 
+**Simulator only.** `laser`, `pnp`, `pcb`, `cnc`, `gerber`, `cam` and `printer3d` have only run against the models in this repository; nothing has run on a real laser, router, pick-and-place machine, board station or printer through the server. They say so in the data: `capabilities.evidence` is `simulator` and the `detail` of each of their machines (the plugin's own detail plus the two keys the server adds) has `evidence: "simulator"` and `simulator_only: true`. A client must not show such a machine as proven on hardware; the proof on a real machine is still to do.
+
 To add a plugin: write the type, add it to `Registry::standard()` and describe it in `docs/openapi.yaml` through `tools/make_openapi.py`. The generic layer, the history, the events, the notifications, the roles and the audit come with it.
 
 **A file named in a request.** A request that has `artifact` (or `job` in a `place` request) names an artifact of the store: the server gives the plugin its text as `artifact_text`, if the caller sees that artifact and it is text up to 64 MiB. A text the caller puts in `artifact_text` himself is thrown away. A plugin that reads a file (G-code, Gerber, Excellon, a list of placements) takes it from there, or from the data of the request.

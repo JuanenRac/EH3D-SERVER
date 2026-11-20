@@ -12177,7 +12177,7 @@ components:
         detail:
           type: object
           additionalProperties: true
-          description: "What the plugin says of the machine besides its state; only the plugins that have something to say send it: `laser` (`estop_latched`, `position_mm`, `beam_on`, `power`, `bed_mm`...), `pnp` (`feeders`, `head`, `placed_total`, `failed_picks`...) and `pcb` (`jobs_done`, `last_kind`, `last_verdict`, `rules`...), `cnc` (`latched`, `position_mm`, `spindle_rpm`, `travel_mm`...) and `printer3d` (`model`, `online`, `latched`, `limits_c`, `temperatures`...)."
+          description: "What the plugin says of the machine besides its state; the plugins that have only run against a simulator (`laser`, `pnp`, `pcb`, `cnc`, `gerber`, `cam`, `printer3d`) always send it with `evidence: \"simulator\"` and `simulator_only: true`, so that no client shows them as proven on hardware; the rest of what they say is optional: `laser` (`estop_latched`, `position_mm`, `beam_on`, `power`, `bed_mm`...), `pnp` (`feeders`, `head`, `placed_total`, `failed_picks`...) and `pcb` (`jobs_done`, `last_kind`, `last_verdict`, `rules`...), `cnc` (`latched`, `position_mm`, `spindle_rpm`, `travel_mm`...) and `printer3d` (`model`, `online`, `latched`, `limits_c`, `temperatures`...)."
       required:
         - id
         - name

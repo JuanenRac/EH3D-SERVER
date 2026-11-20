@@ -1278,3 +1278,27 @@ async fn a_simulated_fault_of_a_heater_latches_the_printer_and_the_key_of_a_conn
     assert_eq!(status, StatusCode::OK, "{list}");
     assert_eq!(list["detail"]["online"], false);
 }
+
+#[tokio::test]
+async fn every_simulated_machine_says_in_its_detail_that_it_is_only_a_simulator() {
+    let s = common::server("sim-plugins-evidence");
+    let boss = admin(&s).await;
+    for (id, plugin) in [
+        ("e-laser", "laser"),
+        ("e-pnp", "pnp"),
+        ("e-pcb", "pcb"),
+        ("e-cnc", "cnc"),
+        ("e-gerber", "gerber"),
+        ("e-cam", "cam"),
+        ("e-printer", "printer3d"),
+    ] {
+        make_machine(&s, &boss, id, plugin, json!({})).await;
+        let d = detail(&s, &boss, id).await;
+        assert_eq!(d["evidence"], "simulator", "{plugin}: {d}");
+        assert_eq!(d["simulator_only"], true, "{plugin}: {d}");
+    }
+    // the demo machine has no hardware either, but it is not a model of a machine: it does not claim to be one
+    make_machine(&s, &boss, "e-demo", "demo", json!({})).await;
+    let d = detail(&s, &boss, "e-demo").await;
+    assert!(d.is_null() || d.get("simulator_only").is_none(), "{d}");
+}

@@ -624,7 +624,7 @@ impl AppState {
                     .locked()
                     .active_on(&m.id)
                     .map(|j| j.id.clone());
-                let detail = plugin.detail(self, &m.id);
+                let detail = mark_simulator(&capabilities, plugin.detail(self, &m.id));
                 let mut view = json!({
                     "id": m.id, "name": m.name, "plugin": plugin.kind(), "state": m.state,
                     "job": job, "capabilities": capabilities,
@@ -1015,6 +1015,23 @@ impl AppState {
     }
 }
 
+/// What the detail of a machine of a plugin that has only run against a simulator says about itself: `evidence` is `simulator` and `simulator_only` is true, so that no
+/// client shows such a machine as proven on hardware. A plugin with other evidence (or none) keeps its detail as it was.
+pub(crate) fn mark_simulator(capabilities: &Value, detail: Value) -> Value {
+    if capabilities.get("evidence").and_then(Value::as_str) != Some("simulator") {
+        return detail;
+    }
+    let mut map = match detail {
+        Value::Object(map) => map,
+        Value::Null => serde_json::Map::new(),
+        // a detail that is not an object is left alone: nothing can be added to it
+        other => return other,
+    };
+    map.insert("evidence".into(), json!("simulator"));
+    map.insert("simulator_only".into(), json!(true));
+    Value::Object(map)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1024,6 +1041,26 @@ mod tests {
             std::env::temp_dir().join(format!("eh3d-server-work-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
+    }
+
+    #[test]
+    fn the_detail_of_a_simulator_says_so_and_the_detail_of_the_others_is_left_alone() {
+        let sim = json!({"evidence": "simulator"});
+        let marked = mark_simulator(&sim, Value::Null);
+        assert_eq!(
+            marked,
+            json!({"evidence": "simulator", "simulator_only": true})
+        );
+        let kept = mark_simulator(&sim, json!({"online": false}));
+        assert_eq!(kept["online"], false);
+        assert_eq!(kept["simulator_only"], true);
+        // a plugin without that evidence keeps what it said, and nothing is added to what is not an object
+        assert_eq!(mark_simulator(&json!({}), Value::Null), Value::Null);
+        assert_eq!(
+            mark_simulator(&json!({"evidence": "hardware"}), json!({"a": 1})),
+            json!({"a": 1})
+        );
+        assert_eq!(mark_simulator(&sim, json!([1])), json!([1]));
     }
 
     fn person(name: &str, role: Role) -> Identity {
