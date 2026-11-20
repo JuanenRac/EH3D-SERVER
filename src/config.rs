@@ -21,6 +21,14 @@ pub struct ServerConfig {
     pub update_keep_logins: bool,
     /// How long, in seconds, the logins kept for an update stay good: they are used only by a server that starts within this time of the request to update (30 to 900).
     pub update_keep_logins_s: u64,
+    /// Whether the server announces itself on the local network (mDNS, `_eh3d._tcp`) so that the programs can find it. Off by default. It is a switch of the security page
+    /// (`PUT /api/v1/auth/policy`) and takes effect at once. A server that listens on this computer only is never announced.
+    pub mdns_announce: bool,
+    /// The name of the instance in the announcement (empty: `EH3D Server` and the name of the computer).
+    pub mdns_name: String,
+    /// Whether the routes of Moonraker and OctoPrint at the root of the address answer (for the machines that have a key for them, `POST /api/v1/work/machines/:id/compat/key`).
+    /// Off by default. It is a switch of the security page and takes effect at once.
+    pub compat_api: bool,
     /// Where users, tokens, machines and jobs are kept.
     pub data_dir: PathBuf,
     /// How long a login lasts, in hours.
@@ -213,6 +221,9 @@ impl Default for ServerConfig {
             update_allow_unsigned: false,
             update_keep_logins: false,
             update_keep_logins_s: 300,
+            mdns_announce: false,
+            mdns_name: String::new(),
+            compat_api: false,
             data_dir: PathBuf::from("data"),
             session_hours: 12,
             max_body_mb: 8,
@@ -506,6 +517,19 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
             "network_open" => c.network_open = flag(&key, value).map_err(at)?,
             "update_allow_unsigned" => c.update_allow_unsigned = flag(&key, value).map_err(at)?,
             "update_keep_logins" => c.update_keep_logins = flag(&key, value).map_err(at)?,
+            "mdns_announce" => c.mdns_announce = flag(&key, value).map_err(at)?,
+            "mdns_name" => {
+                if value.chars().count() > 63
+                    || value.contains('.')
+                    || value.chars().any(char::is_control)
+                {
+                    return Err(at(
+                        "mdns_name is a name of up to 63 characters with no dots".into(),
+                    ));
+                }
+                c.mdns_name = value.to_string()
+            }
+            "compat_api" => c.compat_api = flag(&key, value).map_err(at)?,
             "update_keep_logins_s" => {
                 c.update_keep_logins_s = number(&key, value, 30, 900).map_err(at)?
             }
@@ -564,6 +588,20 @@ pub fn load(path: Option<&Path>) -> Result<ServerConfig, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_announcement_and_the_compatibility_routes_are_off_unless_the_file_turns_them_on() {
+        let c = parse("").unwrap();
+        assert!(!c.mdns_announce && !c.compat_api && c.mdns_name.is_empty());
+        let c =
+            parse("mdns_announce = true\nmdns_name = Bench server\ncompat_api = yes\n").unwrap();
+        assert!(c.mdns_announce && c.compat_api);
+        assert_eq!(c.mdns_name, "Bench server");
+        assert!(parse("mdns_announce = maybe").is_err());
+        assert!(parse("compat_api = 2").is_err());
+        assert!(parse("mdns_name = a.b").is_err());
+        assert!(parse(&format!("mdns_name = {}", "n".repeat(64))).is_err());
+    }
 
     #[test]
     fn the_studio_folder_is_optional() {

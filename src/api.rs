@@ -256,6 +256,7 @@ pub fn router(state: Shared) -> Router {
     let studio = state.cfg.studio_dir.clone();
     let app = Router::new()
         .route("/api/v1/health", get(health))
+        .route("/api/v1/openapi.json", get(openapi_json))
         .route("/api/v1/setup", get(setup_status).post(setup))
         .route("/api/v1/login", post(login))
         .route("/api/v1/logout", post(logout))
@@ -396,6 +397,58 @@ async fn health(State(s): State<Shared>, headers: axum::http::HeaderMap) -> Json
         });
     }
     Json(answer)
+}
+
+/// The contract of the interface (`docs/openapi.json`) as this build of the server has it, so that a client can ask which routes the server it talks to has and notice the
+/// ones that were withdrawn. It is read-only and for any login or token (a viewer); the answer has an `ETag` (the SHA-256 of the document) and may be kept for five minutes,
+/// and `If-None-Match` with the same tag is answered `304` with no body.
+const OPENAPI_JSON: &str = include_str!("../docs/openapi.json");
+
+fn openapi_etag() -> &'static str {
+    static TAG: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    TAG.get_or_init(|| {
+        use sha2::{Digest, Sha256};
+        format!(
+            "\"{}\"",
+            hex::encode(Sha256::digest(OPENAPI_JSON.as_bytes()))
+        )
+    })
+}
+
+/// Whether an `If-None-Match` header names the tag (a list of tags, or `*`, or a weak tag).
+pub(crate) fn etag_matches(header: &str, tag: &str) -> bool {
+    header
+        .split(',')
+        .map(str::trim)
+        .any(|t| t == "*" || t.trim_start_matches("W/") == tag)
+}
+
+async fn openapi_json(Authed(who, _): Authed, headers: axum::http::HeaderMap) -> Response {
+    if let Err(e) = need(&who, Role::Viewer) {
+        return e.into_response();
+    }
+    let tag = openapi_etag();
+    let cache = "private, max-age=300";
+    let unchanged = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| etag_matches(v, tag));
+    if unchanged {
+        return (
+            StatusCode::NOT_MODIFIED,
+            [(header::ETAG, tag), (header::CACHE_CONTROL, cache)],
+        )
+            .into_response();
+    }
+    (
+        [
+            (header::CONTENT_TYPE, "application/json"),
+            (header::ETAG, tag),
+            (header::CACHE_CONTROL, cache),
+        ],
+        OPENAPI_JSON,
+    )
+        .into_response()
 }
 
 async fn setup_status(State(s): State<Shared>) -> Json<Value> {

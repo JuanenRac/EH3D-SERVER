@@ -32,6 +32,7 @@ pub mod inspect;
 pub mod jobs;
 pub mod laser;
 pub mod machines;
+pub mod mdns;
 pub mod panic;
 pub mod pcb;
 pub mod plan;

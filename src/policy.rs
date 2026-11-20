@@ -27,6 +27,10 @@ pub struct Hot {
     /// Whether an update may be installed with no signature when its hash is right (the helper asks for a signature by default).
     pub update_allow_unsigned: bool,
     pub update_keep_logins: bool,
+    /// Whether the server announces itself on the local network (mDNS). Read each half second by the announcer.
+    pub mdns_announce: bool,
+    /// Whether the routes of Moonraker and OctoPrint at the root of the address answer (each machine also needs its key).
+    pub compat_api: bool,
     pub login_ip_limit: u32,
     pub auth_max_failures: u32,
     pub auth_lockout_s: u64,
@@ -44,6 +48,8 @@ pub const KEYS: &[&str] = &[
     "network_open",
     "update_allow_unsigned",
     "update_keep_logins",
+    "mdns_announce",
+    "compat_api",
     "login_ip_limit",
     "auth_max_failures",
     "auth_lockout_s",
@@ -94,6 +100,8 @@ impl Hot {
             network_open: c.network_open,
             update_allow_unsigned: c.update_allow_unsigned,
             update_keep_logins: c.update_keep_logins,
+            mdns_announce: c.mdns_announce,
+            compat_api: c.compat_api,
             login_ip_limit: c.login_ip_limit,
             auth_max_failures: c.auth_max_failures,
             auth_lockout_s: c.auth_lockout_s,
@@ -113,6 +121,8 @@ impl Hot {
             "network_open" => json!(self.network_open),
             "update_allow_unsigned" => json!(self.update_allow_unsigned),
             "update_keep_logins" => json!(self.update_keep_logins),
+            "mdns_announce" => json!(self.mdns_announce),
+            "compat_api" => json!(self.compat_api),
             "login_ip_limit" => json!(self.login_ip_limit),
             "auth_max_failures" => json!(self.auth_max_failures),
             "auth_lockout_s" => json!(self.auth_lockout_s),
@@ -133,6 +143,8 @@ impl Hot {
             "network_open" => !self.network_open,
             "update_allow_unsigned" => !self.update_allow_unsigned,
             "update_keep_logins" => !self.update_keep_logins,
+            "mdns_announce" => !self.mdns_announce,
+            "compat_api" => !self.compat_api,
             "login_ip_limit" => self.login_ip_limit > 0,
             "auth_max_failures" => self.auth_max_failures <= 10,
             "auth_lockout_s" => self.auth_lockout_s >= 10,
@@ -153,6 +165,8 @@ impl Hot {
             "network_open" => self.network_open = flag(value, key)?,
             "update_allow_unsigned" => self.update_allow_unsigned = flag(value, key)?,
             "update_keep_logins" => self.update_keep_logins = flag(value, key)?,
+            "mdns_announce" => self.mdns_announce = flag(value, key)?,
+            "compat_api" => self.compat_api = flag(value, key)?,
             "login_ip_limit" => self.login_ip_limit = whole(value, key, 0, 1_000)? as u32,
             "auth_max_failures" => self.auth_max_failures = whole(value, key, 1, 100)? as u32,
             "auth_lockout_s" => self.auth_lockout_s = whole(value, key, 1, 86_400)?,
@@ -283,6 +297,39 @@ mod tests {
         let again = Policy::open(&cfg, &d).unwrap();
         assert!(again.get().url_token);
         assert_eq!(again.get().password_min_len, 14);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_announcement_and_the_compatibility_routes_are_off_by_default_and_looser_when_on() {
+        let d = dir("mdns");
+        let cfg = ServerConfig::default();
+        let hot = Hot::from_config(&cfg);
+        for key in ["mdns_announce", "compat_api"] {
+            assert!(
+                KEYS.contains(&key),
+                "{key} can be changed while the server runs"
+            );
+            assert!(!RESTART_KEYS.contains(&key), "{key} takes effect at once");
+            assert_eq!(hot.value(key), Some(json!(false)));
+            assert!(hot.is_safe(key));
+        }
+        let policy = Policy::open(&cfg, &d).unwrap();
+        assert_eq!(
+            policy.change("mdns_announce", &json!(true), false),
+            Err(PolicyError::WeakNeedsConfirm)
+        );
+        assert!(!policy.get().mdns_announce);
+        assert!(matches!(
+            policy.change("compat_api", &json!("on"), true),
+            Err(PolicyError::Bad(_))
+        ));
+        policy.change("mdns_announce", &json!(true), true).unwrap();
+        assert!(Policy::open(&cfg, &d).unwrap().get().mdns_announce);
+        policy
+            .change("mdns_announce", &json!(false), false)
+            .unwrap();
+        assert!(!Policy::open(&cfg, &d).unwrap().get().mdns_announce);
         let _ = std::fs::remove_dir_all(&d);
     }
 

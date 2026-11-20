@@ -129,6 +129,9 @@ fn the_new_settings_are_in_the_example_with_the_values_the_server_starts_with() 
         "shares_enabled",
         "network_open",
         "update_allow_unsigned",
+        "mdns_announce",
+        "mdns_name",
+        "compat_api",
     ] {
         assert!(
             text.lines()

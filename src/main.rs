@@ -64,6 +64,8 @@ async fn main() {
         env!("CARGO_PKG_VERSION"),
         address
     );
+    // the announcement on the local network answers only while its switch is on (off by default)
+    let _announcer = eh3d_server::mdns::spawn(state.clone(), address);
     let app = api::router(state.clone());
     let stopper = state.clone();
     let served = axum::serve(

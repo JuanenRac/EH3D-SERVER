@@ -27,6 +27,15 @@ update_allow_unsigned = false
 update_keep_logins = false
 # How long, in seconds, the logins kept for an update stay good (30 to 900).
 update_keep_logins_s = 300
+# Announce the server on the local network (mDNS, the service _eh3d._tcp) so that the programs and the apps find it without being told the address. Off by default. A switch of
+# the security page of Studio (PUT /api/v1/auth/policy) that takes effect at once. A server that listens on this computer only is never announced; if another program (Avahi)
+# owns port 5353, publish the same service with the file of docs/DEPLOY.md instead.
+mdns_announce = false
+# The name of the instance in the announcement (up to 63 characters, no dots). Empty: "EH3D Server" and the name of the computer.
+mdns_name =
+# Answer the routes of Moonraker and OctoPrint at the root of the address (/printer/info, /api/version, ...) for the 3D printers that have a key for them (admin: POST
+# /api/v1/work/machines/:id/compat/key). Off by default. A switch of the security page of Studio that takes effect at once.
+compat_api = false
 # How long, in seconds, a G-code job waits for the machine to finish its last moves (the controller takes lines ahead of the movement) before the job is marked as failed.
 gcode_finish_wait_s = 900
 # How long, in seconds, a GRBL machine may take to answer a line of a G-code job. When a line does not end in time the machine is held (a homing cycle is reset, a jog is cancelled) and the job is marked as failed, with the line.

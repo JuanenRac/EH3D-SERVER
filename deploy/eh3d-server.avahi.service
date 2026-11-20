@@ -1,0 +1,16 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<!--
+  Publishes the EH3D server as the service _eh3d._tcp with Avahi (copy to /etc/avahi/services/eh3d-server.service).
+  Use it instead of the switch mdns_announce when Avahi already owns UDP port 5353; keep mdns_announce off then.
+  The port is the one of `listen` in server.cfg. %h is the name of the computer.
+-->
+<service-group>
+  <name replace-wildcards="yes">EH3D Server %h</name>
+  <service>
+    <type>_eh3d._tcp</type>
+    <port>18200</port>
+    <txt-record>txtvers=1</txt-record>
+    <txt-record>path=/api/v1</txt-record>
+  </service>
+</service-group>

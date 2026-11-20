@@ -25,6 +25,16 @@ By default the server listens on `127.0.0.1:18200`, this computer only: nothing 
 
 Before the first start on a computer that is reached from the network, make the first administrator from that computer itself (while there is no user the server answers only 127.0.0.1 by itself as soon as `network_open` is on or `listen` is a network address; `local_until_setup = true` applies it always and `local_until_setup = false` turns it off on purpose).
 
+## Finding the server on the network
+
+The programs and the apps of the workshop can find the server by name instead of by address if the server announces itself on the local network (mDNS, the service `_eh3d._tcp`). It is **off by default** and nothing is announced until you turn it on:
+
+* the switch `mdns_announce` of the security page of Studio (`PUT /api/v1/auth/policy`, `{"key": "mdns_announce", "value": true, "confirm_weak": true}`), or `mdns_announce = true` in `server.cfg`. It takes effect at once, in both directions; turning it off sends a goodbye so that the others forget the server. `mdns_name` is the name of the instance (up to 63 characters, no dots; empty: `EH3D Server` and the name of the computer).
+* a server that listens on this computer only (the default `listen`) is **not** announced even if the switch is on: nobody else could reach it. Open the network first (see above).
+* what is announced is only what the server knows: the port it listens on, the version, the path of the interface (`/api/v1`) and the IPv4 address of this computer when one can be told (the address named in `listen`, or the one the system uses to reach the local network). A computer with no address that can be told announces none. The server answers the questions about `_eh3d._tcp.local`, about its own instance and about its host name, at most twenty answers a second, to packets of at most 1500 bytes; everything else is ignored.
+* the server answers with plain `std` sockets on UDP port 5353 and does not take the port from another program. If Avahi (or another responder) owns it, the server says so in its log and tries again every half minute; publish the same service with Avahi instead: copy `deploy/eh3d-server.avahi.service` to `/etc/avahi/services/eh3d-server.service`, change the port if `listen` names another, and leave `mdns_announce` off. Avahi reads the file by itself.
+* the CM5 is not touched by this change: the switch stays off until an administrator turns it on.
+
 ## First start
 
 The server prints a set-up code on its console while it has no user:

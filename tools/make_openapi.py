@@ -68,6 +68,7 @@ SCHEMAS: dict[str, dict] = {
     "ErrorBody": obj({"error": s("A code of the catalog (docs/error-codes.json)."), "detail": s("Words for a person; may be empty.")}, ["error", "detail"],
                      description="Every refusal has this shape, with the status that fits the code."),
     "Ok": obj({"ok": {"type": "boolean", "const": True}}, ["ok"]),
+    "OpenApiDocument": {"type": "object", "additionalProperties": True, "description": "The OpenAPI 3.1 document of the interface, the same as `docs/openapi.json` of the repository."},
     "Role": {"type": "string", "enum": ["viewer", "operator", "admin"]},
     "Health": obj({
         "name": s(), "version": s("The version of the server."), "api_revision": I, "status": {"type": "string", "enum": ["ok", "degraded"]},
@@ -288,6 +289,11 @@ JOB_ERR = ["unknown_job"]
 op("GET", "/health", "system", "none", "Health check", ok=(200, "Health", "application/json"), ok_desc="The name, the version and whether the server is well.",
    desc="Open to anyone, so it says little. With a valid token it also gives the uptime, the state of the storage and the features of this build.",
    example={"name": "eh3d-server", "version": "0.1.1", "api_revision": 1, "status": "ok"}, security=[{}, {"bearerAuth": []}])
+op("GET", "/openapi.json", "system", "viewer", "The contract of the interface this server has",
+   ok=(200, "OpenApiDocument", "application/json"), ok_desc="The document, with an `ETag` (the SHA-256 of the document in quotes) and `Cache-Control: private, max-age=300`.",
+   desc="Lets a client ask which routes the server it talks to has, and notice the ones that were withdrawn. It is the document the server was built with (`docs/openapi.json`). "
+        "A request with `If-None-Match` that names the tag (or `*`) is answered `304` with no body.",
+   responses={"304": {"description": "The document is the one the `If-None-Match` header names; no body."}})
 op("GET", "/setup", "system", "none", "Ask whether the first administrator is still needed", ok=(200, "SetupState", "application/json"), example={"needed": True})
 op("POST", "/setup", "system", "none", "Make the first administrator", body="SetupRequest", errors=["bad_setup", "bad_name", "weak_password", "local_only"],
    desc="Needs the set-up code the server prints on its console. With `local_until_setup` on, only the computer the server runs on may call it while there is no user.",

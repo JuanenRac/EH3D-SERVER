@@ -80,5 +80,17 @@ class Caddy(unittest.TestCase):
         self.assertIn("login_ip_limit", guide)
 
 
+class AvahiService(unittest.TestCase):
+    def test_the_file_for_avahi_publishes_the_service_the_server_announces(self):
+        text = (DEPLOY / "eh3d-server.avahi.service").read_text(encoding="utf-8")
+        self.assertIn("<type>_eh3d._tcp</type>", text)
+        self.assertIn("<port>18200</port>", text)
+        self.assertIn("path=/api/v1", text)
+        mdns = (ROOT / "src" / "mdns.rs").read_text(encoding="utf-8")
+        self.assertIn('"_eh3d", "_tcp", "local"', mdns)
+        guide = (ROOT / "docs" / "DEPLOY.md").read_text(encoding="utf-8")
+        self.assertIn("deploy/eh3d-server.avahi.service", guide)
+
+
 if __name__ == "__main__":
     unittest.main()

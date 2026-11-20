@@ -336,6 +336,12 @@ async fn policy(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
             json!(h.update_keep_logins),
             h.is_safe("update_keep_logins"),
         ),
+        switch(
+            "mdns_announce",
+            json!(h.mdns_announce),
+            h.is_safe("mdns_announce"),
+        ),
+        switch("compat_api", json!(h.compat_api), h.is_safe("compat_api")),
     ];
     let attention: Vec<String> = switches
         .iter()

@@ -90,6 +90,7 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/machines/:id/stop` | POST | operator + `jobs:cancel` | Stop the machine now |
 | `/api/v1/notifications` | GET | viewer + `machines:view` | List the notifications of the caller |
 | `/api/v1/notifications/read` | POST | viewer + `machines:view` | Mark notifications as read |
+| `/api/v1/openapi.json` | GET | viewer | The contract of the interface this server has |
 | `/api/v1/plugins` | GET | viewer + `machines:view` | List the machine plugins |
 | `/api/v1/projects` | GET | viewer + `projects:read` | List the projects the caller sees |
 | `/api/v1/projects` | POST | operator + `projects:write` | Make a project |
