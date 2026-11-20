@@ -35,9 +35,9 @@ jobs:
           fi
 
           payload="$(jq -nc \
-            --arg repository "${{ github.repository }}" \
-            --arg ref "${{ github.ref }}" \
-            --arg sha "${{ github.sha }}" \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg ref "${GITHUB_REF}" \
+            --arg sha "${GITHUB_SHA}" \
             '{event_type: "ecosystem_project_updated", client_payload: {repository: $repository, ref: $ref, sha: $sha}}')"
 
           curl --fail-with-body --retry 3 --retry-all-errors \
@@ -49,4 +49,4 @@ jobs:
             --url "https://api.github.com/repos/JuanenRac/JuanenRac/dispatches" \
             --data "${payload}"
 
-          echo "Dashboard refresh requested for ${{ github.repository }} at ${{ github.sha }}."
+          echo "Dashboard refresh requested for ${GITHUB_REPOSITORY} at ${GITHUB_SHA}."
