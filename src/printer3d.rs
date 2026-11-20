@@ -2889,7 +2889,14 @@ mod tests {
         // the pinned one
         let pinned = model(conn(Some(crate::printer_lan::sim_fingerprint(serial))));
         e.start("b1", &pinned, &p.native_id).unwrap();
-        let st = e.status("b1", &pinned, &p.native_id).unwrap();
+        // every question to the simulated printer lets a whole print go by (no waiting): the first one ends the heating, the next one the layers
+        let mut st = e.status("b1", &pinned, &p.native_id).unwrap();
+        for _ in 0..4 {
+            if st.state != WorkState::Running {
+                break;
+            }
+            st = e.status("b1", &pinned, &p.native_id).unwrap();
+        }
         assert_eq!((st.state, st.done), (WorkState::Done, 100));
         let detail = e.detail("b1", &pinned);
         assert_eq!(detail["connection"], "bambu_lan");
