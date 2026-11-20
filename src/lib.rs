@@ -22,6 +22,7 @@ pub mod bambu_mqtt;
 pub mod bgcode;
 pub mod cam;
 pub mod catalogs;
+pub mod check;
 pub mod cnc;
 pub mod compat;
 pub mod config;

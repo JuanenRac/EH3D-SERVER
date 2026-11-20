@@ -26,6 +26,42 @@ impl Drop for Running {
     }
 }
 
+/// A client of the program for this address and token. It is made through `Client::new` from the default connection, so that the test compiles with the
+/// versions of the program that have more fields in `Client` (the limits of the link) and with those that have fewer, and the limits are the program's own.
+fn client_for(address: String, token: String) -> Client {
+    Client::new(&ConnectionConfig {
+        server_address: address,
+        server_token: token,
+        ..ConnectionConfig::default()
+    })
+}
+
+/// A request to a route that needs no login (the set-up and the login), made with plain HTTP: the client of the program always sends the token of its link, and these routes are
+/// the ones that give the first one.
+fn post_without_login(address: &str, path: &str, body: &Value) -> (u16, Value) {
+    use std::io::{Read, Write};
+    let text = body.to_string();
+    let mut stream = std::net::TcpStream::connect(address).unwrap();
+    write!(
+        stream,
+        "POST {path} HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}",
+        text.len()
+    )
+    .unwrap();
+    let mut raw = String::new();
+    stream.read_to_string(&mut raw).unwrap();
+    let status = raw
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let body = raw.split_once("\r\n\r\n").map_or("", |(_, b)| b);
+    (
+        status,
+        serde_json::from_str(body).unwrap_or_else(|_| json!({ "raw": raw })),
+    )
+}
+
 async fn start_server(name: &str) -> Running {
     let dir = std::env::temp_dir().join(format!(
         "eh3d-server-programs-{name}-{}",
@@ -62,31 +98,25 @@ async fn prepare(server: &Running) -> String {
         .unwrap()
         .to_string();
     tokio::task::spawn_blocking(move || {
-        let anonymous = Client {
-            address: address.clone(),
-            token: String::new(),
-            machine: String::new(),
-        };
-        let (status, body) = anonymous
-            .call(
-                "POST",
-                "/api/v1/setup",
-                Some(&json!({"code": code, "name": "juan", "password": "una-clave-larga"})),
-            )
-            .unwrap();
+        let (status, body) = post_without_login(
+            &address,
+            "/api/v1/setup",
+            &json!({"code": code, "name": "juan", "password": "una-clave-larga"}),
+        );
         assert_eq!(status, 200, "{body}");
-        let (_, login) = anonymous
-            .call(
-                "POST",
-                "/api/v1/login",
-                Some(&json!({"name": "juan", "password": "una-clave-larga"})),
-            )
-            .unwrap();
-        let admin = Client {
-            address: address.clone(),
-            token: login["token"].as_str().unwrap().to_string(),
-            machine: String::new(),
-        };
+        let (status, login) = post_without_login(
+            &address,
+            "/api/v1/login",
+            &json!({"name": "juan", "password": "una-clave-larga"}),
+        );
+        assert_eq!(status, 200, "{login}");
+        let admin = client_for(
+            address.clone(),
+            login["token"]
+                .as_str()
+                .unwrap_or_else(|| panic!("no token in {login}"))
+                .to_string(),
+        );
         let (status, body) = admin
             .call(
                 "POST",
@@ -281,17 +311,10 @@ async fn the_program_reads_the_fleet_of_the_real_server() {
     let server = start_server("fleet").await;
     let token = prepare(&server).await;
     let address = server.address.clone();
-    let fleet = tokio::task::spawn_blocking(move || {
-        Client {
-            address,
-            token,
-            machine: String::new(),
-        }
-        .fleet()
-    })
-    .await
-    .unwrap()
-    .unwrap();
+    let fleet = tokio::task::spawn_blocking(move || client_for(address, token).fleet())
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(fleet.machines.len(), 1);
     let m = fleet.find("bungard").unwrap();
     assert_eq!(m.state, eh3d_fleet::MachineState::Idle);

@@ -9,10 +9,12 @@ use eh3d_server::{api, config, state::AppState};
 #[tokio::main]
 async fn main() {
     let mut path: Option<PathBuf> = None;
+    let mut check = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--config" => path = args.next().map(PathBuf::from),
+            "--check" => check = true,
             "--version" | "-V" => {
                 println!("eh3d-server {}", env!("CARGO_PKG_VERSION"));
                 return;
@@ -26,6 +28,13 @@ async fn main() {
                 std::process::exit(2);
             }
         }
+    }
+    if check {
+        let report = eh3d_server::check::verify(path.as_deref());
+        for line in &report.lines {
+            println!("{line}");
+        }
+        std::process::exit(report.exit_code());
     }
     let cfg = match config::load(path.as_deref()) {
         Ok(cfg) => cfg,
