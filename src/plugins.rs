@@ -835,13 +835,13 @@ mod tests {
         let r = Registry::standard();
         assert!(r.get("bungard").is_some());
         assert!(r.get("demo").is_some());
-        for kind in ["laser", "pnp", "pcb"] {
+        for kind in ["laser", "pnp", "pcb", "cnc", "gerber", "cam", "printer3d"] {
             assert!(r.get(kind).is_some(), "{kind}");
             assert!(in_memory(kind));
             assert!(r.get(kind).unwrap().manages_machines());
         }
         assert!(!in_memory("bungard"));
         assert!(r.get("nothing").is_none());
-        assert_eq!(r.all().len(), 5);
+        assert_eq!(r.all().len(), 9);
     }
 }
