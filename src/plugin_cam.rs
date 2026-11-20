@@ -35,7 +35,7 @@ impl MachinePlugin for CamPlugin {
     }
 
     fn title(&self) -> &'static str {
-        "CAM workers: G-code for drilling, outlines and isolation, and the report of a G-code program; nothing moves"
+        "CAM workers: G-code for drilling, outlines, isolation, stencils and probing, and the reports of a G-code program; nothing moves"
     }
 
     fn capabilities(&self) -> Value {
@@ -44,7 +44,7 @@ impl MachinePlugin for CamPlugin {
             settings.insert((*key).to_string(), json!(help));
         }
         json!({
-            "requests": ["drill", "outline", "isolate", "verify"],
+            "requests": ["drill", "outline", "isolate", "stencil", "autolevel", "inspect", "verify"],
             "pause": "none",
             "confirm": false,
             "stop": true,

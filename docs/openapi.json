@@ -18634,7 +18634,7 @@
           "request": {
             "type": "object",
             "additionalProperties": true,
-            "description": "What the plugin of the machine takes: for `bungard` a drill, route or gcode request (`JobRequest`), for `demo` `{\"kind\": \"demo\", \"steps\": 10}`, for `laser` `gcode`, `vector` or `test_fire`, for `pnp` `place` or `load_feeders`, for `pcb` `rules_check`, `drill_report`, `bom_report` or `inspect`, for `cnc` `gcode` or `file`, for `gerber` `load`, `drc` or `report`, for `cam` `drill`, `outline`, `isolate` or `verify` and for `printer3d` `print`, `preheat` or `gcode` (`GET /plugins` says what each takes). A request that names an artifact (`artifact`, or `job` in a `place` request) is given the text of that artifact by the server."
+            "description": "What the plugin of the machine takes: for `bungard` a drill, route or gcode request (`JobRequest`), for `demo` `{\"kind\": \"demo\", \"steps\": 10}`, for `laser` `gcode`, `vector` or `test_fire`, for `pnp` `place` or `load_feeders`, for `pcb` `rules_check`, `drill_report`, `bom_report` or `inspect`, for `cnc` `gcode` or `file`, for `gerber` `load`, `drc` or `report`, for `cam` `drill`, `outline`, `isolate`, `stencil`, `autolevel`, `inspect` or `verify` (a `cam` request with `output: \"artifact\"` keeps the program it made as an artifact of the caller) and for `printer3d` `print`, `preheat` or `gcode` (`GET /plugins` says what each takes). A request that names an artifact (`artifact`, or `job` in a `place` request) is given the text of that artifact by the server."
           },
           "name": {
             "type": "string",

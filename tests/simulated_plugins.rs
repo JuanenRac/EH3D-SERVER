@@ -979,7 +979,7 @@ async fn a_cam_worker_makes_gcode_and_checks_a_program_without_moving_anything()
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{tools}");
-    assert_eq!(tools["tools"].as_array().unwrap().len(), 4);
+    assert_eq!(tools["tools"].as_array().unwrap().len(), 7);
     // a CAM job cannot be held
     let (status, job) = prepare(
         &s,
@@ -1449,4 +1449,220 @@ M02*
     )
     .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn a_cam_worker_can_keep_its_program_as_an_artifact_of_the_store() {
+    let s = common::server("sim-cam-artifact");
+    let boss = admin(&s).await;
+    let operator = user(&s, &boss, "oper1", "operator").await;
+    let other = user(&s, &boss, "oper2", "operator").await;
+    make_machine(&s, &boss, "w1", "cam", json!({})).await;
+    let files = json!([{"name": "a.drl", "text": DRILL}]);
+    // the default leaves the program in the view
+    let in_view = run_to_done(
+        &s,
+        &operator,
+        "w1",
+        json!({"kind": "drill", "files": files}),
+    )
+    .await;
+    assert!(in_view["view"]["gcode"]
+        .as_str()
+        .unwrap()
+        .starts_with("(drill)"));
+    assert!(in_view["view"].get("artifact").is_none());
+    let explicit = run_to_done(
+        &s,
+        &operator,
+        "w1",
+        json!({"kind": "drill", "files": files, "output": "view"}),
+    )
+    .await;
+    assert!(explicit["view"]["gcode"].is_string());
+    // with `output: artifact` the program is an artifact of the caller
+    let kept = run_to_done(
+        &s,
+        &operator,
+        "w1",
+        json!({"kind": "drill", "files": files, "output": "artifact", "artifact_name": "drill-top.nc"}),
+    )
+    .await;
+    assert!(kept["view"].get("gcode").is_none(), "{kept}");
+    let artifact = &kept["view"]["artifact"];
+    assert_eq!(artifact["name"], "drill-top.nc");
+    assert_eq!(artifact["format"], "text/x-gcode");
+    let id = artifact["artifact_id"].as_str().unwrap().to_string();
+    let bytes = common::send(
+        &s,
+        Method::GET,
+        &format!("/api/v1/artifacts/{id}"),
+        Some(&operator),
+        &[],
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(bytes.status, StatusCode::OK);
+    let text = String::from_utf8(bytes.bytes).unwrap();
+    assert!(
+        text.starts_with(
+            "(drill)
+G21
+"
+        ) && text.trim_end().ends_with("M2"),
+        "{text}"
+    );
+    assert_eq!(artifact["size"], text.len());
+    let (status, meta) = call(
+        &s,
+        Method::GET,
+        &format!("/api/v1/artifacts/{id}/meta"),
+        Some(&operator),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{meta}");
+    assert_eq!(meta["producer"]["tool"], "eh3d-server cam");
+    assert_eq!(meta["owner"], "oper1");
+    // nobody else sees it
+    let (status, _) = call(
+        &s,
+        Method::GET,
+        &format!("/api/v1/artifacts/{id}/meta"),
+        Some(&other),
+        None,
+    )
+    .await;
+    assert_ne!(status, StatusCode::OK);
+    // the default name is the kind of the job
+    let named = run_to_done(&s, &operator, "w1", json!({"kind": "outline", "files": [{"name": "o.gko", "text": OUTLINE}], "output": "artifact"})).await;
+    assert_eq!(named["view"]["artifact"]["name"], "outline.nc");
+    // what makes no program, a wrong output and a bad name are refused
+    for (request, why) in [
+        (
+            json!({"kind": "verify", "text": "G21
+G0 X1
+M2
+", "output": "artifact"}),
+            "verify",
+        ),
+        (
+            json!({"kind": "drill", "files": files, "output": "disk"}),
+            "disk",
+        ),
+        (
+            json!({"kind": "drill", "files": files, "output": 3}),
+            "number",
+        ),
+        (
+            json!({"kind": "drill", "files": files, "output": "artifact", "artifact_name": "a/b.nc"}),
+            "slash",
+        ),
+    ] {
+        let (status, r) = prepare(&s, &operator, "w1", request).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{why}: {r}");
+        assert_eq!(r["error"], "bad_plugin_request", "{why}");
+    }
+}
+
+#[tokio::test]
+async fn a_cam_worker_makes_a_stencil_a_probe_program_a_probe_report_and_an_inspection() {
+    let s = common::server("sim-cam-more");
+    let boss = admin(&s).await;
+    let operator = user(&s, &boss, "oper1", "operator").await;
+    make_machine(&s, &boss, "w1", "cam", json!({})).await;
+    let paste = "%FSLAX24Y24*%
+%MOMM*%
+%TF.FileFunction,Paste,Top*%
+%ADD10R,1.200X0.600*%
+%ADD11C,1.000*%
+D10*
+X100000Y100000D03*
+D11*
+X150000Y200000D03*
+M02*
+";
+    let stencil = run_to_done(
+        &s,
+        &operator,
+        "w1",
+        json!({"kind": "stencil", "files": [{"name": "board.gtp", "text": paste}], "params": {"tool_dia_mm": 0.4, "shrink_pct": 5}}),
+    )
+    .await;
+    assert_eq!(stencil["view"]["result"]["apertures"], 2);
+    assert!(stencil["view"]["gcode"].as_str().unwrap().contains("G2 "));
+    let (status, r) = prepare(
+        &s,
+        &operator,
+        "w1",
+        json!({"kind": "stencil", "files": [{"name": "board.gtp", "text": paste}], "params": {"tool_dia_mm": 0.9}}),
+    )
+    .await;
+    assert_eq!(
+        (status, r["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_params")),
+        "{r}"
+    );
+    let probe = run_to_done(
+        &s,
+        &operator,
+        "w1",
+        json!({"kind": "autolevel", "params": {"columns": 3, "rows": 3}}),
+    )
+    .await;
+    assert_eq!(probe["view"]["result"]["points"], 9);
+    assert_eq!(
+        probe["view"]["gcode"]
+            .as_str()
+            .unwrap()
+            .matches("G38.2")
+            .count(),
+        9
+    );
+    let map = run_to_done(
+        &s,
+        &operator,
+        "w1",
+        json!({"kind": "autolevel", "mode": "map", "heights": [[0.0, 0.0], [0.3, 0.3]], "params": {"columns": 2, "rows": 2, "tolerance_mm": 0.1}}),
+    )
+    .await;
+    assert_eq!(map["view"]["result"]["verdict"], "uneven");
+    assert!(map["view"].get("gcode").is_none());
+    let inspected = run_to_done(
+        &s,
+        &operator,
+        "w1",
+        json!({"kind": "inspect", "text": "G21
+G0 X0 Y0 Z2
+G1 Z-1 F100
+G1 X10
+G0 Z2
+M2
+"}),
+    )
+    .await;
+    assert_eq!(inspected["view"]["result"]["plunges"], 1);
+    assert_eq!(inspected["view"]["result"]["levels"][0]["z_mm"], -1.0);
+    // a program kept in the store is inspected by naming it
+    let (status, art) = post_to(
+        &s,
+        &operator,
+        "/api/v1/artifacts",
+        Some(json!({"name": "p.nc", "format": "text/plain", "data_base64": base64::engine::general_purpose::STANDARD.encode("G21
+G1 X5 Y0 Z-1 F100
+M2
+")})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{art}");
+    let id = art["artifact_id"].as_str().unwrap().to_string();
+    let again = run_to_done(
+        &s,
+        &operator,
+        "w1",
+        json!({"kind": "inspect", "artifact": id}),
+    )
+    .await;
+    assert_eq!(again["view"]["result"]["cut_moves"], 1);
 }

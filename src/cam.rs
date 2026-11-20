@@ -45,6 +45,18 @@ pub const TOOLS: &[(&str, &str)] = &[
         "G-code to isolate the tracks of a copper layer (a grid; no pours)",
     ),
     (
+        "stencil",
+        "G-code to cut the openings of a stencil from a paste layer",
+    ),
+    (
+        "autolevel",
+        "G-code that probes a grid over the board, or the account of a probe map",
+    ),
+    (
+        "inspect",
+        "the account of a toolpath: lengths, depths and moves in the air",
+    ),
+    (
         "verify",
         "the report of a G-code program: bounds, limits, order of the moves",
     ),
@@ -867,6 +879,434 @@ fn make_verify(text: &str, params: &Value, cfg: &CamConfig) -> PluginResult<Made
     })
 }
 
+// ---- stencil -------------------------------------------------------------------------------------------------------------------------
+
+/// Whether a `params` flag is there and true; a value that is not a boolean is refused.
+fn flag_param(params: &Value, key: &str) -> PluginResult<bool> {
+    match params.get(key) {
+        None => Ok(false),
+        Some(Value::Bool(b)) => Ok(*b),
+        Some(_) => Err(bad(format!("{key} is true or false"))),
+    }
+}
+
+/// One aperture of a stencil: where it is and how it is cut.
+enum Aperture {
+    /// The path of the center of the tool: a rectangle of this width and height.
+    Rect(f64, f64),
+    /// The path of the center of the tool: a circle of this radius.
+    Round(f64),
+}
+
+/// The G-code that cuts the apertures of a paste layer in a foil: the path of the center of the tool goes inside the edge of every pad by the radius of the tool. A pad that is
+/// smaller than the tool, or made by a macro, is refused (with `skip_small` the pads that are too small are left out and counted, which makes a stencil with fewer openings).
+fn make_stencil(
+    layers: &[Layer],
+    request: &Value,
+    params: &Value,
+    cfg: &CamConfig,
+) -> PluginResult<Made> {
+    let cut = cut_params(params, cfg, 0.12)?;
+    let tool = param(params, "tool_dia_mm", 0.4, 0.05, 3.0)?;
+    let shrink = param(params, "shrink_pct", 0.0, 0.0, 30.0)?;
+    let mirror = flag_param(params, "mirror")?;
+    let skip_small = flag_param(params, "skip_small")?;
+    let wanted = request.get("layer").and_then(Value::as_str);
+    let layer = layers
+        .iter()
+        .find(|l| l.function.starts_with("paste") && wanted.is_none_or(|w| l.name == w))
+        .ok_or_else(|| {
+            PluginError::Coded(
+                "missing_layer",
+                "the job needs a paste layer (name it in `layer` if there are several)".into(),
+            )
+        })?;
+    if layer.flashes.is_empty() {
+        return Err(PluginError::Coded(
+            "missing_layer",
+            "the paste layer has no pads".into(),
+        ));
+    }
+    let scale = 1.0 - shrink / 100.0;
+    let (lo, hi) = layer
+        .flashes
+        .iter()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), f| {
+            (lo.min(f.at.0), hi.max(f.at.0))
+        });
+    let mut pads: Vec<((f64, f64), Aperture)> = Vec::new();
+    let mut skipped = 0usize;
+    for f in &layer.flashes {
+        let Some((w, h)) = f.shape.size() else {
+            return Err(bad(
+                "a pad made by a macro has no size known here: the stencil cannot be cut",
+            ));
+        };
+        let at = (if mirror { lo + hi - f.at.0 } else { f.at.0 }, f.at.1);
+        let (w, h) = (w * scale, h * scale);
+        let aperture = match f.shape {
+            Shape::Circle(_) => (w - tool > 1e-6).then(|| Aperture::Round((w - tool) / 2.0)),
+            _ => (w - tool > 1e-6 && h - tool > 1e-6).then_some(Aperture::Rect(w - tool, h - tool)),
+        };
+        match aperture {
+            Some(a) => pads.push((at, a)),
+            None if skip_small => skipped += 1,
+            None => {
+                return Err(bad(format!(
+                    "a pad of {} x {} mm is too small for a {} mm tool (skip_small: true leaves such pads out)",
+                    num(w),
+                    num(h),
+                    num(tool)
+                )))
+            }
+        }
+    }
+    if pads.is_empty() {
+        return Err(bad(
+            "every pad is too small for the tool: nothing would be cut",
+        ));
+    }
+    let mut reach: Vec<(f64, f64)> = Vec::new();
+    for (at, a) in &pads {
+        let (rx, ry) = match a {
+            Aperture::Rect(w, h) => (w / 2.0, h / 2.0),
+            Aperture::Round(r) => (*r, *r),
+        };
+        reach.push((at.0 - rx, at.1 - ry));
+        reach.push((at.0 + rx, at.1 + ry));
+    }
+    check_travel(cfg, &reach)?;
+    let mut lines = header(&cut, "stencil");
+    let (mut here, mut length) = ((0.0, 0.0), 0.0);
+    let total = pads.len();
+    while !pads.is_empty() {
+        let k = pads
+            .iter()
+            .enumerate()
+            .min_by(|a, b| {
+                let d = |p: &(f64, f64)| (p.0 - here.0).hypot(p.1 - here.1);
+                d(&a.1 .0).total_cmp(&d(&b.1 .0))
+            })
+            .map_or(0, |(k, _)| k);
+        let (at, a) = pads.swap_remove(k);
+        here = at;
+        match a {
+            Aperture::Rect(w, h) => {
+                let (x0, y0, x1, y1) = (
+                    at.0 - w / 2.0,
+                    at.1 - h / 2.0,
+                    at.0 + w / 2.0,
+                    at.1 + h / 2.0,
+                );
+                lines.push(format!("G0 X{} Y{}", num(x0), num(y0)));
+                lines.push(format!("G1 Z{} F{}", num(-cut.depth), num(cut.feed)));
+                lines.push(format!("G1 X{} Y{}", num(x1), num(y0)));
+                lines.push(format!("G1 X{} Y{}", num(x1), num(y1)));
+                lines.push(format!("G1 X{} Y{}", num(x0), num(y1)));
+                lines.push(format!("G1 X{} Y{}", num(x0), num(y0)));
+                length += 2.0 * (w + h);
+            }
+            Aperture::Round(r) => {
+                lines.push(format!("G0 X{} Y{}", num(at.0 + r), num(at.1)));
+                lines.push(format!("G1 Z{} F{}", num(-cut.depth), num(cut.feed)));
+                lines.push(format!(
+                    "G2 X{} Y{} I{} J0",
+                    num(at.0 + r),
+                    num(at.1),
+                    num(-r)
+                ));
+                length += std::f64::consts::TAU * r;
+            }
+        }
+        lines.push(format!("G0 Z{}", num(cut.safe_z)));
+    }
+    lines.extend(footer(&cut));
+    Ok(Made {
+        lines,
+        steps: total,
+        note: json!({
+            "layer": layer.name, "apertures": total, "skipped_too_small": skipped, "tool_dia_mm": tool,
+            "shrink_pct": shrink, "mirror": mirror, "depth_mm": cut.depth, "cut_length_mm": round2(length),
+        }),
+    })
+}
+
+// ---- autolevel -----------------------------------------------------------------------------------------------------------------------
+
+/// The height of a surface at `(u, v)`, both from 0 to 1 over the grid of probe points `heights` (rows from the bottom, columns from the left): the linear interpolation between
+/// the four points around it. A grid with fewer than two rows or columns, or rows of different lengths, gives `None`.
+pub fn bilinear(heights: &[Vec<f64>], u: f64, v: f64) -> Option<f64> {
+    let rows = heights.len();
+    let cols = heights.first()?.len();
+    if rows < 2 || cols < 2 || heights.iter().any(|r| r.len() != cols) {
+        return None;
+    }
+    let (fx, fy) = (
+        u.clamp(0.0, 1.0) * (cols - 1) as f64,
+        v.clamp(0.0, 1.0) * (rows - 1) as f64,
+    );
+    let (i, j) = (
+        (fx.floor() as usize).min(cols - 2),
+        (fy.floor() as usize).min(rows - 2),
+    );
+    let (tx, ty) = (fx - i as f64, fy - j as f64);
+    let low = heights[j][i] * (1.0 - tx) + heights[j][i + 1] * tx;
+    let high = heights[j + 1][i] * (1.0 - tx) + heights[j + 1][i + 1] * tx;
+    Some(low * (1.0 - ty) + high * ty)
+}
+
+/// The probe grid of an `autolevel` request.
+struct ProbeGrid {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    columns: usize,
+    rows: usize,
+}
+
+impl ProbeGrid {
+    fn from_params(params: &Value) -> PluginResult<ProbeGrid> {
+        Ok(ProbeGrid {
+            x: param(params, "x_mm", 0.0, -5000.0, 5000.0)?,
+            y: param(params, "y_mm", 0.0, -5000.0, 5000.0)?,
+            width: param(params, "width_mm", 50.0, 1.0, 5000.0)?,
+            height: param(params, "height_mm", 50.0, 1.0, 5000.0)?,
+            columns: param(params, "columns", 5.0, 2.0, 50.0)?.round() as usize,
+            rows: param(params, "rows", 5.0, 2.0, 50.0)?.round() as usize,
+        })
+    }
+
+    fn point(&self, column: usize, row: usize) -> (f64, f64) {
+        (
+            self.x + self.width * column as f64 / (self.columns - 1) as f64,
+            self.y + self.height * row as f64 / (self.rows - 1) as f64,
+        )
+    }
+
+    fn view(&self) -> Value {
+        json!({
+            "x_mm": self.x, "y_mm": self.y, "width_mm": self.width, "height_mm": self.height,
+            "columns": self.columns, "rows": self.rows,
+        })
+    }
+}
+
+/// The heights of a probe map in a request: `heights` is a list of rows, each a list of numbers, as many columns in every row as the grid has.
+fn heights_of(request: &Value, grid: &ProbeGrid) -> PluginResult<Vec<Vec<f64>>> {
+    let rows = request
+        .get("heights")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            bad("a probe map brings `heights`: a list of rows, each a list of numbers")
+        })?;
+    if rows.len() != grid.rows {
+        return Err(bad(format!(
+            "heights has {} rows and the grid has {}",
+            rows.len(),
+            grid.rows
+        )));
+    }
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let cells = row
+            .as_array()
+            .filter(|c| c.len() == grid.columns)
+            .ok_or_else(|| bad(format!("every row of heights has {} numbers", grid.columns)))?;
+        let mut r = Vec::with_capacity(cells.len());
+        for c in cells {
+            match c.as_f64() {
+                Some(z) if z.is_finite() && z.abs() <= 100.0 => r.push(z),
+                _ => return Err(bad("a height is a number from -100 to 100 mm")),
+            }
+        }
+        out.push(r);
+    }
+    Ok(out)
+}
+
+/// The program that probes a grid of points over the board (`mode: "probe"`, the default), or the account of a probe map that was made with it (`mode: "map"`).
+fn make_autolevel(request: &Value, params: &Value, cfg: &CamConfig) -> PluginResult<Made> {
+    let grid = ProbeGrid::from_params(params)?;
+    let mode = request
+        .get("mode")
+        .and_then(Value::as_str)
+        .unwrap_or("probe");
+    let corners = [
+        grid.point(0, 0),
+        grid.point(grid.columns - 1, grid.rows - 1),
+    ];
+    check_travel(cfg, &corners)?;
+    match mode {
+        "probe" => {
+            let cut = cut_params(params, cfg, 1.0)?;
+            let feed = param(
+                params,
+                "probe_feed_mm_min",
+                25.0_f64.min(cfg.max_feed),
+                1.0,
+                cfg.max_feed,
+            )?;
+            let mut lines = vec![
+                "(autolevel probe)".to_string(),
+                "G21".into(),
+                "G90".into(),
+                "G17".into(),
+                format!("G0 Z{}", num(cut.safe_z)),
+            ];
+            let mut positions: Vec<Value> = Vec::new();
+            for row in 0..grid.rows {
+                // the rows are probed one way and then the other, so the head does not run back across the board
+                let columns: Vec<usize> = if row.is_multiple_of(2) {
+                    (0..grid.columns).collect()
+                } else {
+                    (0..grid.columns).rev().collect()
+                };
+                for column in columns {
+                    let (x, y) = grid.point(column, row);
+                    lines.push(format!("(probe row {row} column {column})"));
+                    lines.push(format!("G0 X{} Y{}", num(x), num(y)));
+                    lines.push(format!("G38.2 Z{} F{}", num(-cut.depth), num(feed)));
+                    lines.push(format!("G0 Z{}", num(cut.safe_z)));
+                    positions.push(
+                        json!({"row": row, "column": column, "x_mm": round2(x), "y_mm": round2(y)}),
+                    );
+                }
+            }
+            lines.push(format!("G0 Z{}", num(cut.safe_z)));
+            lines.push("M2".into());
+            Ok(Made {
+                lines,
+                steps: positions.len(),
+                note: json!({
+                    "mode": "probe", "points": positions.len(), "grid": grid.view(), "probe_depth_mm": cut.depth,
+                    "probe_feed_mm_min": feed, "positions": positions,
+                }),
+            })
+        }
+        "map" => {
+            let tolerance = param(params, "tolerance_mm", 0.1, 0.001, 5.0)?;
+            let heights = heights_of(request, &grid)?;
+            let all: Vec<f64> = heights.iter().flatten().copied().collect();
+            let (min, max) = all
+                .iter()
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), &z| {
+                    (a.min(z), b.max(z))
+                });
+            let mean = all.iter().sum::<f64>() / all.len() as f64;
+            let worst = heights
+                .iter()
+                .enumerate()
+                .flat_map(|(r, row)| row.iter().enumerate().map(move |(c, &z)| (r, c, z)))
+                .max_by(|a, b| (a.2 - mean).abs().total_cmp(&(b.2 - mean).abs()))
+                .unwrap_or((0, 0, 0.0));
+            let column_mean =
+                |c: usize| heights.iter().map(|r| r[c]).sum::<f64>() / grid.rows as f64;
+            let row_mean = |r: usize| heights[r].iter().sum::<f64>() / grid.columns as f64;
+            let tilt_x = (column_mean(grid.columns - 1) - column_mean(0)) / grid.width;
+            let tilt_y = (row_mean(grid.rows - 1) - row_mean(0)) / grid.height;
+            let range = max - min;
+            let (wx, wy) = grid.point(worst.1, worst.0);
+            Ok(Made {
+                lines: Vec::new(),
+                steps: grid.rows,
+                note: json!({
+                    "mode": "map", "grid": grid.view(), "points": all.len(), "min_mm": round3(min), "max_mm": round3(max),
+                    "mean_mm": round3(mean), "range_mm": round3(range), "tolerance_mm": tolerance,
+                    "verdict": if range <= tolerance { "flat" } else { "uneven" },
+                    "tilt_x_mm_per_mm": round6(tilt_x), "tilt_y_mm_per_mm": round6(tilt_y),
+                    "center_mm": bilinear(&heights, 0.5, 0.5).map(round3),
+                    "farthest_from_the_mean": {"row": worst.0, "column": worst.1, "x_mm": round2(wx), "y_mm": round2(wy), "height_mm": round3(worst.2)},
+                }),
+            })
+        }
+        _ => Err(bad("mode is `probe` or `map`")),
+    }
+}
+
+fn round3(v: f64) -> f64 {
+    (v * 1000.0).round() / 1000.0
+}
+
+fn round6(v: f64) -> f64 {
+    (v * 1_000_000.0).round() / 1_000_000.0
+}
+
+// ---- inspect -------------------------------------------------------------------------------------------------------------------------
+
+/// The account of a toolpath: how far it cuts and rapids, at which depths it cuts and how much of the cutting is in the air. It judges nothing (`verify` does that). Pictures
+/// are not read here.
+fn make_inspect(text: &str, cfg: &CamConfig) -> PluginResult<Made> {
+    let program = gcode::parse(text, 0, false).map_err(|e| PluginError::Coded(e.code, e.detail))?;
+    if program.entries.len() > cfg.max_lines {
+        return Err(PluginError::Coded(
+            "too_big",
+            format!(
+                "a program may have {} lines at the most (max_gcode_lines)",
+                cfg.max_lines
+            ),
+        ));
+    }
+    let cnc = CncConfig {
+        travel: [None, None, None],
+        reject_out_of_travel: false,
+        spindle_max_rpm: 65535.0,
+        ..CncConfig::default()
+    };
+    let a = analyze(&program.entries, [0.0; 3], &cnc)
+        .map_err(|e| PluginError::Coded(e.code, e.detail))?;
+    let mut levels: std::collections::BTreeMap<i64, (usize, f64)> =
+        std::collections::BTreeMap::new();
+    let (mut cut_length, mut rapid_length, mut air_moves, mut plunges) = (0.0, 0.0, 0usize, 0usize);
+    let mut before = [0.0; 3];
+    for (n, e) in program.entries.iter().enumerate() {
+        let after = a.after[n].0;
+        let words = gcode::words(&e.text);
+        let rapid = words.iter().any(|&(l, v)| l == 'G' && v == 0.0);
+        let cutting = words
+            .iter()
+            .any(|&(l, v)| l == 'G' && (1.0..=3.0).contains(&v));
+        let flat = (after[0] - before[0]).hypot(after[1] - before[1]);
+        let long = flat.hypot(after[2] - before[2]);
+        if cutting {
+            if flat < 1e-9 && after[2] < before[2] - 1e-9 {
+                plunges += 1;
+            } else {
+                let at = levels
+                    .entry((after[2] * 1000.0).round() as i64)
+                    .or_default();
+                at.0 += 1;
+                at.1 += long;
+            }
+            cut_length += long;
+            if after[2] > 1e-9 {
+                air_moves += 1;
+            }
+        } else if rapid {
+            rapid_length += long;
+        }
+        before = after;
+    }
+    let total_levels = levels.len();
+    let shown: Vec<Value> = levels
+        .iter()
+        .take(50)
+        .map(|(z, (moves, length))| json!({"z_mm": *z as f64 / 1000.0, "moves": moves, "length_mm": round2(*length)}))
+        .collect();
+    let b = a.bounds.map(|(lo, hi)| json!({"min": {"x": lo[0], "y": lo[1], "z": lo[2]}, "max": {"x": hi[0], "y": hi[1], "z": hi[2]}}));
+    let steps = program.entries.len();
+    Ok(Made {
+        lines: Vec::new(),
+        steps,
+        note: json!({
+            "lines": steps, "rapid_moves": a.rapid_moves, "cut_moves": a.cut_moves, "arcs": a.arcs, "plunges": plunges,
+            "cut_length_mm": round2(cut_length), "rapid_length_mm": round2(rapid_length), "air_moves": air_moves,
+            "levels": shown, "levels_total": total_levels, "estimate_s": round2(a.estimate_s),
+            "max_feed_mm_min": a.max_feed, "max_rpm": a.max_rpm, "bounds": b,
+        }),
+    })
+}
+
 // ---- the engine ----------------------------------------------------------------------------------------------------------------------
 
 /// The CAM workers of the server: their jobs.
@@ -902,6 +1342,23 @@ impl CamEngine {
                     _ => ("isolate", make_isolate(&layers, request, &params, cfg)?),
                 }
             }
+            "stencil" => {
+                let files = files_of(request, cfg.max_input_mib)?;
+                let layers = read_files(&files)?;
+                ("stencil", make_stencil(&layers, request, &params, cfg)?)
+            }
+            "autolevel" => ("autolevel", make_autolevel(request, &params, cfg)?),
+            "inspect" => {
+                let text = request
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .or_else(|| request.get("artifact_text").and_then(Value::as_str))
+                    .ok_or_else(|| PluginError::Bad("an inspect request brings the program in `text` or names a G-code artifact".into()))?;
+                if text.len() as f64 > cfg.max_input_mib * 1024.0 * 1024.0 {
+                    return Err(PluginError::Coded("input_too_large", format!("the program is over {} MiB (max_input_mib)", num(cfg.max_input_mib))));
+                }
+                ("inspect", make_inspect(text, cfg)?)
+            }
             "verify" => {
                 let text = request
                     .get("text")
@@ -915,7 +1372,7 @@ impl CamEngine {
             }
             _ => {
                 return Err(PluginError::Bad(
-                    "the request has to be {\"kind\": \"drill\" | \"outline\" | \"isolate\" | \"verify\", ...}".into(),
+                    "the request has to be {\"kind\": \"drill\" | \"outline\" | \"isolate\" | \"stencil\" | \"autolevel\" | \"inspect\" | \"verify\", ...}".into(),
                 ))
             }
         };
@@ -930,7 +1387,8 @@ impl CamEngine {
             ));
         }
         let mut view = json!({"kind": kind, "result": made.note, "lines": made.lines.len()});
-        if kind != "verify" {
+        // a program is in the view when the job made one (`verify`, `inspect` and a probe map only report)
+        if !matches!(kind, "verify" | "inspect") && !made.lines.is_empty() {
             view["gcode"] = json!(made.lines.join("\n") + "\n");
         }
         let native_id = self.book.add(
@@ -984,7 +1442,228 @@ mod tests {
             assert!(CamConfig::from_settings(&bad).is_err(), "{bad}");
         }
         assert_eq!(SETTINGS_HELP.len(), 10);
-        assert_eq!(TOOLS.len(), 4);
+        assert_eq!(TOOLS.len(), 7);
+    }
+
+    const PASTE: &str = "%FSLAX24Y24*%\n%MOMM*%\n%TF.FileFunction,Paste,Top*%\n%ADD10R,1.200X0.600*%\n%ADD11C,1.000*%\nD10*\nX100000Y100000D03*\nX200000Y100000D03*\nD11*\nX150000Y200000D03*\nM02*\n";
+
+    fn stencil(extra: Value) -> PluginResult<Prepared> {
+        let mut request =
+            json!({"kind": "stencil", "files": [{"name": "board.gtp", "text": PASTE}]});
+        if let (Some(r), Some(e)) = (request.as_object_mut(), extra.as_object()) {
+            for (k, v) in e {
+                r.insert(k.clone(), v.clone());
+            }
+        }
+        run(request)
+    }
+
+    #[test]
+    fn a_stencil_cuts_inside_every_pad_by_the_radius_of_the_tool() {
+        let p = stencil(json!({"params": {"tool_dia_mm": 0.4}})).unwrap();
+        let g = gcode_of(&p);
+        assert!(g.starts_with("(stencil)\nG21\n"));
+        assert_eq!(p.view["result"]["apertures"], 3);
+        assert_eq!(p.view["result"]["skipped_too_small"], 0);
+        // the first rectangle is 1.2 x 0.6 mm at (10, 10): the path of the center of a 0.4 mm tool is 0.8 x 0.2 mm
+        assert!(g.contains("G0 X9.6 Y9.9"), "{g}");
+        assert!(
+            g.contains("G1 X10.4 Y9.9") && g.contains("G1 X10.4 Y10.1"),
+            "{g}"
+        );
+        // the round pad is 1 mm: a circle of 0.3 mm radius around (15, 20)
+        assert!(
+            g.contains("G0 X15.3 Y20") && g.contains("G2 X15.3 Y20 I-0.3 J0"),
+            "{g}"
+        );
+        assert!(g.contains("G1 Z-0.12 F100"));
+        assert!(g.trim_end().ends_with("M5\nM2"));
+        // the pads are cut nearest first
+        assert!(g.find("X9.6 Y9.9").unwrap() < g.find("X19.6 Y9.9").unwrap());
+    }
+
+    #[test]
+    fn a_stencil_can_shrink_the_openings_and_mirror_the_foil() {
+        let plain = stencil(json!({"params": {"tool_dia_mm": 0.2}})).unwrap();
+        let shrunk = stencil(json!({"params": {"tool_dia_mm": 0.2, "shrink_pct": 10}})).unwrap();
+        assert!(
+            plain.view["result"]["cut_length_mm"].as_f64()
+                > shrunk.view["result"]["cut_length_mm"].as_f64()
+        );
+        let mirrored = stencil(json!({"params": {"tool_dia_mm": 0.4, "mirror": true}})).unwrap();
+        // the pads at x = 10 and 20 swap places around the middle of the layer, 15
+        assert!(gcode_of(&mirrored).contains("G0 X19.6 Y9.9"));
+        assert!(gcode_of(&mirrored).contains("G0 X9.6 Y9.9"));
+        assert_eq!(mirrored.view["result"]["mirror"], true);
+    }
+
+    #[test]
+    fn a_stencil_refuses_what_it_cannot_cut_unless_told_to_skip_it() {
+        // a 0.6 mm pad and a 1 mm tool
+        let small = stencil(json!({"params": {"tool_dia_mm": 0.7}}));
+        assert_eq!(small.err().map(|e| e.code()), Some("bad_params"));
+        let skipped = stencil(json!({"params": {"tool_dia_mm": 0.7, "skip_small": true}})).unwrap();
+        assert_eq!(skipped.view["result"]["apertures"], 1);
+        assert_eq!(skipped.view["result"]["skipped_too_small"], 2);
+        let nothing = stencil(json!({"params": {"tool_dia_mm": 3.0, "skip_small": true}}));
+        assert_eq!(nothing.err().map(|e| e.code()), Some("bad_params"));
+        let flag = stencil(json!({"params": {"mirror": "yes"}}));
+        assert_eq!(flag.err().map(|e| e.code()), Some("bad_params"));
+        // no paste layer, and a macro pad
+        let no_paste = run(json!({"kind": "stencil", "files": [{"name": "t.gtl", "text": TRACK}]}));
+        assert_eq!(no_paste.err().map(|e| e.code()), Some("missing_layer"));
+        let macro_pad = PASTE.replace("%ADD11C,1.000*%", "%AMOVAL*1,1,0.5,0,0*%\n%ADD11OVAL*%");
+        let macro_job =
+            run(json!({"kind": "stencil", "files": [{"name": "b.gtp", "text": macro_pad}]}));
+        assert_eq!(macro_job.err().map(|e| e.code()), Some("bad_params"));
+        // the work has to fit the travel
+        let cfg = CamConfig {
+            travel: [Some(12.0), Some(12.0)],
+            ..CamConfig::default()
+        };
+        let out = CamEngine::default().prepare(
+            "w1",
+            &cfg,
+            &json!({"kind": "stencil", "files": [{"name": "b.gtp", "text": PASTE}]}),
+        );
+        assert_eq!(out.err().map(|e| e.code()), Some("out_of_travel"));
+    }
+
+    #[test]
+    fn the_autolevel_program_probes_a_grid_row_by_row_back_and_forth() {
+        let p = run(json!({"kind": "autolevel", "params": {"x_mm": 5, "y_mm": 10, "width_mm": 40, "height_mm": 20, "columns": 3, "rows": 2, "depth_mm": 1.5, "probe_feed_mm_min": 30}})).unwrap();
+        let g = gcode_of(&p);
+        assert!(
+            g.starts_with("(autolevel probe)\nG21\n") && !g.contains("M3"),
+            "{g}"
+        );
+        assert_eq!(g.matches("G38.2 Z-1.5 F30").count(), 6);
+        assert_eq!(p.view["result"]["points"], 6);
+        // the first row goes left to right and the second right to left
+        let first = g.find("G0 X5 Y10").unwrap();
+        let last_of_first = g.find("G0 X45 Y10").unwrap();
+        let second_row_start = g.find("G0 X45 Y30").unwrap();
+        let second_row_end = g.find("G0 X5 Y30").unwrap();
+        assert!(
+            first < last_of_first
+                && last_of_first < second_row_start
+                && second_row_start < second_row_end
+        );
+        assert_eq!(p.view["result"]["positions"][3]["column"], 2);
+        assert_eq!(p.view["result"]["positions"][3]["row"], 1);
+        assert!(g.trim_end().ends_with("M2"));
+    }
+
+    #[test]
+    fn the_autolevel_grid_is_held_to_its_limits_and_to_the_travel() {
+        for params in [
+            json!({"columns": 1}),
+            json!({"rows": 51}),
+            json!({"width_mm": 0}),
+            json!({"depth_mm": 99}),
+            json!({"probe_feed_mm_min": 90000}),
+        ] {
+            let r = run(json!({"kind": "autolevel", "params": params.clone()}));
+            assert_eq!(r.err().map(|e| e.code()), Some("bad_params"), "{params}");
+        }
+        let unknown = run(json!({"kind": "autolevel", "mode": "fly"}));
+        assert_eq!(unknown.err().map(|e| e.code()), Some("bad_params"));
+        let cfg = CamConfig {
+            travel: [Some(30.0), None],
+            ..CamConfig::default()
+        };
+        let out = CamEngine::default().prepare(
+            "w1",
+            &cfg,
+            &json!({"kind": "autolevel", "params": {"width_mm": 60}}),
+        );
+        assert_eq!(out.err().map(|e| e.code()), Some("out_of_travel"));
+    }
+
+    #[test]
+    fn a_probe_map_is_judged_flat_or_uneven_and_its_tilt_is_told() {
+        let request = |heights: Value, tolerance: f64| {
+            run(
+                json!({"kind": "autolevel", "mode": "map", "heights": heights,
+                "params": {"width_mm": 40, "height_mm": 20, "columns": 3, "rows": 2, "tolerance_mm": tolerance}}),
+            )
+        };
+        let tilted = request(json!([[0.0, 0.1, 0.2], [0.0, 0.1, 0.2]]), 0.05).unwrap();
+        let r = &tilted.view["result"];
+        assert_eq!(r["verdict"], "uneven");
+        assert_eq!(r["range_mm"], 0.2);
+        assert_eq!(r["mean_mm"], 0.1);
+        assert_eq!(r["tilt_x_mm_per_mm"], 0.005);
+        assert_eq!(r["tilt_y_mm_per_mm"], 0.0);
+        assert_eq!(r["center_mm"], 0.1);
+        assert!(tilted.view.get("gcode").is_none(), "a map makes no program");
+        let flat = request(json!([[0.0, 0.01, 0.02], [0.01, 0.0, 0.02]]), 0.05).unwrap();
+        assert_eq!(flat.view["result"]["verdict"], "flat");
+        for bad_map in [
+            json!([[0.0, 0.1, 0.2]]),
+            json!([[0.0, 0.1], [0.0, 0.1]]),
+            json!([[0.0, 0.1, "x"], [0.0, 0.1, 0.2]]),
+            json!([[0.0, 0.1, 500.0], [0.0, 0.1, 0.2]]),
+            json!("nothing"),
+        ] {
+            assert_eq!(
+                request(bad_map.clone(), 0.1).err().map(|e| e.code()),
+                Some("bad_params"),
+                "{bad_map}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_interpolation_of_a_probe_map_is_linear_between_the_points() {
+        let h = vec![vec![0.0, 1.0], vec![2.0, 3.0]];
+        assert_eq!(bilinear(&h, 0.0, 0.0), Some(0.0));
+        assert_eq!(bilinear(&h, 1.0, 0.0), Some(1.0));
+        assert_eq!(bilinear(&h, 0.0, 1.0), Some(2.0));
+        assert_eq!(bilinear(&h, 1.0, 1.0), Some(3.0));
+        let near = |got: Option<f64>, want: f64| got.is_some_and(|v| (v - want).abs() < 1e-9);
+        assert!(near(bilinear(&h, 0.5, 0.5), 1.5));
+        // outside the grid the nearest edge holds
+        assert_eq!(bilinear(&h, -3.0, 9.0), Some(2.0));
+        // three columns: the middle cell
+        let h3 = vec![vec![0.0, 1.0, 5.0], vec![0.0, 1.0, 5.0]];
+        assert!(near(bilinear(&h3, 0.5, 0.0), 1.0));
+        assert!(near(bilinear(&h3, 0.75, 0.3), 3.0));
+        assert_eq!(bilinear(&[vec![1.0]], 0.5, 0.5), None);
+        assert_eq!(bilinear(&[vec![1.0, 2.0], vec![1.0]], 0.5, 0.5), None);
+        assert_eq!(bilinear(&[], 0.5, 0.5), None);
+    }
+
+    #[test]
+    fn an_inspection_tells_how_far_the_program_cuts_at_each_depth() {
+        let program = "G21\nG90\nM3 S1000\nG0 X0 Y0 Z2\nG1 Z-0.5 F100\nG1 X10 Y0\nG1 X10 Y10\nG1 Z-1\nG1 X0 Y10\nG0 Z2\nG0 X20 Y0\nG1 X25 Y0\nM5\nM2\n";
+        let p = run(json!({"kind": "inspect", "text": program})).unwrap();
+        let r = &p.view["result"];
+        assert_eq!(r["plunges"], 2);
+        assert_eq!(r["levels_total"], 3);
+        assert_eq!(r["levels"][0]["z_mm"], -1.0);
+        assert_eq!(r["levels"][0]["length_mm"], 10.0);
+        assert_eq!(r["levels"][1]["z_mm"], -0.5);
+        assert_eq!(r["levels"][1]["moves"], 2);
+        assert_eq!(r["levels"][1]["length_mm"], 20.0);
+        // the last move cuts at Z2, in the air, and is a level of its own
+        assert_eq!(r["levels"][2]["z_mm"], 2.0);
+        assert_eq!(r["levels"][2]["length_mm"], 5.0);
+        assert_eq!(r["air_moves"], 1);
+        assert!(p.view.get("gcode").is_none());
+        assert_eq!(r["bounds"]["min"]["z"], -1.0);
+        assert_eq!(
+            run(json!({"kind": "inspect"})).err().map(|e| e.code()),
+            Some("bad_plugin_request")
+        );
+        let too_big = CamConfig {
+            max_input_mib: 1.0,
+            ..CamConfig::default()
+        };
+        let long = "G1 X1\n".repeat(300_000);
+        let out =
+            CamEngine::default().prepare("w1", &too_big, &json!({"kind": "inspect", "text": long}));
+        assert_eq!(out.err().map(|e| e.code()), Some("input_too_large"));
     }
 
     #[test]

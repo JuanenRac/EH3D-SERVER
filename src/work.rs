@@ -672,7 +672,8 @@ impl AppState {
             return Err(WError::QueueFull.into());
         }
         let request = self.work_resolve_artifact(who, request)?;
-        let prepared = plugin.prepare(self, machine, &request, &who.name)?;
+        let mut prepared = plugin.prepare(self, machine, &request, &who.name)?;
+        self.work_store_output(who, plugin.kind(), &request, &mut prepared.view)?;
         let at = now();
         let name = name
             .map(str::to_string)
@@ -712,6 +713,94 @@ impl AppState {
         self.work.jobs.locked().add(job.clone())?;
         self.announce_job("job.created", &job);
         Ok(job)
+    }
+
+    /// A `cam` request with `"output": "artifact"` keeps the program the job made as an artifact of the caller's store: the view then has `artifact` (its id, hash, size, name
+    /// and format) instead of the text of the program, which is what `output: "view"` (the default) leaves in it. The name is `artifact_name` of the request, or the kind of the job
+    /// and `.nc`. A job that makes no program (`verify`, `inspect`, a probe map) refuses it. Other plugins ignore `output`.
+    fn work_store_output(
+        &self,
+        who: &Identity,
+        plugin: &str,
+        request: &Value,
+        view: &mut Value,
+    ) -> Result<(), Fail> {
+        let bad = |why: &str| Fail::Plugin(PluginError::Bad(why.into()));
+        let wanted = match request.get("output") {
+            None => return Ok(()),
+            Some(Value::String(s)) => s.as_str(),
+            Some(_) => return Err(bad("output is `view` or `artifact`")),
+        };
+        if plugin != "cam" {
+            return Ok(());
+        }
+        match wanted {
+            "view" => return Ok(()),
+            "artifact" => {}
+            _ => return Err(bad("output is `view` or `artifact`")),
+        }
+        let Some(program) = view
+            .get("gcode")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+        else {
+            return Err(bad(
+                "this kind of job makes no program to keep as an artifact",
+            ));
+        };
+        let kind = view
+            .get("kind")
+            .and_then(Value::as_str)
+            .unwrap_or("cam")
+            .to_string();
+        let name = request
+            .get("artifact_name")
+            .and_then(Value::as_str)
+            .map_or_else(|| format!("{kind}.nc"), str::to_string);
+        let inputs: Vec<crate::artifacts::InputRef> = request
+            .get("artifact")
+            .and_then(Value::as_str)
+            .and_then(|id| {
+                self.artifacts
+                    .store
+                    .locked()
+                    .get(id)
+                    .map(|r| crate::artifacts::InputRef {
+                        artifact_id: r.artifact_id.clone(),
+                        blob_sha256: r.blob_sha256.clone(),
+                    })
+            })
+            .into_iter()
+            .collect();
+        let meta = crate::artifacts::NewArtifact {
+            name,
+            format: "text/x-gcode".into(),
+            producer: Some(crate::artifacts::Producer {
+                tool: "eh3d-server cam".into(),
+                version: env!("CARGO_PKG_VERSION").into(),
+                config_sha256: None,
+            }),
+            inputs,
+            params: request.get("params").filter(|p| p.is_object()).cloned(),
+            ..Default::default()
+        };
+        let record = self
+            .add_artifact(who, meta, program.as_bytes())
+            .map_err(|e| match e {
+                crate::artifacts::ArtifactError::Bad(why) => Fail::Plugin(PluginError::Bad(why)),
+                other => Fail::Plugin(PluginError::Failed(format!(
+                    "the program could not be kept as an artifact: {}",
+                    other.code()
+                ))),
+            })?;
+        if let Some(map) = view.as_object_mut() {
+            map.remove("gcode");
+        }
+        view["artifact"] = json!({
+            "artifact_id": record.artifact_id, "blob_sha256": record.blob_sha256, "size": record.size,
+            "name": record.name, "format": record.format,
+        });
+        Ok(())
     }
 
     /// A request that names an artifact of the store (`artifact`, or `job` in a `place` request) is given the text of that artifact in `artifact_text`, for the plugins that read
