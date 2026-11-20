@@ -245,6 +245,20 @@
         },
         {
           "desc": {
+            "en": "mDNS announcement and compatibility keys",
+            "es": "anuncio mDNS y claves de compatibilidad",
+            "de": "mDNS-Ankündigung und Kompatibilitätsschlüssel",
+            "fr": "annonce mDNS et clés de compatibilité",
+            "it": "annuncio mDNS e chiavi di compatibilità",
+            "ja": "mDNS の告知と互換キー",
+            "zh": "mDNS 发布与兼容密钥",
+            "pt": "anúncio mDNS e chaves de compatibilidade"
+          },
+          "name": "mdns.rs  compat.rs",
+          "tree_name": "mdns.rs compat.rs"
+        },
+        {
+          "desc": {
             "en": "the 3D printers, their drivers and what the simulations share",
             "es": "las impresoras 3D, sus controladores y lo que comparten las simulaciones",
             "de": "die 3D-Drucker, ihre Treiber und was die Simulationen teilen",
