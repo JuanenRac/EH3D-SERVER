@@ -72,6 +72,15 @@ fn used() -> BTreeSet<String> {
                 found.insert(code);
             }
         }
+        for (i, _) in text.match_indices("wrong(") {
+            let before = text[..i].chars().last().unwrap_or(' ');
+            if before.is_alphanumeric() || before == '_' {
+                continue;
+            }
+            if let Some(code) = literal(&text[i + "wrong(".len()..]) {
+                found.insert(code);
+            }
+        }
         for (i, _) in text.match_indices("Coded(") {
             if let Some(code) = literal(&text[i + "Coded(".len()..]) {
                 found.insert(code);
