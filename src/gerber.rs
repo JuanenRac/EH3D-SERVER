@@ -19,6 +19,10 @@ pub const MAX_FILES: usize = 64;
 pub const MAX_FEATURES: usize = 2_000_000;
 /// The most pads whose gaps are compared two by two.
 const CLEARANCE_PADS: usize = 3000;
+/// The most tracks of one layer whose gaps to each other are checked (the check looks at every pair).
+const CLEARANCE_TRACKS: usize = 2500;
+/// The most findings one page of `findings_page` gives.
+pub const MAX_PAGE: usize = 1000;
 
 /// The settings a gerber worker may have: key and what it takes.
 pub const SETTINGS_HELP: &[(&str, &str)] = &[
@@ -817,6 +821,54 @@ fn pad_gap(a: &Flash, b: &Flash) -> Option<f64> {
     })
 }
 
+fn orient(a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> f64 {
+    (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)
+}
+
+fn point_segment(p: (f64, f64), a: (f64, f64), b: (f64, f64)) -> f64 {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let len2 = dx * dx + dy * dy;
+    let t = if len2 <= f64::EPSILON {
+        0.0
+    } else {
+        (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / len2).clamp(0.0, 1.0)
+    };
+    (p.0 - (a.0 + t * dx)).hypot(p.1 - (a.1 + t * dy))
+}
+
+/// The distance between the center lines of two tracks (0 when they cross or touch).
+fn center_distance(a: &Track, b: &Track) -> f64 {
+    let crosses = orient(a.from, a.to, b.from) * orient(a.from, a.to, b.to) < 0.0
+        && orient(b.from, b.to, a.from) * orient(b.from, b.to, a.to) < 0.0;
+    if crosses {
+        return 0.0;
+    }
+    [
+        point_segment(a.from, b.from, b.to),
+        point_segment(a.to, b.from, b.to),
+        point_segment(b.from, a.from, a.to),
+        point_segment(b.to, a.from, a.to),
+    ]
+    .into_iter()
+    .fold(f64::INFINITY, f64::min)
+}
+
+/// The copper-to-copper gap between two tracks of one layer: the distance of the center lines less half of each width. Zero or less when they touch or cross (tracks that
+/// meet are taken as parts of one net: the check has no nets, so it cannot tell a short from a join).
+pub fn track_gap(a: &Track, b: &Track) -> f64 {
+    center_distance(a, b) - a.width / 2.0 - b.width / 2.0
+}
+
+fn track_box(t: &Track) -> [f64; 4] {
+    let r = t.width / 2.0;
+    [
+        t.from.0.min(t.to.0) - r,
+        t.from.1.min(t.to.1) - r,
+        t.from.0.max(t.to.0) + r,
+        t.from.1.max(t.to.1) + r,
+    ]
+}
+
 /// Goes over the layers against the rules. Findings past `max_findings` are counted and not kept.
 pub fn run_drc(layers: &[Layer], rules: &Rules, max_findings: usize) -> Drc {
     let mut out = Drc {
@@ -906,6 +958,56 @@ pub fn run_drc(layers: &[Layer], rules: &Rules, max_findings: usize) -> Drc {
                     value: layer.flashes.len() as f64,
                     limit: CLEARANCE_PADS as f64,
                     message: "the layer has too many pads for the gap between them to be checked"
+                        .into(),
+                },
+            );
+        }
+        if layer.tracks.len() <= CLEARANCE_TRACKS {
+            let gap = rules.min_clearance_mm;
+            let boxes: Vec<[f64; 4]> = layer.tracks.iter().map(track_box).collect();
+            for (i, a) in layer.tracks.iter().enumerate() {
+                for (j, b) in layer.tracks.iter().enumerate().skip(i + 1) {
+                    let (p, q) = (boxes[i], boxes[j]);
+                    // tracks whose boxes are farther apart than the gap cannot be closer than it
+                    if p[2] + gap < q[0]
+                        || q[2] + gap < p[0]
+                        || p[3] + gap < q[1]
+                        || q[3] + gap < p[1]
+                    {
+                        continue;
+                    }
+                    let g = track_gap(a, b);
+                    if g > 1e-9 && g < gap - 1e-9 {
+                        push(
+                            &mut out,
+                            Finding {
+                                rule: "track_clearance",
+                                severity: "error",
+                                layer: layer.name.clone(),
+                                at: a.from,
+                                value: g,
+                                limit: gap,
+                                message: format!(
+                                    "two tracks are {} mm apart, the least is {} mm",
+                                    num(g),
+                                    num(gap)
+                                ),
+                            },
+                        );
+                    }
+                }
+            }
+        } else {
+            push(
+                &mut out,
+                Finding {
+                    rule: "track_clearance_skipped",
+                    severity: "warning",
+                    layer: layer.name.clone(),
+                    at: (0.0, 0.0),
+                    value: layer.tracks.len() as f64,
+                    limit: CLEARANCE_TRACKS as f64,
+                    message: "the layer has too many tracks for the gap between them to be checked"
                         .into(),
                 },
             );
@@ -1112,6 +1214,35 @@ pub fn files_of(request: &Value, max_input_mib: f64) -> Result<Vec<(String, Stri
     Ok(files)
 }
 
+/// A page of the findings of a finished check (`view.findings` of the job): filtered by `severity`, `rule` and `layer` (a filter that is `None` lets everything pass),
+/// from `offset`, at most `limit` (1 to `MAX_PAGE`). Gives the findings of the page, how many matched and whether there are more.
+pub fn findings_page(
+    findings: &Value,
+    severity: Option<&str>,
+    rule: Option<&str>,
+    layer: Option<&str>,
+    offset: usize,
+    limit: usize,
+) -> Value {
+    let limit = limit.clamp(1, MAX_PAGE);
+    let empty = Vec::new();
+    let all = findings.as_array().unwrap_or(&empty);
+    let matching: Vec<&Value> = all
+        .iter()
+        .filter(|f| severity.is_none_or(|s| f["severity"] == s))
+        .filter(|f| rule.is_none_or(|r| f["rule"] == r))
+        .filter(|f| layer.is_none_or(|l| f["layer"] == l))
+        .collect();
+    let page: Vec<&Value> = matching.iter().skip(offset).take(limit).copied().collect();
+    json!({
+        "findings": page,
+        "matched": matching.len(),
+        "offset": offset,
+        "limit": limit,
+        "more": offset + page.len() < matching.len(),
+    })
+}
+
 fn layers_view(layers: &[Layer]) -> Vec<Value> {
     layers
         .iter()
@@ -1290,6 +1421,107 @@ mod tests {
         list.iter()
             .map(|(n, t)| (n.to_string(), t.to_string()))
             .collect()
+    }
+
+    fn track(from: (f64, f64), to: (f64, f64), width: f64) -> Track {
+        Track { from, to, width }
+    }
+
+    #[test]
+    fn the_gap_between_two_tracks_is_the_copper_to_copper_distance() {
+        let a = track((0.0, 0.0), (10.0, 0.0), 0.2);
+        // parallel, 0.5 mm between the center lines: 0.3 mm of gap
+        let b = track((0.0, 0.5), (10.0, 0.5), 0.2);
+        assert!((track_gap(&a, &b) - 0.3).abs() < 1e-9);
+        // end to end, 1 mm apart on a line
+        let c = track((11.0, 0.0), (20.0, 0.0), 0.2);
+        assert!((track_gap(&a, &c) - 0.8).abs() < 1e-9);
+        // touching and crossing tracks have no gap
+        let d = track((10.0, 0.0), (10.0, 5.0), 0.2);
+        assert!(track_gap(&a, &d) <= 0.0);
+        let x = track((5.0, -3.0), (5.0, 3.0), 0.2);
+        assert!(track_gap(&a, &x) <= 0.0);
+        // a track that is a point
+        let dot = track((5.0, 1.0), (5.0, 1.0), 0.2);
+        assert!((track_gap(&a, &dot) - 0.8).abs() < 1e-9);
+        // the order does not matter
+        assert_eq!(track_gap(&a, &b), track_gap(&b, &a));
+    }
+
+    #[test]
+    fn two_tracks_too_close_are_found_and_joined_or_far_ones_are_not() {
+        let close = "%FSLAX24Y24*%\n%MOMM*%\n%TF.FileFunction,Copper,L1,Top*%\n%ADD10C,0.200*%\nD10*\nX0Y0D02*\nX100000Y0D01*\nX0Y3000D02*\nX100000Y3000D01*\nX0Y100000D02*\nX100000Y100000D01*\nM02*\n";
+        let layers = read_files(&files(&[("a.gtl", close)])).unwrap();
+        assert_eq!(layers[0].tracks.len(), 3);
+        let drc = run_drc(&layers, &Rules::default(), 100);
+        let found: Vec<&Finding> = drc
+            .findings
+            .iter()
+            .filter(|f| f.rule == "track_clearance")
+            .collect();
+        // 0.3 mm between the center lines is 0.1 mm of copper gap, under the 0.15 of the default rules; the third track is far away
+        assert_eq!(found.len(), 1, "{:?}", drc.findings);
+        assert!((found[0].value - 0.1).abs() < 1e-6);
+        assert_eq!(found[0].severity, "error");
+        let lax = Rules {
+            min_clearance_mm: 0.05,
+            ..Rules::default()
+        };
+        assert!(run_drc(&layers, &lax, 100)
+            .findings
+            .iter()
+            .all(|f| f.rule != "track_clearance"));
+    }
+
+    #[test]
+    fn the_findings_come_in_pages_that_can_be_filtered() {
+        let findings = json!([
+            {"rule": "track_width", "severity": "error", "layer": "top"},
+            {"rule": "no_outline", "severity": "warning", "layer": ""},
+            {"rule": "track_clearance", "severity": "error", "layer": "top"},
+            {"rule": "clearance", "severity": "error", "layer": "bottom"},
+        ]);
+        let all = findings_page(&findings, None, None, None, 0, 100);
+        assert_eq!(
+            (all["matched"].clone(), all["more"].clone()),
+            (json!(4), json!(false))
+        );
+        let errors = findings_page(&findings, Some("error"), None, None, 0, 100);
+        assert_eq!(errors["matched"], 3);
+        let top = findings_page(&findings, Some("error"), None, Some("top"), 0, 100);
+        assert_eq!(top["findings"].as_array().unwrap().len(), 2);
+        let one = findings_page(&findings, None, Some("clearance"), None, 0, 100);
+        assert_eq!(one["findings"][0]["layer"], "bottom");
+        let first = findings_page(&findings, None, None, None, 0, 3);
+        assert_eq!(
+            (
+                first["findings"].as_array().unwrap().len(),
+                first["more"].clone()
+            ),
+            (3, json!(true))
+        );
+        let second = findings_page(&findings, None, None, None, 3, 3);
+        assert_eq!(
+            (
+                second["findings"].as_array().unwrap().len(),
+                second["more"].clone()
+            ),
+            (1, json!(false))
+        );
+        // a limit of 0 is one, one past the maximum is the maximum, and a value that is not a list is an empty page
+        assert_eq!(findings_page(&findings, None, None, None, 0, 0)["limit"], 1);
+        assert_eq!(
+            findings_page(&findings, None, None, None, 0, 5000)["limit"],
+            MAX_PAGE
+        );
+        assert_eq!(
+            findings_page(&json!(null), None, None, None, 0, 10)["matched"],
+            0
+        );
+        assert_eq!(
+            findings_page(&findings, None, None, None, 99, 10)["findings"],
+            json!([])
+        );
     }
 
     #[test]

@@ -614,6 +614,11 @@ SCHEMAS.update({
         "created": I, "started": nullable(I), "finished": nullable(I), "done": I, "total": I, "percent": {"type": "integer", "minimum": 0, "maximum": 100},
         "message": s(), "position": {"type": "integer", "minimum": 0, "description": "The place among the queued jobs of its machine (1 is the next); 0 when it is not queued."},
     }, ["id", "machine", "plugin", "state"], extra=True),
+    "GerberLayers": obj({"job": s(), "kind": {"type": "string", "enum": ["load", "drc", "report"]}, "layers": arr({"type": "object", "additionalProperties": True}),
+                         "board": nullable({"type": "object", "additionalProperties": True})}, ["job", "kind", "layers"], description="The layers a gerber job read."),
+    "GerberFindings": obj({"job": s(), "findings": arr({"type": "object", "additionalProperties": True}), "matched": I, "offset": I, "limit": I, "more": B,
+                           "verdict": {"type": "string", "enum": ["pass", "fail"]}, "findings_total": I, "truncated": B},
+                          ["job", "findings", "matched", "offset", "limit", "more"], description="A page of the findings of a check of a board."),
     "WorkJob": {"allOf": [ref("WorkJobSummary"), obj({"native": s("The id the plugin knows the job by."), "view": {}, "history": arr(ref("WorkHistoryEntry"))}, extra=True)],
                 "description": "`view` is what the plugin drew when it prepared the job and is kept until the server restarts."},
     "WorkJobPage": obj({"total": I, "offset": I, "limit": I, "items": arr(ref("WorkJobSummary"))}, ["total", "offset", "limit", "items"]),
@@ -658,6 +663,13 @@ op("POST", "/work/jobs", "work", "operator", "Prepare a job on a machine of any 
    example={"machine": "demo-1", "request": {"kind": "demo", "steps": 10}, "name": "test run", "app": "studio"})
 op("GET", "/work/jobs/{id}", "work", "viewer", "Read a job with its history", ok=(200, "WorkJob", "application/json"), errors=["unknown_job"], **W_READ,
    desc="The state is read from the plugin first.")
+op("GET", "/work/jobs/{id}/layers", "work", "viewer", "The layers a gerber job read", ok=(200, "GerberLayers", "application/json"), errors=["unknown_job", "not_supported"], **W_READ,
+   desc="Only for a job of a `gerber` machine (`load`, `drc` or `report`): the function, the units, the box and the counts of every file it read, and the size of the board.")
+op("GET", "/work/jobs/{id}/findings", "work", "viewer", "The findings a gerber job made", ok=(200, "GerberFindings", "application/json"), errors=["unknown_job", "not_supported", "not_in_state"], **W_READ,
+   query=[q("severity", {"type": "string", "enum": ["error", "warning"]}, "Only the findings of this severity."), q("rule", S, "Only the findings of this rule (`track_width`, `clearance`, `track_clearance`...)."),
+          q("layer", S, "Only the findings of the layer (the name of the file)."), q("limit", {"type": "integer", "minimum": 1, "maximum": 1000}, "Findings per page (200)."),
+          q("offset", {"type": "integer", "minimum": 0}, "Findings to skip.")],
+   desc="Only for a job of a `gerber` machine that checked the board (`drc` or `report`); a `load` job is `409 not_in_state`. A page at a time, in the order the checks found them.")
 op("DELETE", "/work/jobs/{id}", "work", "operator", "Remove a finished job", scope="jobs:cancel", errors=["unknown_job", "job_active"])
 op("POST", "/work/jobs/{id}/start", "work", "operator", "Start a queued job", scope="jobs:start", ok=(200, "WorkJob", "application/json"),
    errors=WJOB_ERR + ["not_ready", "machine_busy", "unknown_machine", "bad_plugin_request", "laser_estop_latched", "pnp_feeder_short", "machine_alarm", "printer_latched",

@@ -132,6 +132,8 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/work/jobs/:id` | GET | viewer + `machines:view` | Read a job with its history |
 | `/api/v1/work/jobs/:id` | DELETE | operator + `jobs:cancel` | Remove a finished job |
 | `/api/v1/work/jobs/:id/cancel` | POST | operator + `jobs:cancel` | Cancel a queued job or stop a running one |
+| `/api/v1/work/jobs/:id/findings` | GET | viewer + `machines:view` | The findings a gerber job made |
+| `/api/v1/work/jobs/:id/layers` | GET | viewer + `machines:view` | The layers a gerber job read |
 | `/api/v1/work/jobs/:id/pause` | POST | operator + `jobs:start` | Hold a running job |
 | `/api/v1/work/jobs/:id/resume` | POST | operator + `jobs:start` | Let a held job go on |
 | `/api/v1/work/jobs/:id/start` | POST | operator + `jobs:start` | Start a queued job |

@@ -8140,6 +8140,180 @@ paths:
               example:
                 error: job_active
                 detail: ""
+  "/work/jobs/{id}/layers":
+    get:
+      operationId: get_work_jobs_id_layers
+      tags:
+        - work
+      summary: The layers a gerber job read
+      description: "Only for a job of a `gerber` machine (`load`, `drc` or `report`): the function, the units, the box and the counts of every file it read, and the size of the board. Role viewer or higher. Scope `machines:view` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "machines:view"
+      x-error-codes:
+        - forbidden_scope
+        - not_supported
+        - unauthorized
+        - unknown_job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/GerberLayers"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
+        "404":
+          description: "Refused with `unknown_job`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_job
+                detail: ""
+        "501":
+          description: "Refused with `not_supported`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: not_supported
+                detail: ""
+  "/work/jobs/{id}/findings":
+    get:
+      operationId: get_work_jobs_id_findings
+      tags:
+        - work
+      summary: The findings a gerber job made
+      description: "Only for a job of a `gerber` machine that checked the board (`drc` or `report`); a `load` job is `409 not_in_state`. A page at a time, in the order the checks found them. Role viewer or higher. Scope `machines:view` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "machines:view"
+      x-error-codes:
+        - forbidden_scope
+        - not_in_state
+        - not_supported
+        - unauthorized
+        - unknown_job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+        - name: severity
+          in: query
+          required: false
+          description: Only the findings of this severity.
+          schema:
+            type: string
+            enum:
+              - error
+              - warning
+        - name: rule
+          in: query
+          required: false
+          description: "Only the findings of this rule (`track_width`, `clearance`, `track_clearance`...)."
+          schema:
+            type: string
+        - name: layer
+          in: query
+          required: false
+          description: "Only the findings of the layer (the name of the file)."
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: "Findings per page (200)."
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+        - name: offset
+          in: query
+          required: false
+          description: Findings to skip.
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/GerberFindings"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
+        "404":
+          description: "Refused with `unknown_job`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_job
+                detail: ""
+        "409":
+          description: "Refused with `not_in_state`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: not_in_state
+                detail: ""
+        "501":
+          description: "Refused with `not_supported`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: not_supported
+                detail: ""
   "/work/jobs/{id}/start":
     post:
       operationId: post_work_jobs_id_start
@@ -12341,6 +12515,69 @@ components:
         - machine
         - plugin
         - state
+    GerberLayers:
+      type: object
+      properties:
+        job:
+          type: string
+        kind:
+          type: string
+          enum:
+            - load
+            - drc
+            - report
+        layers:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        board:
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: "null"
+      required:
+        - job
+        - kind
+        - layers
+      additionalProperties: false
+      description: The layers a gerber job read.
+    GerberFindings:
+      type: object
+      properties:
+        job:
+          type: string
+        findings:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        matched:
+          type: integer
+        offset:
+          type: integer
+        limit:
+          type: integer
+        more:
+          type: boolean
+        verdict:
+          type: string
+          enum:
+            - pass
+            - fail
+        findings_total:
+          type: integer
+        truncated:
+          type: boolean
+      required:
+        - job
+        - findings
+        - matched
+        - offset
+        - limit
+        - more
+      additionalProperties: false
+      description: A page of the findings of a check of a board.
     WorkJob:
       allOf:
         - "$ref": "#/components/schemas/WorkJobSummary"

@@ -71,6 +71,8 @@ pub fn routes() -> Router<Shared> {
         )
         .route("/api/v1/work/jobs", get(list_jobs).post(create_job))
         .route("/api/v1/work/jobs/:id", get(get_job).delete(remove_job))
+        .route("/api/v1/work/jobs/:id/layers", get(job_layers))
+        .route("/api/v1/work/jobs/:id/findings", get(job_findings))
         .route("/api/v1/work/jobs/:id/start", post(start_job))
         .route("/api/v1/work/jobs/:id/pause", post(pause_job))
         .route("/api/v1/work/jobs/:id/resume", post(resume_job))
@@ -502,6 +504,76 @@ async fn get_job(
     })
     .await?;
     Ok(Json(job_view(&s, &job, true)))
+}
+
+/// The job of a gerber machine whose result the route reads: the job must exist and belong to a machine of the plugin `gerber`.
+fn gerber_job(state: &std::sync::Arc<AppState>, id: &str) -> Result<crate::work::WorkJob, Fail> {
+    let job = state
+        .work_refresh_one(id)
+        .ok_or(Fail::Work(WError::UnknownJob))?;
+    if job.plugin != "gerber" {
+        return Err(Fail::Plugin(PluginError::NotSupported(
+            "only the jobs of a gerber machine have layers and findings",
+        )));
+    }
+    Ok(job)
+}
+
+/// The layers of a job of a gerber machine (`load`, `drc` and `report` list them): the function, the units, the box and the counts of each file read.
+async fn job_layers(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+) -> ApiResult {
+    crate::api::need(&who, Role::Viewer)?;
+    crate::api::need_scope(&who, "machines:view")?;
+    let state = s.clone();
+    let job = run(move || gerber_job(&state, &id)).await?;
+    Ok(Json(json!({
+        "job": job.id,
+        "kind": job.view["kind"],
+        "layers": job.view["layers"],
+        "board": job.view["board"],
+    })))
+}
+
+#[derive(Deserialize)]
+struct FindingsFilter {
+    severity: Option<String>,
+    rule: Option<String>,
+    layer: Option<String>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+}
+
+/// The findings of a job of a gerber machine that checked the board (`drc` and `report`), a page at a time and filtered by `severity`, `rule` and `layer`. A `load` job has
+/// no checks: `409 not_in_state`.
+async fn job_findings(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+    Query(f): Query<FindingsFilter>,
+) -> ApiResult {
+    crate::api::need(&who, Role::Viewer)?;
+    crate::api::need_scope(&who, "machines:view")?;
+    let state = s.clone();
+    let job = run(move || gerber_job(&state, &id)).await?;
+    if job.view.get("findings").is_none() {
+        return Err(Fail::Plugin(PluginError::NotInState).into());
+    }
+    let mut page = crate::gerber::findings_page(
+        &job.view["findings"],
+        f.severity.as_deref(),
+        f.rule.as_deref(),
+        f.layer.as_deref(),
+        f.offset.unwrap_or(0),
+        f.limit.unwrap_or(200),
+    );
+    page["job"] = json!(job.id);
+    page["verdict"] = job.view["verdict"].clone();
+    page["findings_total"] = job.view["findings_total"].clone();
+    page["truncated"] = job.view["truncated"].clone();
+    Ok(Json(page))
 }
 
 async fn start_job(

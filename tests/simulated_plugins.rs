@@ -1302,3 +1302,151 @@ async fn every_simulated_machine_says_in_its_detail_that_it_is_only_a_simulator(
     let d = detail(&s, &boss, "e-demo").await;
     assert!(d.is_null() || d.get("simulator_only").is_none(), "{d}");
 }
+
+#[tokio::test]
+async fn the_layers_and_the_findings_of_a_gerber_job_have_routes_of_their_own() {
+    let s = common::server("sim-gerber-routes");
+    let boss = admin(&s).await;
+    let operator = user(&s, &boss, "oper1", "operator").await;
+    let viewer = user(&s, &boss, "view1", "viewer").await;
+    make_machine(&s, &boss, "g1", "gerber", json!({})).await;
+    make_machine(&s, &boss, "d1", "demo", json!({})).await;
+    // two tracks 0.1 mm apart (0.3 mm between the center lines, 0.2 mm wide) and one far away
+    let close = "%FSLAX24Y24*%
+%MOMM*%
+%TF.FileFunction,Copper,L1,Top*%
+%ADD10C,0.200*%
+D10*
+X0Y0D02*
+X100000Y0D01*
+X0Y3000D02*
+X100000Y3000D01*
+X0Y100000D02*
+X100000Y100000D01*
+M02*
+";
+    let files =
+        json!([{"name": "close.gtl", "text": close}, {"name": "board.gko", "text": OUTLINE}]);
+    let drc = run_to_done(&s, &operator, "g1", json!({"kind": "drc", "files": files})).await;
+    let id = drc["id"].as_str().unwrap().to_string();
+    let rules: Vec<&str> = drc["view"]["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["rule"].as_str().unwrap())
+        .collect();
+    assert!(rules.contains(&"track_clearance"), "{rules:?}");
+    let (status, layers) = call(
+        &s,
+        Method::GET,
+        &format!("/api/v1/work/jobs/{id}/layers"),
+        Some(&viewer),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{layers}");
+    assert_eq!(layers["kind"], "drc");
+    assert_eq!(layers["layers"].as_array().unwrap().len(), 2);
+    assert_eq!(layers["layers"][0]["function"], "copper_top");
+    let (status, all) = call(
+        &s,
+        Method::GET,
+        &format!("/api/v1/work/jobs/{id}/findings"),
+        Some(&viewer),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{all}");
+    assert_eq!(all["verdict"], "fail");
+    assert_eq!(all["matched"], all["findings_total"]);
+    let (_, one) = call(
+        &s,
+        Method::GET,
+        &format!("/api/v1/work/jobs/{id}/findings?rule=track_clearance"),
+        Some(&viewer),
+        None,
+    )
+    .await;
+    assert_eq!(one["matched"], 1);
+    assert_eq!(one["findings"][0]["layer"], "close.gtl");
+    let (_, none) = call(
+        &s,
+        Method::GET,
+        &format!("/api/v1/work/jobs/{id}/findings?layer=other.gtl"),
+        Some(&viewer),
+        None,
+    )
+    .await;
+    assert_eq!(none["matched"], 0);
+    let (_, page) = call(
+        &s,
+        Method::GET,
+        &format!("/api/v1/work/jobs/{id}/findings?severity=error&limit=1"),
+        Some(&viewer),
+        None,
+    )
+    .await;
+    assert_eq!(page["findings"].as_array().unwrap().len(), 1);
+    assert_eq!(page["limit"], 1);
+    // a job that only loaded the files has layers and no findings
+    let loaded = run_to_done(&s, &operator, "g1", json!({"kind": "load", "files": files})).await;
+    let lid = loaded["id"].as_str().unwrap().to_string();
+    let (status, _) = call(
+        &s,
+        Method::GET,
+        &format!("/api/v1/work/jobs/{lid}/layers"),
+        Some(&viewer),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = call(
+        &s,
+        Method::GET,
+        &format!("/api/v1/work/jobs/{lid}/findings"),
+        Some(&viewer),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::CONFLICT, Some("not_in_state"))
+    );
+    // a job of another plugin, a job that is not there and no login
+    let (status, demo) = prepare(&s, &operator, "d1", json!({"kind": "demo", "steps": 1})).await;
+    assert_eq!(status, StatusCode::CREATED, "{demo}");
+    let did = demo["id"].as_str().unwrap().to_string();
+    let (status, body) = call(
+        &s,
+        Method::GET,
+        &format!("/api/v1/work/jobs/{did}/layers"),
+        Some(&viewer),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::NOT_IMPLEMENTED, Some("not_supported"))
+    );
+    let (status, body) = call(
+        &s,
+        Method::GET,
+        "/api/v1/work/jobs/w-nothing/findings",
+        Some(&viewer),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::NOT_FOUND, Some("unknown_job"))
+    );
+    let (status, _) = call(
+        &s,
+        Method::GET,
+        &format!("/api/v1/work/jobs/{id}/layers"),
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
