@@ -30,7 +30,7 @@
 |---|---|
 | 版本 | `0.1.9` |
 | 成熟度 | 可用 |
-| 测试 | 704 |
+| 测试 | 716 |
 | 技术栈 | Rust (axum, tokio) |
 | 真实硬件 | 否：已针对模拟器测试；尚未通过服务器在真实机床上运行过任何东西 |
 
@@ -45,7 +45,7 @@
 | 领域 | 状态 | 在这里的含义 |
 |---|---|---|
 | 软件 | 🟡 | Rust 服务器（axum）保存用户、机床和作业，使用 EH3D-DRILLPRO 和 EH3D-ROUTEPRO 的库规划钻孔和铣削作业，显示预览，并带有操作员对话框和停止功能地运行作业。 |
-| 测试 | 🟡 | 704 个测试通过（`cargo test`）：模块内 466 个，接口端到端 238 个，作业在模拟器上运行（`tests/api.rs` 41 个，使用真实程序的 `tests/programs.rs` 7 个）。 |
+| 测试 | 🟡 | 716 个测试通过（`cargo test`）：模块内 472 个，接口端到端 244 个，作业在模拟器上运行（`tests/api.rs` 41 个，使用真实程序的 `tests/programs.rs` 7 个）。 |
 | 面向客户端的接口（API） | 🟡 | REST 请求和 websocket 事件已写在 `docs/API.md` 和路由的 OpenAPI 契约 `docs/openapi.yaml` 中并被测试覆盖；目前只有程序自带的服务器连接在使用。 |
 | 公共服务 | 🟠 | 项目存储、共享目录、带队列和事件的机床插件以及统一登录，都在计算机上的测试中运行；目前没有任何应用使用它们，没有任何东西通过队列在真实机床上运行过，目录也没有载入各程序的真实数据。 |
 | 客户端 | 🔴 | EH3D-STUDIO 在使用它（从未对真实机床试过）；Android 应用和机床旁的触摸面板尚不存在。 |
@@ -136,7 +136,7 @@ EH3D-SERVER 是 EH3D 家族的中心：程序把作业发给它，它通过节�
 
 ## ⚙️ 配置
 
-`server.cfg`（或用 `--config` 指定的文件）有 73 个可选键；未知的键或超出范围的值在启动时会报错。`server.cfg.example` 有说明。
+`server.cfg`（或用 `--config` 指定的文件）有 89 个可选键；未知的键或超出范围的值在启动时会报错。`server.cfg.example` 有说明。
 
 | 键 | 默认值 | 范围 | 作用 |
 |---|---|---|---|
@@ -202,6 +202,7 @@ EH3D-SERVER/
 │   ├── audit.rs errors.rs panic.rs                                                                      审计、作业记录、错误代码、panic 退出
 │   ├── machines.rs store.rs                                                                             机床以及通过临时文件写入的文件
 │   ├── config.rs lib.rs main.rs                                                                         设置文件、库根和程序
+│   ├── settings.rs                                                                                      设置键的契约
 │   ├── updates.rs  head.rs                                                                              服务的更新
 │   ├── inspect.rs                                                                                       通过钻头摄像头进行质量检查
 │   ├── gcode.rs gcode_run.rs                                                                            自由 G 代码：清理、解析，以及在模拟器或 GRBL 上运行
@@ -268,6 +269,7 @@ README 和文本提供英语、西班牙语、法语、意大利语、德语、�
 
 * [API](docs/API.md)：每个请求、作业以及客户端绘制的视图、状态和 websocket。
 * [路由](docs/openapi.yaml)：每个路由的 OpenAPI 契约（角色、范围、模式、示例和错误代码），其表格在 [docs/ROUTES.md](docs/ROUTES.md)。
+* [设置契约](docs/CLIENT_SYNC.md)：`server.cfg` 每个键的范围、默认值、修改方式及八种语言文本（`docs/settings-contract.json`，由 `GET /api/v1/settings/contract` 提供），以及 Studio 和应用如何与之保持同步。
 * [公共服务](docs/SERVICES.md)：项目存储、共享目录、带队列和事件的机床插件和统一登录，各有专页（[PROJECT_STORE.md](docs/PROJECT_STORE.md)、[CATALOGS.md](docs/CATALOGS.md)、[MACHINE_PLUGINS.md](docs/MACHINE_PLUGINS.md)、[AUTH.md](docs/AUTH.md)）。
 * [设计运行、审计和安全开关](docs/DESIGN_RUN.md)：在项目的电路板上运行已安装的设计程序，报告保存为项目的文件；以及管理员在服务器运行时可以查看和修改的内容（[AUTH.md](docs/AUTH.md)）。
 * [运行服务器](docs/DEPLOY.md)：编译、首次启动、CM5 上的服务以及部署的安全性。

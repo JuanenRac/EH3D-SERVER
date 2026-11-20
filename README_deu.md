@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.1.9` |
 | Reifegrad | Funktionsfähig |
-| Tests | 704 |
+| Tests | 716 |
 | Technologie-Stack | Rust (axum, tokio) |
 | Auf echter Hardware | Nein: gegen den Simulator getestet; über den Server lief noch nichts auf einer echten Maschine |
 
@@ -45,7 +45,7 @@ Jede Zeile ist ein Teil dieses Repositorys, und die Ampel sagt, wie weit er heut
 | Bereich | Stand | Was das hier bedeutet |
 |---|---|---|
 | Software | 🟡 | Ein Rust-Server (axum) verwaltet Benutzer, Maschinen und Aufträge, plant Bohr- und Fräsaufträge mit den Bibliotheken von EH3D-DRILLPRO und EH3D-ROUTEPRO, zeigt eine Vorschau und führt den Auftrag mit Bedienerdialogen und einem Stopp aus. |
-| Tests | 🟡 | 704 Tests bestehen (`cargo test`): 466 in den Modulen und 238 an der Schnittstelle von Ende zu Ende, mit Aufträgen im Simulator (41 in `tests/api.rs`, 7 mit den echten Programmen in `tests/programs.rs`). |
+| Tests | 🟡 | 716 Tests bestehen (`cargo test`): 472 in den Modulen und 244 an der Schnittstelle von Ende zu Ende, mit Aufträgen im Simulator (41 in `tests/api.rs`, 7 mit den echten Programmen in `tests/programs.rs`). |
 | Schnittstelle für Clients (API) | 🟡 | Die REST-Anfragen und die Websocket-Ereignisse sind in `docs/API.md` (die Routen außerdem im OpenAPI-Vertrag `docs/openapi.yaml`) beschrieben und von den Tests abgedeckt; bisher nutzt sie nur die Serververbindung der Programme selbst. |
 | Gemeinsame Dienste | 🟠 | Projektspeicher, gemeinsame Kataloge, Maschinen-Plugins mit Warteschlange und Ereignissen und die einheitliche Anmeldung laufen in den Tests auf einem Rechner; keine Anwendung nutzt sie bisher, über die Warteschlange lief nichts auf einer echten Maschine, und die Kataloge wurden nicht mit den echten Daten ihrer Programme gefüllt. |
 | Clients | 🔴 | EH3D-STUDIO nutzt ihn (nie an einer echten Maschine probiert); die Android-App und das Touch-Panel an der Maschine gibt es noch nicht. |
@@ -136,7 +136,7 @@ Wie die Teile dieses Repositorys zusammenpassen: wer es nutzt, was es enthält u
 
 ## ⚙️ Konfiguration
 
-`server.cfg` (oder die mit `--config` angegebene Datei) enthält 73 optionale Schlüssel; ein unbekannter Schlüssel oder ein Wert außerhalb des Bereichs ist beim Start ein Fehler. `server.cfg.example` erklärt sie.
+`server.cfg` (oder die mit `--config` angegebene Datei) enthält 89 optionale Schlüssel; ein unbekannter Schlüssel oder ein Wert außerhalb des Bereichs ist beim Start ein Fehler. `server.cfg.example` erklärt sie.
 
 | Schlüssel | Standard | Bereich | Was er bewirkt |
 |---|---|---|---|
@@ -202,6 +202,7 @@ EH3D-SERVER/
 │   ├── audit.rs errors.rs panic.rs                                                                      Audit, Protokoll, Fehlercodes, Ausstieg bei Panik
 │   ├── machines.rs store.rs                                                                             die Maschinen und die über eine temporäre Datei geschriebenen Dateien
 │   ├── config.rs lib.rs main.rs                                                                         die Einstellungsdatei, die Bibliothekswurzel und das Programm
+│   ├── settings.rs                                                                                      der Vertrag der Einstellungsschlüssel
 │   ├── updates.rs  head.rs                                                                              die Aktualisierungen der Dienste
 │   ├── inspect.rs                                                                                       die Qualitätsprüfung mit der Kamera des Kopfes
 │   ├── gcode.rs gcode_run.rs                                                                            freier G-Code: Bereinigen, Lesen und Ausführen am Simulator oder an GRBL
@@ -268,6 +269,7 @@ README und Texte gibt es auf Englisch, Spanisch, Französisch, Italienisch, Deut
 
 * [Die API](docs/API.md): jede Anfrage, der Auftrag und die Ansicht, die ein Client zeichnet, die Zustände und der Websocket.
 * [Die Routen](docs/openapi.yaml): der OpenAPI-Vertrag jeder Route (Rolle, Scope, Schemas, Beispiele und Fehlercodes), mit ihrer Tabelle in [docs/ROUTES.md](docs/ROUTES.md).
+* [Der Einstellungsvertrag](docs/CLIENT_SYNC.md): jeder Schlüssel von `server.cfg` mit Bereich, Standardwert, Änderungsweg und Texten in acht Sprachen (`docs/settings-contract.json`, geliefert von `GET /api/v1/settings/contract`) und wie Studio und die Apps damit Schritt halten.
 * [Die gemeinsamen Dienste](docs/SERVICES.md): der Projektspeicher, die gemeinsamen Kataloge, die Maschinen-Plugins mit Warteschlange und Ereignissen und die einheitliche Anmeldung, jeder mit eigener Seite ([PROJECT_STORE.md](docs/PROJECT_STORE.md), [CATALOGS.md](docs/CATALOGS.md), [MACHINE_PLUGINS.md](docs/MACHINE_PLUGINS.md), [AUTH.md](docs/AUTH.md)).
 * [Der Entwurfslauf, das Audit und die Sicherheitsschalter](docs/DESIGN_RUN.md): das installierte Entwurfsprogramm auf einer Platine eines Projekts ausführen, mit dem Bericht als Datei des Projekts, und was der Administrator bei laufendem Server liest und ändert ([AUTH.md](docs/AUTH.md)).
 * [Den Server betreiben](docs/DEPLOY.md): der Build, der erste Start, der Dienst auf der CM5 und die Sicherheit der Bereitstellung.

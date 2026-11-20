@@ -18,7 +18,7 @@
 
 ---
 
-**Honesty check - what actually runs today:** a Rust server (axum) with a REST and websocket interface that keeps users, machines and jobs, plans a drilling or routing job (holes and paths, or an Excellon or HP-GL file with its tool table) with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator, a stop and every change told as it happens. 704 tests run on a computer, the jobs against the simulator. **Nothing has run on a real machine through it yet**, it does not terminate TLS, and of the clients besides the programs, EH3D-STUDIO exists (never tried against a real machine) and the Android app and the panel next to the machine do not exist yet. It is also the server of every EH3D application, with four common services (a store of projects, shared catalogs, machine plugins with a queue of jobs and a stream of events, and one login); they run only in the tests and no application uses them yet.
+**Honesty check - what actually runs today:** a Rust server (axum) with a REST and websocket interface that keeps users, machines and jobs, plans a drilling or routing job (holes and paths, or an Excellon or HP-GL file with its tool table) with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview, and runs it on a machine through its EH3D-NODE-BUNGARD or on a simulator, with the dialogs of the operator, a stop and every change told as it happens. 716 tests run on a computer, the jobs against the simulator. **Nothing has run on a real machine through it yet**, it does not terminate TLS, and of the clients besides the programs, EH3D-STUDIO exists (never tried against a real machine) and the Android app and the panel next to the machine do not exist yet. It is also the server of every EH3D application, with four common services (a store of projects, shared catalogs, machine plugins with a queue of jobs and a stream of events, and one login); they run only in the tests and no application uses them yet.
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.1.9` |
 | Maturity | Functional |
-| Tests | 704 |
+| Tests | 716 |
 | Stack | Rust (axum, tokio) |
 | On real hardware | No: tested against the simulator; nothing has run on a real machine through the server yet |
 
@@ -45,7 +45,7 @@ Each line is one part of this repository and the light says how far it is today.
 | Area | State | What it means here |
 |---|---|---|
 | Software | 🟡 | A Rust server (axum) keeps users, machines and jobs, plans drilling and routing jobs with the libraries of EH3D-DRILLPRO and EH3D-ROUTEPRO, shows a preview and runs the job with operator dialogs and a stop. |
-| Tests | 🟡 | 704 tests pass (`cargo test`): 466 in the modules and 238 on the interface end to end, with jobs running on the simulator (41 in `tests/api.rs`, 7 with the real programs in `tests/programs.rs`). |
+| Tests | 🟡 | 716 tests pass (`cargo test`): 472 in the modules and 244 on the interface end to end, with jobs running on the simulator (41 in `tests/api.rs`, 7 with the real programs in `tests/programs.rs`). |
 | Interface for clients (API) | 🟡 | The REST requests and the websocket events are written down in `docs/API.md` (the routes also in the OpenAPI contract `docs/openapi.yaml`) and covered by the tests; only the programs' own server connection uses them so far. |
 | Common services | 🟠 | The project store, the shared catalogs, the machine plugins with their queue and events, and the single login run in the tests on a computer; no application uses them yet, nothing has run on a real machine through the queue, and the catalogs have not been loaded with the real data of their programs. |
 | Clients | 🔴 | EH3D-STUDIO uses it (never tried against a real machine); the Android app and the touch panel next to the machine do not exist yet. |
@@ -136,7 +136,7 @@ How the parts of this repository fit together: who uses it, what it holds and wh
 
 ## ⚙️ Configuration
 
-`server.cfg` (or the file given with `--config`) holds 73 optional keys; an unknown key or a value out of range is an error at start. `server.cfg.example` explains them.
+`server.cfg` (or the file given with `--config`) holds 89 optional keys; an unknown key or a value out of range is an error at start. `server.cfg.example` explains them.
 
 | Key | Default | Range | What it does |
 |---|---|---|---|
@@ -202,6 +202,7 @@ EH3D-SERVER/
 │   ├── audit.rs errors.rs panic.rs                                                                      audit, job log, error codes, panic exit
 │   ├── machines.rs store.rs                                                                             the machines, and the files written through a temporary file
 │   ├── config.rs lib.rs main.rs                                                                         the settings file, the library root and the program
+│   ├── settings.rs                                                                                      the contract of the settings keys
 │   ├── updates.rs  head.rs                                                                              the updates of the services
 │   ├── inspect.rs                                                                                       the quality check through the camera of the head
 │   ├── gcode.rs gcode_run.rs                                                                            free G-code: cleaning, reading and the run on the simulator or on GRBL
@@ -268,6 +269,7 @@ README and texts exist in English, Spanish, French, Italian, German, Chinese, Ja
 
 * [The API](docs/API.md): every request, the job and the view a client draws, the states and the websocket.
 * [The routes](docs/openapi.yaml): the OpenAPI contract of every route (role, scope, schemas, examples and error codes), with its table in [docs/ROUTES.md](docs/ROUTES.md).
+* [The settings contract](docs/CLIENT_SYNC.md): every key of `server.cfg` with its range, default, how it is changed and its texts in eight languages (`docs/settings-contract.json`, served by `GET /api/v1/settings/contract`), and how Studio and the apps keep in step with it.
 * [The common services](docs/SERVICES.md): the project store, the shared catalogs, the machine plugins with the queue and the events, and the single login, each with its own page ([PROJECT_STORE.md](docs/PROJECT_STORE.md), [CATALOGS.md](docs/CATALOGS.md), [MACHINE_PLUGINS.md](docs/MACHINE_PLUGINS.md), [AUTH.md](docs/AUTH.md)).
 * [The design run, the audit and the security switches](docs/DESIGN_RUN.md): running the installed design program on a board of a project, with the report kept as a file of the project, and what the administrator reads and changes while the server runs ([AUTH.md](docs/AUTH.md)).
 * [Running the server](docs/DEPLOY.md): the build, the first start, the service on the CM5 and the safety of the deployment.

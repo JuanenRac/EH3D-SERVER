@@ -4,7 +4,10 @@
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, PartialEq)]
+use serde::Serialize;
+
+/// The settings. It is `Serialize` so that `settings::values` can show the value in force of every key (the field names are the keys of `server.cfg`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ServerConfig {
     /// Where the server listens. The default is this computer only (`127.0.0.1`); a server that nodes or other computers must reach needs `listen = 0.0.0.0:18200` or the
     /// switch `network_open`. The default port, 18200, is the EH3D server's own (ARMOR and HYDRA-UMC use others on the same machine).
@@ -84,6 +87,7 @@ pub struct ServerConfig {
     /// is the explicit way to turn it off there. See `local_until_setup_in_force`.
     pub local_until_setup: bool,
     /// Whether `local_until_setup` was written in the file (true or false): then it is what the file says and nothing is decided from the network switch.
+    #[serde(skip)]
     pub local_until_setup_set: bool,
     /// What happens when any thread of the server panics: true stops the machines that are running and exits (the service manager starts the server again); false
     /// only writes the panic to the console and goes on, with the locks recovered.

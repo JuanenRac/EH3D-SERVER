@@ -818,7 +818,25 @@ SCHEMAS.update({
         "attention": arr(S), "extra_apps": arr(S),
         "editable": arr(S, description="The keys `PUT /auth/policy` can change while the server runs."),
         "restart_required": arr(S, description="The `editable` keys whose change is kept at once but is read when the server starts (`network_open`: the address cannot change under a server that is listening)."),
+        "changed": obj({
+            "key": s(), "from": {"description": "The value before (hidden as `***` for a secret key)."}, "to": {"description": "The value now."},
+            "apply": {"type": "string", "enum": ["now", "restart"], "description": "`now`: in force already. `restart`: kept, and read when the server starts."}, "restart_required": B,
+        }, ["key", "from", "to", "apply", "restart_required"], description="Only in the answer to `PUT /auth/policy`: what the change was and whether it needs a restart."),
     }, ["switches", "attention", "extra_apps"], description="The switches of security of `server.cfg` with their values (never a secret) and, in `attention`, those that are looser than the recommended value."),
+    "SettingsContract": obj({
+        "schema": s("`eh3d.settings.contract/1`."), "server_version": s("The version of the server that answers."), "languages": arr(S),
+        "read": {"type": "object", "additionalProperties": True}, "write": {"type": "object", "additionalProperties": True, "description": "The routes that write: `policy` (`PUT /auth/policy`) and `file` (`server.cfg`, no route)."},
+        "groups": arr({"type": "object", "additionalProperties": True}),
+        "settings": arr(obj({
+            "key": s(), "group": s(), "type": {"type": "string", "enum": ["boolean", "integer", "string", "list"]}, "format": s(), "min": I, "max": I, "max_length": I, "unit": s(),
+            "default": {}, "apply": {"type": "string", "enum": ["now", "restart"]},
+            "write": {"type": "object", "additionalProperties": True, "description": "`via` is `policy` (method and path of the route that writes the key) or `file` (method and path are null)."},
+            "role": nullable(S), "scope": nullable(S), "confirm_when_looser": B, "secret": B, "risk": {"type": "string", "enum": ["none", "security", "exposure", "capacity", "machine", "data"]},
+            "label": {"type": "object", "additionalProperties": S}, "help": {"type": "object", "additionalProperties": S}, "warning": {"type": "object", "additionalProperties": S},
+        }, ["key", "group", "type", "default", "apply", "write", "confirm_when_looser", "secret", "risk", "label", "help", "warning"])),
+        "values": {"type": "object", "additionalProperties": True, "description": "The value in force of every key that is not secret; a secret key has none."},
+    }, ["schema", "server_version", "languages", "write", "groups", "settings", "values"],
+        description="Every key of `server.cfg` with its type, range, default, group, whether a change is read at once, the route that writes it, and its label, help and warning in en, es, de, fr, it, ja, zh and pt; the same document as `docs/settings-contract.json` plus `server_version` and `values`."),
     "AuthApps": obj({"apps": arr(S), "known_only": B}, ["apps", "known_only"]),
 })
 
@@ -841,6 +859,10 @@ op("DELETE", "/auth/sessions/{id}", "auth", "person", "Close one login", errors=
 op("GET", "/auth/policy", "auth", "admin", "See the switches of security", scope="admin:policy", ok=(200, "AuthPolicy", "application/json"),
    desc="What Studio shows in its security page: the values of the switches in `server.cfg` and which of them deserve attention. No secret is ever in it.")
 op("GET", "/auth/apps", "auth", "any", "The applications the server accepts", ok=(200, "AuthApps", "application/json"))
+op("GET", "/settings/contract", "admin", "admin", "The contract of the settings and their values", scope="admin:policy", ok=(200, "SettingsContract", "application/json"),
+   desc="Every key of `server.cfg` with its type, range, default, group, label, short help and warning in eight languages, whether a change is read at once or when the server starts, "
+        "and the route that writes it (`PUT /auth/policy` for the keys in `editable`; the others are set in `server.cfg`). `values` has the value in force of each key; a key marked `secret` has none. "
+        "The same document is `docs/settings-contract.json`, which the clients copy and check against the server.")
 
 # -- policy changes, keys and audit (docs/AUTH.md), the quota of the store and the design run (docs/DESIGN_RUN.md)
 SCHEMAS.update({
@@ -876,8 +898,9 @@ SCHEMAS.update({
 })
 op("PUT", "/auth/policy", "auth", "admin", "Change a switch of security while the server runs", scope="admin:policy", body="PolicyChange", ok=(200, "AuthPolicy", "application/json"),
    errors=["bad_policy", "weak_confirm_required", "storage"],
-   desc="One switch at a time, answering the new policy. Only the keys in `editable` can change; the others need a restart. A value looser than recommended (`safe: false`) changes nothing "
-        "unless the body says `confirm_weak: true`. Every change is in the audit with the old and the new value.",
+   desc="One switch at a time, answering the new policy and, in `changed`, whether the change is in force (`now`) or read when the server starts (`restart`). Only the keys in `editable` can change "
+        "(`GET /settings/contract` says which key is written here and which one only in `server.cfg`; a key of the file is refused with `bad_policy` and its name). A value looser than recommended "
+        "(`safe: false`) changes nothing unless the body says `confirm_weak: true`. Every change is in the audit with the old and the new value, never a secret.",
    example={"key": "password_min_len", "value": 12})
 op("GET", "/auth/keys", "auth", "admin", "The identifiers of the keys and the fingerprint of the certificate", scope="admin:tokens", ok=(200, "AuthKeys", "application/json"),
    desc="The tokens of programs by id, name, role and age, and the SHA-256 fingerprint of the certificate named by `tls_cert_file`. No secret is ever in it.")

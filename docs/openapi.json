@@ -16355,7 +16355,7 @@
           "auth"
         ],
         "summary": "Change a switch of security while the server runs",
-        "description": "One switch at a time, answering the new policy. Only the keys in `editable` can change; the others need a restart. A value looser than recommended (`safe: false`) changes nothing unless the body says `confirm_weak: true`. Every change is in the audit with the old and the new value. Role admin. Scope `admin:policy` if the token is limited by scopes.",
+        "description": "One switch at a time, answering the new policy and, in `changed`, whether the change is in force (`now`) or read when the server starts (`restart`). Only the keys in `editable` can change (`GET /settings/contract` says which key is written here and which one only in `server.cfg`; a key of the file is refused with `bad_policy` and its name). A value looser than recommended (`safe: false`) changes nothing unless the body says `confirm_weak: true`. Every change is in the audit with the old and the new value, never a secret. Role admin. Scope `admin:policy` if the token is limited by scopes.",
         "x-role": "admin",
         "x-scope": "admin:policy",
         "x-error-codes": [
@@ -16515,6 +16515,63 @@
                 },
                 "example": {
                   "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/settings/contract": {
+      "get": {
+        "operationId": "get_settings_contract",
+        "tags": [
+          "admin"
+        ],
+        "summary": "The contract of the settings and their values",
+        "description": "Every key of `server.cfg` with its type, range, default, group, label, short help and warning in eight languages, whether a change is read at once or when the server starts, and the route that writes it (`PUT /auth/policy` for the keys in `editable`; the others are set in `server.cfg`). `values` has the value in force of each key; a key marked `secret` has none. The same document is `docs/settings-contract.json`, which the clients copy and check against the server. Role admin. Scope `admin:policy` if the token is limited by scopes.",
+        "x-role": "admin",
+        "x-scope": "admin:policy",
+        "x-error-codes": [
+          "forbidden",
+          "forbidden_scope",
+          "unauthorized"
+        ],
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsContract"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden",
                   "detail": ""
                 }
               }
@@ -20794,6 +20851,40 @@
               "type": "string"
             },
             "description": "The `editable` keys whose change is kept at once but is read when the server starts (`network_open`: the address cannot change under a server that is listening)."
+          },
+          "changed": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "from": {
+                "description": "The value before (hidden as `***` for a secret key)."
+              },
+              "to": {
+                "description": "The value now."
+              },
+              "apply": {
+                "type": "string",
+                "enum": [
+                  "now",
+                  "restart"
+                ],
+                "description": "`now`: in force already. `restart`: kept, and read when the server starts."
+              },
+              "restart_required": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "key",
+              "from",
+              "to",
+              "apply",
+              "restart_required"
+            ],
+            "additionalProperties": false,
+            "description": "Only in the answer to `PUT /auth/policy`: what the change was and whether it needs a restart."
           }
         },
         "required": [
@@ -20803,6 +20894,178 @@
         ],
         "additionalProperties": false,
         "description": "The switches of security of `server.cfg` with their values (never a secret) and, in `attention`, those that are looser than the recommended value."
+      },
+      "SettingsContract": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "description": "`eh3d.settings.contract/1`."
+          },
+          "server_version": {
+            "type": "string",
+            "description": "The version of the server that answers."
+          },
+          "languages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "read": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "write": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "The routes that write: `policy` (`PUT /auth/policy`) and `file` (`server.cfg`, no route)."
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "settings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "group": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "boolean",
+                    "integer",
+                    "string",
+                    "list"
+                  ]
+                },
+                "format": {
+                  "type": "string"
+                },
+                "min": {
+                  "type": "integer"
+                },
+                "max": {
+                  "type": "integer"
+                },
+                "max_length": {
+                  "type": "integer"
+                },
+                "unit": {
+                  "type": "string"
+                },
+                "default": {},
+                "apply": {
+                  "type": "string",
+                  "enum": [
+                    "now",
+                    "restart"
+                  ]
+                },
+                "write": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "`via` is `policy` (method and path of the route that writes the key) or `file` (method and path are null)."
+                },
+                "role": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "scope": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "confirm_when_looser": {
+                  "type": "boolean"
+                },
+                "secret": {
+                  "type": "boolean"
+                },
+                "risk": {
+                  "type": "string",
+                  "enum": [
+                    "none",
+                    "security",
+                    "exposure",
+                    "capacity",
+                    "machine",
+                    "data"
+                  ]
+                },
+                "label": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "help": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "warning": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "key",
+                "group",
+                "type",
+                "default",
+                "apply",
+                "write",
+                "confirm_when_looser",
+                "secret",
+                "risk",
+                "label",
+                "help",
+                "warning"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "The value in force of every key that is not secret; a secret key has none."
+          }
+        },
+        "required": [
+          "schema",
+          "server_version",
+          "languages",
+          "write",
+          "groups",
+          "settings",
+          "values"
+        ],
+        "additionalProperties": false,
+        "description": "Every key of `server.cfg` with its type, range, default, group, whether a change is read at once, the route that writes it, and its label, help and warning in en, es, de, fr, it, ja, zh and pt; the same document as `docs/settings-contract.json` plus `server_version` and `values`."
       },
       "AuthApps": {
         "type": "object",

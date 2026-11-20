@@ -26,6 +26,7 @@ pub fn routes() -> Router<Shared> {
         .route("/api/v1/auth/sessions", get(list_sessions))
         .route("/api/v1/auth/sessions/:id", delete(close_session))
         .route("/api/v1/auth/policy", get(policy).put(change_policy))
+        .route("/api/v1/settings/contract", get(settings_contract))
         .route("/api/v1/auth/keys", get(keys))
         .route("/api/v1/audit", get(audit_lines))
         .route("/api/v1/auth/apps", get(apps))
@@ -372,6 +373,14 @@ async fn policy(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
     })))
 }
 
+/// The contract of the settings (every key of `server.cfg` with its type, range, default, group, how it is changed and its texts in the eight languages) and the values in force.
+/// It is `docs/settings-contract.json` with `values` and `server_version`; the clients copy that file and check it against this answer.
+async fn settings_contract(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
+    crate::api::need(&who, Role::Admin)?;
+    crate::api::need_scope(&who, "admin:policy")?;
+    Ok(Json(crate::settings::document(&s.cfg, &s.policy.get())))
+}
+
 #[derive(Deserialize)]
 struct PolicyChange {
     key: String,
@@ -389,19 +398,41 @@ async fn change_policy(
 ) -> ApiResult {
     crate::api::need(&who, Role::Admin)?;
     crate::api::need_scope(&who, "admin:policy")?;
+    // a key of server.cfg that the policy does not change: say where it is set instead of a bare refusal
+    if !crate::policy::KEYS.contains(&b.key.as_str()) && crate::settings::entry(&b.key).is_some() {
+        return Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "bad_policy",
+            format!(
+                "{} is set in server.cfg and read when the server starts; GET /api/v1/settings/contract says which keys the API changes",
+                b.key
+            ),
+        ));
+    }
     let outcome = s.policy.change(&b.key, &b.value, b.confirm_weak);
     match outcome {
         Ok((before, after)) => {
             crate::state::apply_policy(&mut s.auth.locked(), &after);
-            let old = before.value(&b.key).unwrap_or(Value::Null).to_string();
-            let new = after.value(&b.key).unwrap_or(Value::Null).to_string();
+            let old = crate::settings::shown(&b.key, &before.value(&b.key).unwrap_or(Value::Null));
+            let new = crate::settings::shown(&b.key, &after.value(&b.key).unwrap_or(Value::Null));
+            let (old_text, new_text) = (old.to_string(), new.to_string());
             crate::api::note(
                 &s,
                 "policy_change",
                 &who,
-                &[("key", &b.key), ("from", &old), ("to", &new)],
+                &[("key", &b.key), ("from", &old_text), ("to", &new_text)],
             );
-            policy(State(s), Authed(who, token)).await
+            let restart = crate::settings::applies_at_restart(&b.key);
+            let apply = if restart { "restart" } else { "now" };
+            let Json(mut answer) = policy(State(s), Authed(who, token)).await?;
+            answer["changed"] = json!({
+                "key": b.key,
+                "from": old,
+                "to": new,
+                "apply": apply,
+                "restart_required": restart,
+            });
+            Ok(Json(answer))
         }
         Err(crate::policy::PolicyError::Bad(detail)) => Err(ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,

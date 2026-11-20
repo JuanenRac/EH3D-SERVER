@@ -61,3 +61,5 @@ jobs:
         run: |
           python -I tools/make_openapi.py --check
           python -I tools/check_openapi.py
+      - name: Contract of the settings against the code
+        run: python -I tools/gen_settings_contract.py --check

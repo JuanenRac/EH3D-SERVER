@@ -119,6 +119,19 @@
         },
         {
           "desc": {
+            "en": "the contract of the settings keys",
+            "es": "el contrato de las claves de ajustes",
+            "de": "der Vertrag der Einstellungsschlüssel",
+            "fr": "le contrat des clés de réglages",
+            "it": "il contratto delle chiavi delle impostazioni",
+            "ja": "設定キーの契約",
+            "zh": "设置键的契约",
+            "pt": "o contrato das chaves de definições"
+          },
+          "name": "settings.rs"
+        },
+        {
+          "desc": {
             "en": "the updates of the services",
             "es": "las actualizaciones de los servicios",
             "it": "gli aggiornamenti dei servizi",
@@ -480,6 +493,32 @@
             "pt": "a compilação, o primeiro arranque e o serviço na CM5"
           },
           "name": "DEPLOY.md"
+        },
+        {
+          "desc": {
+            "en": "how the clients keep in step",
+            "es": "cómo se mantienen al día los clientes",
+            "de": "wie die Clients Schritt halten",
+            "fr": "comment les clients restent à jour",
+            "it": "come restano allineati i client",
+            "ja": "クライアントの追従方法",
+            "zh": "客户端如何保持同步",
+            "pt": "como os clientes se mantêm em dia"
+          },
+          "name": "CLIENT_SYNC.md"
+        },
+        {
+          "desc": {
+            "en": "the settings contract in eight languages",
+            "es": "el contrato de ajustes en ocho idiomas",
+            "de": "der Einstellungsvertrag in acht Sprachen",
+            "fr": "le contrat des réglages en huit langues",
+            "it": "il contratto delle impostazioni in otto lingue",
+            "ja": "8 言語の設定契約",
+            "zh": "八种语言的设置契约",
+            "pt": "o contrato de definições em oito idiomas"
+          },
+          "name": "settings-contract.json"
         },
         {
           "desc": {

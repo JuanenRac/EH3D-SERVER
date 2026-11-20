@@ -1,4 +1,5 @@
 # EH3D-SERVER settings. Copy to server.cfg (or give another file with --config). Every key is optional; an unknown key is an error.
+# docs/settings-contract.json (GET /api/v1/settings/contract) lists every key of this file with its range, default and a description in eight languages.
 #
 # Where the server listens. The default is this computer only (127.0.0.1:18200): 18200 is its own port (ARMOR and HYDRA-UMC use others on the same machine).
 # Nodes, the CM5 programs and other computers can reach the server only when it listens on the network: write listen = 0.0.0.0:18200 here, or turn on the switch

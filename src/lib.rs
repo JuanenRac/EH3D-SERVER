@@ -64,6 +64,7 @@ pub mod printer_lan;
 pub mod projects;
 pub mod pstore;
 pub mod secrets;
+pub mod settings;
 pub mod simclock;
 pub mod simjobs;
 pub mod slicer;

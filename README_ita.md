@@ -30,7 +30,7 @@
 |---|---|
 | Versione | `0.1.9` |
 | Maturità | Funzionale |
-| Test | 704 |
+| Test | 716 |
 | Stack tecnologico | Rust (axum, tokio) |
 | Su hardware reale | No: provato contro il simulatore; finora nulla è stato eseguito su una macchina reale tramite il server |
 
@@ -45,7 +45,7 @@ Ogni riga è una parte di questo repository e il semaforo dice a che punto è og
 | Area | Stato | Cosa significa qui |
 |---|---|---|
 | Software | 🟡 | Un server Rust (axum) tiene utenti, macchine e lavori, pianifica lavori di foratura e fresatura con le librerie di EH3D-DRILLPRO ed EH3D-ROUTEPRO, mostra un'anteprima ed esegue il lavoro con dialoghi dell'operatore e uno stop. |
-| Test | 🟡 | Passano 704 test (`cargo test`): 466 nei moduli e 238 sull'interfaccia end to end, con lavori sul simulatore (41 in `tests/api.rs`, 7 con i programmi reali in `tests/programs.rs`). |
+| Test | 🟡 | Passano 716 test (`cargo test`): 472 nei moduli e 244 sull'interfaccia end to end, con lavori sul simulatore (41 in `tests/api.rs`, 7 con i programmi reali in `tests/programs.rs`). |
 | Interfaccia per i client (API) | 🟡 | Le richieste REST e gli eventi websocket sono descritti in `docs/API.md` (le rotte anche nel contratto OpenAPI `docs/openapi.yaml`) e coperti dai test; finora li usa solo la connessione al server dei programmi stessi. |
 | Servizi comuni | 🟠 | L'archivio di progetti, i cataloghi condivisi, i plugin di macchina con la loro coda e i loro eventi e il login unico girano nei test su un computer; nessuna applicazione li usa ancora, nulla è girato su una macchina reale attraverso la coda e i cataloghi non sono stati caricati con i dati reali dei loro programmi. |
 | Client | 🔴 | EH3D-STUDIO lo usa (mai provato con una macchina reale); l'app Android e il pannello touch accanto alla macchina non esistono ancora. |
@@ -136,7 +136,7 @@ Come si incastrano le parti di questo repository: chi lo usa, che cosa contiene 
 
 ## ⚙️ Configurazione
 
-`server.cfg` (o il file indicato con `--config`) contiene 73 chiavi facoltative; una chiave sconosciuta o un valore fuori intervallo è un errore all'avvio. `server.cfg.example` le spiega.
+`server.cfg` (o il file indicato con `--config`) contiene 89 chiavi facoltative; una chiave sconosciuta o un valore fuori intervallo è un errore all'avvio. `server.cfg.example` le spiega.
 
 | Chiave | Predefinito | Intervallo | Cosa fa |
 |---|---|---|---|
@@ -202,6 +202,7 @@ EH3D-SERVER/
 │   ├── audit.rs errors.rs panic.rs                                                                      audit, registro, codici di errore, uscita in panico
 │   ├── machines.rs store.rs                                                                             le macchine e i file scritti tramite uno temporaneo
 │   ├── config.rs lib.rs main.rs                                                                         il file delle impostazioni, la radice della libreria e il programma
+│   ├── settings.rs                                                                                      il contratto delle chiavi delle impostazioni
 │   ├── updates.rs  head.rs                                                                              gli aggiornamenti dei servizi
 │   ├── inspect.rs                                                                                       il controllo qualità con la telecamera della testa
 │   ├── gcode.rs gcode_run.rs                                                                            G-code libero: pulizia, lettura ed esecuzione sul simulatore o su GRBL
@@ -268,6 +269,7 @@ Il README e i testi esistono in inglese, spagnolo, francese, italiano, tedesco, 
 
 * [L'API](docs/API.md): ogni richiesta, il lavoro e la vista che disegna un client, gli stati e il websocket.
 * [Le rotte](docs/openapi.yaml): il contratto OpenAPI di ogni rotta (ruolo, ambito, schemi, esempi e codici di errore), con la sua tabella in [docs/ROUTES.md](docs/ROUTES.md).
+* [Il contratto delle impostazioni](docs/CLIENT_SYNC.md): ogni chiave di `server.cfg` con intervallo, valore predefinito, modo di cambiarla e testi in otto lingue (`docs/settings-contract.json`, servito da `GET /api/v1/settings/contract`), e come Studio e le app restano allineati.
 * [I servizi comuni](docs/SERVICES.md): l'archivio di progetti, i cataloghi condivisi, i plugin di macchina con la coda e gli eventi e il login unico, ciascuno con la sua pagina ([PROJECT_STORE.md](docs/PROJECT_STORE.md), [CATALOGS.md](docs/CATALOGS.md), [MACHINE_PLUGINS.md](docs/MACHINE_PLUGINS.md), [AUTH.md](docs/AUTH.md)).
 * [L'esecuzione del progetto, l'audit e gli interruttori di sicurezza](docs/DESIGN_RUN.md): eseguire il programma di progettazione installato su una scheda di un progetto, con il rapporto conservato come file del progetto, e ciò che l'amministratore legge e cambia a server in funzione ([AUTH.md](docs/AUTH.md)).
 * [Eseguire il server](docs/DEPLOY.md): la compilazione, il primo avvio, il servizio sulla CM5 e la sicurezza della distribuzione.

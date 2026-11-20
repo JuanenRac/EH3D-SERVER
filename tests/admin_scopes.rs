@@ -48,6 +48,12 @@ fn table() -> Vec<(Method, &'static str, Option<Value>, &'static str)> {
         (Method::GET, "/api/v1/auth/keys", None, "admin:tokens"),
         (Method::GET, "/api/v1/auth/policy", None, "admin:policy"),
         (
+            Method::GET,
+            "/api/v1/settings/contract",
+            None,
+            "admin:policy",
+        ),
+        (
             Method::PUT,
             "/api/v1/auth/policy",
             Some(json!({"key": "no_such_switch", "value": true})),
