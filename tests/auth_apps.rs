@@ -90,6 +90,41 @@ async fn a_login_says_which_application_it_is_for_and_the_claims_tell_it() {
 }
 
 #[tokio::test]
+async fn the_programs_of_the_family_log_in_by_their_own_name() {
+    // no limit of logins by address: the test makes more than ten
+    let s = server_with("auth-family-apps", |c| c.login_ip_limit = 0);
+    let token = admin(&s).await;
+    let (_, apps) = call(&s, Method::GET, "/api/v1/auth/apps", Some(&token), None).await;
+    let list: Vec<&str> = apps["apps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a.as_str().unwrap())
+        .collect();
+    for known in [
+        "phoenix-cnc",
+        "phoenix-pnp",
+        "phoenix-pcb",
+        "phoenix-laser",
+        "phoenix-cad",
+        "phoenix-3dp",
+        "drillpro",
+        "routepro",
+        "isocam",
+        "vision-studio",
+        "stencilcam",
+        "autolevel",
+        "cam-debugger",
+        "tool-manager",
+    ] {
+        assert!(list.contains(&known), "{known}");
+        let (status, body) = app_login(&s, "juan", "una-clave-larga", known).await;
+        assert_eq!(status, StatusCode::OK, "{known}: {body}");
+        assert_eq!(body["app"], known);
+    }
+}
+
+#[tokio::test]
 async fn the_settings_open_the_door_to_more_applications() {
     let extra = server_with("auth-extra", |c| c.auth_extra_apps = vec!["my-tool".into()]);
     admin(&extra).await;

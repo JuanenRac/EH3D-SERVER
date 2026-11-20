@@ -15,6 +15,8 @@ A login says which application it is for. The server knows these by name; `auth_
 | `android`, `ios`, `watch` | the mobile apps and the watch |
 | `hmi` | the panel next to the machine |
 | `pcb`, `cam`, `laser`, `pnp`, `cad`, `tool-manager` | the design and production tools |
+| `phoenix-cnc`, `phoenix-pnp`, `phoenix-pcb`, `phoenix-laser`, `phoenix-cad`, `phoenix-3dp` | the PHOENIX programs, each by its own name |
+| `drillpro`, `routepro`, `isocam`, `vision-studio`, `stencilcam`, `autolevel`, `cam-debugger` | the programs of the Bungard drilling and routing machine and the CAM and vision tools |
 | `cli` | scripts and the command line |
 
 `GET /auth/apps` lists the ones the server accepts. The application is also the folder of the projects in the store (`docs/PROJECT_STORE.md`) and the default `app` of the jobs a login prepares (`docs/MACHINE_PLUGINS.md`). A name the server does not accept is refused with `422 bad_app`.

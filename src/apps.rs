@@ -7,7 +7,7 @@
 use crate::config::ServerConfig;
 
 /// The applications of the family the server knows by name. `auth_extra_apps` in `server.cfg` adds more; with `auth_known_apps_only = false` any well-formed name is accepted.
-pub const KNOWN_APPS: [&str; 13] = [
+pub const KNOWN_APPS: [&str; 26] = [
     "bungard-gui",
     "studio",
     "android",
@@ -21,6 +21,19 @@ pub const KNOWN_APPS: [&str; 13] = [
     "cad",
     "tool-manager",
     "cli",
+    "phoenix-cnc",
+    "phoenix-pnp",
+    "phoenix-pcb",
+    "phoenix-laser",
+    "phoenix-cad",
+    "phoenix-3dp",
+    "drillpro",
+    "routepro",
+    "isocam",
+    "vision-studio",
+    "stencilcam",
+    "autolevel",
+    "cam-debugger",
 ];
 
 /// Whether `name` is shaped like the name of an application: lower case letters, digits and hyphens, 1 to 32, not starting or ending with a hyphen.
@@ -97,6 +110,43 @@ mod tests {
         assert!(allowed(&cfg, "my-tool"));
         assert!(!allowed(&cfg, "My Tool"));
         assert_eq!(list(&cfg).len(), KNOWN_APPS.len());
+    }
+
+    #[test]
+    fn every_client_program_of_the_family_is_a_known_application() {
+        let cfg = ServerConfig::default();
+        assert!(cfg.auth_known_apps_only);
+        for app in [
+            "studio",
+            "android",
+            "ios",
+            "watch",
+            "hmi",
+            "phoenix-cnc",
+            "phoenix-pnp",
+            "phoenix-pcb",
+            "phoenix-laser",
+            "phoenix-cad",
+            "phoenix-3dp",
+            "drillpro",
+            "routepro",
+            "bungard-gui",
+            "isocam",
+            "vision-studio",
+            "stencilcam",
+            "autolevel",
+            "cam-debugger",
+            "tool-manager",
+        ] {
+            assert!(valid_app(app), "{app} is well formed");
+            assert!(allowed(&cfg, app), "{app} is known");
+            assert!(list(&cfg).iter().any(|a| a == app), "{app} is listed");
+        }
+        // the names are not repeated
+        let mut sorted = KNOWN_APPS.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), KNOWN_APPS.len());
     }
 
     #[test]
