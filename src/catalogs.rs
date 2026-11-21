@@ -268,9 +268,12 @@ fn filter_ok(item: &Value, field: &str, want: &str) -> bool {
 }
 
 fn compare(a: &Value, b: &Value) -> std::cmp::Ordering {
+    // numbers come before text, so the order is a total one (a number compared as text with another text made a cycle, and a sort of many items may panic on it)
     match (a.as_f64(), b.as_f64()) {
         (Some(x), Some(y)) => x.partial_cmp(&y).unwrap_or(std::cmp::Ordering::Equal),
-        _ => text_of(a).to_lowercase().cmp(&text_of(b).to_lowercase()),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => text_of(a).to_lowercase().cmp(&text_of(b).to_lowercase()),
     }
 }
 

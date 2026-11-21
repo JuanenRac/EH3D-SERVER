@@ -3,6 +3,13 @@
 All notable changes to this project are documented here.
 
 ## [Unreleased]
+- Fix the request to the node of the drill head (security): a line break or another control character in the address, the path or the token of the node could begin another header of the request; they are now refused or dropped.
+- Fix the reading of the temperatures of a printer (safety): a reading that is not a finite number (`nan`, `inf`) is no longer taken as a temperature, because every comparison with it is false and a limit would never trip.
+- Fix the printer in memory of the Marlin protocol: a time step that is not a number, or far too long, no longer poisons the heaters or overflows the count of lines done, and asking for a line again after the last possible number no longer overflows.
+- Fix the file of settings: a file saved with a byte order mark, as some editors of Windows do, was refused on its first line (unknown key or missing equal sign); the mark is now ignored.
+- Fix the writer of binary G-code: a limit of a block that fell inside a letter of more than one byte (a comment with an accent) stopped the server with a panic; the block now ends before the letter.
+- Fix the order of a shared catalog by a field that holds numbers and text: a number compared as text with another text made the order a cycle, so the result depended on the order the items came in and a sort of a long list could stop with a panic. Numbers now come before text.
+- Add tests that hunt for bugs in the pure parts of the server: the lines of the Marlin protocol and the printer in memory, the file of settings and every range of it, the switches of the security page, the feed of events, the upload, search and order of the shared catalogs, the ranges of an upload, the names of applications and users, the versions, the announcement on the network, the audit, the limits of a spindle, binary G-code and the readers of STL and 3MF files.
 - Add tests of the pure parts of the server: the ids and their order, the two compressions (round trip, checksums, damaged and cut streams), the multipart reader, the simulated clock, the G-code comment and speed helpers and the catalog of errors.
 
 ## [0.2.2] - A register of the feeder and head nodes of the pick-and-place machines and the authorization of a job by the hash of its toolpath

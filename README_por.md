@@ -30,7 +30,7 @@
 |---|---|
 | Versão | `0.2.2` |
 | Maturidade | Funcional |
-| Testes | 844 |
+| Testes | 1137 |
 | Tecnologias | Rust (axum, tokio) |
 | Em hardware real | Não: testado contra o simulador; ainda nada correu numa máquina real através do servidor |
 
@@ -45,7 +45,7 @@ Cada linha é uma parte deste repositório e a luz diz até onde chega hoje. É 
 | Área | Estado | O que significa aqui |
 |---|---|---|
 | Software | 🟡 | Um servidor em Rust (axum) guarda utilizadores, máquinas e trabalhos, planeia trabalhos de furação e fresagem com as bibliotecas do EH3D-DRILLPRO e do EH3D-ROUTEPRO, mostra uma pré-visualização e executa o trabalho com diálogos de operador e uma paragem. |
-| Testes | 🟡 | Passam 844 testes (`cargo test`): 500 nos módulos e 344 sobre a interface de ponta a ponta, com trabalhos no simulador (41 em `tests/api.rs`, 7 com os programas reais em `tests/programs.rs`). |
+| Testes | 🟡 | Passam 1137 testes (`cargo test`): 500 nos módulos e 637 sobre a interface de ponta a ponta, com trabalhos no simulador (41 em `tests/api.rs`, 7 com os programas reais em `tests/programs.rs`). |
 | Interface para clientes (API) | 🟡 | Os pedidos REST e os eventos websocket estão descritos em `docs/API.md` (as rotas também no contrato OpenAPI `docs/openapi.yaml`) e cobertos pelos testes; até agora só a ligação ao servidor dos próprios programas os usa. |
 | Serviços comuns | 🟠 | O armazém de projetos, os catálogos partilhados, os plugins de máquina com a sua fila e os seus eventos e o início de sessão único correm nos testes num computador; nenhuma aplicação os usa ainda, nada correu numa máquina real pela fila e os catálogos não foram carregados com os dados reais dos seus programas. |
 | Clientes | 🔴 | O EH3D-STUDIO usa-o (nunca experimentado com uma máquina real); a app Android e o painel tátil junto à máquina ainda não existem. |
