@@ -2124,10 +2124,10 @@ fn the_labels_of_a_question_are_in_lower_case_and_bytes_that_are_not_text_are_ke
 #[test]
 fn an_answer_or_a_packet_that_is_not_a_query_is_not_read() {
     let q = question(&["a"], 12, 1);
-    assert!(mdns::parse_query(&packet(0x8000, &[q.clone()])).is_none());
-    assert!(mdns::parse_query(&packet(0x0800, &[q.clone()])).is_none());
-    assert!(mdns::parse_query(&packet(0x7800, &[q.clone()])).is_none());
-    assert!(mdns::parse_query(&packet(0x0100, &[q])).is_some());
+    assert!(mdns::parse_query(&packet(0x8000, std::slice::from_ref(&q))).is_none());
+    assert!(mdns::parse_query(&packet(0x0800, std::slice::from_ref(&q))).is_none());
+    assert!(mdns::parse_query(&packet(0x7800, std::slice::from_ref(&q))).is_none());
+    assert!(mdns::parse_query(&packet(0x0100, std::slice::from_ref(&q))).is_some());
 }
 
 #[test]
