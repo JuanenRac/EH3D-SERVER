@@ -243,6 +243,20 @@
           "tree_name": "laser.rs pnp.rs pcb.rs plugin_*.rs"
         },
         {
+          "name": "pnp_nodes.rs",
+          "tree_name": "pnp_nodes.rs api_pnp_nodes.rs",
+          "desc": {
+            "en": "the nodes of the pick-and-place machines",
+            "es": "los nodos de las máquinas pick and place",
+            "de": "die Knoten der Pick-and-place-Maschinen",
+            "fr": "les nœuds des machines pick and place",
+            "it": "i nodi delle macchine pick and place",
+            "ja": "ピックアンドプレース機のノード",
+            "zh": "贴片机的节点",
+            "pt": "os nós das máquinas pick and place"
+          }
+        },
+        {
           "desc": {
             "en": "the simulated CNC machine and the Gerber and CAM workers",
             "es": "la máquina CNC simulada y los trabajadores Gerber y CAM",

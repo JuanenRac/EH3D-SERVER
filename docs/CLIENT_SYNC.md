@@ -12,7 +12,7 @@ the server; it does not keep a list of its own.
 
 ## The contract of the settings
 
-`docs/settings-contract.json` lists every key of `server.cfg` (89 today): its group, type (`boolean`, `integer`, `string`, `list`), range, default and unit, whether a change is in
+`docs/settings-contract.json` lists every key of `server.cfg` (95 today): its group, type (`boolean`, `integer`, `string`, `list`), range, default and unit, whether a change is in
 force at once (`apply: "now"`) or read when the server starts (`apply: "restart"`), the route that writes it, the role and scope it needs, whether it is a secret, the kind of
 risk (`none`, `security`, `exposure`, `capacity`, `machine`, `data`) and three texts in each of the eight languages (en, es, de, fr, it, ja, zh and pt of Portugal): the `label`,
 a short `help` and the `warning` (how a change is applied and what it risks). The same document, with the value in force of every key that is not a secret in `values` and the
@@ -68,6 +68,20 @@ was added (`bad_request` already exists), so `docs/error-codes.json` and the tab
 4. Keep a **parity guard** like the one of the error codes: a test that fails when the copy of the contract differs from the file of the server (it compares the files, or runs
    `python tools/gen_settings_contract.py --check` of the server it is next to), and when a key the client shows is not in the contract or a key of the contract is not shown. A
    client may hide a key on purpose only by naming it in a list of exceptions with its reason.
+
+### What the clients take from the nodes of the pick-and-place machines and from the authorization of a job
+
+Six keys are new in the contract (`pnp_nodes_enabled`, `pnp_nodes_max`, `pnp_node_poll_s`, `pnp_node_silence_s`, `pnp_node_timeout_s` and `work_require_authorization`, all with
+`write.via = "file"`, so a client shows them and says where they are set), and the group `pnp_nodes` is new. A client copies the new `docs/settings-contract.json` and
+`docs/error-codes.json` (nine codes: `pnp_nodes_off`, `unknown_pnp_node`, `bad_pnp_node`, `pnp_node_exists`, `pnp_nodes_full`, `pnp_node_disabled`, `pnp_node_not_ready`,
+`stale_authorization` and `authorization_required`), gives each its sentence in the eight languages, and regenerates its client of `docs/openapi.json`. Then:
+
+* the screens of the machines and Studio read `GET /api/v1/pnp/nodes` (viewer, `machines:view`) and show each node with its `health` and `ready`; the fleet has `pnp_nodes` while the
+  switch is on; the websocket sends `{"type":"pnp_node","id","health","ready"}` when a node changes (a client that listens asks the list again, it does not poll the nodes);
+* only an administrator registers, changes or removes a node, an operator can ask a node now (`POST /pnp/nodes/{id}/poll`), and the token is never in an answer (`********`);
+* every job of the generic queue has `toolpath_sha256` and `authorization`; a client that starts a job of a laser, a pick-and-place machine or a CNC machine shows the hash, lets
+  a person with `jobs:authorize` authorise it (`POST /work/jobs/{id}/authorize`) and may send the same hash with the start (`409 stale_authorization` when the job is not the one
+  that was shown; `409 authorization_required` while `work_require_authorization` is on and there is none; `409 pnp_node_not_ready` when a node of the machine is not ready).
 
 ## The rule for the server
 
