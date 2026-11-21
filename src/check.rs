@@ -65,6 +65,22 @@ pub fn verify(path: Option<&Path>) -> Report {
                     lines.push("FAILED: the contract of the settings has no values".to_string());
                     passed = false;
                 }
+                // the light view for the screens must fit its limit with the settings this server would start with
+                let light = settings::values_view(&cfg, &p.get(), &settings::Selection::default())
+                    .to_string()
+                    .len();
+                if light <= settings::VALUES_MAX_BYTES {
+                    lines.push(format!(
+                        "ok: the light view of the settings is {light} bytes (the limit is {})",
+                        settings::VALUES_MAX_BYTES
+                    ));
+                } else {
+                    lines.push(format!(
+                        "FAILED: the light view of the settings is {light} bytes and the limit is {}",
+                        settings::VALUES_MAX_BYTES
+                    ));
+                    passed = false;
+                }
             }
             Err(e) => {
                 lines.push(format!("FAILED: the changes of the security page: {e}"));

@@ -32,6 +32,16 @@ SCHEMA = "eh3d.settings.contract/1"
 OUT = ROOT / "docs" / "settings-contract.json"
 POLICY_PATH = "/api/v1/auth/policy"
 UNITS = {"_s": "seconds", "_mb": "megabytes", "_kb": "kilobytes", "_gb": "gigabytes", "_hours": "hours", "_days": "days", "_lines": "lines", "_slots": "places"}
+# The light, read-only view for any login (viewer, operator, admin): no texts, no secret, no path. The limits are the constants of src/settings.rs (a test compares them).
+READ_LIGHT = {
+    "method": "GET", "path": "/api/v1/settings/values", "role": "viewer", "scope": None, "schema": "eh3d.settings.values/1",
+    "answer": "settings: for each key `v` (the value in force), `origin` (`file` or `override`) and `editable` (the security page changes it); a key marked `secret` has `v` = secret_mark and `secret` true; a key whose format is `path` has `hidden` true and no `v`; `truncated` is true when a long text or list was cut. `contract_hash` is the SHA-256 of this document with LF line ends.",
+    "cache": "ETag on every answer (the SHA-256 of its text, in quotes) and Cache-Control private, no-cache; If-None-Match with the tag is answered 304 with no body. A client that holds a copy of the contract asks for the whole of it again only when contract_hash changes.",
+    "query": {"keys": "comma separated keys of this contract", "group": "the id of a group of this contract"},
+    "errors": {"bad_request": "422: a key or a group the contract does not have, a query that does not decode, or one that is too long; the detail says which.", "unauthorized": "401: no valid login.", "forbidden": "403: never for a viewer, an operator or an administrator."},
+    "secret_mark": "***",
+    "limits": {"max_bytes": 16384, "max_text_chars": 120, "max_list_items": 16, "max_item_chars": 64, "max_query_bytes": 2048},
+}
 PATH_KEYS_FORMAT = {"listen": "address", "mdns_name": "name", "auth_extra_apps": "app-names"}
 
 
@@ -187,6 +197,7 @@ def build() -> tuple[dict, list[str]]:
         "languages": langs,
         "read": {"method": "GET", "path": "/api/v1/settings/contract", "role": "admin", "scope": "admin:policy",
                  "values": "The answer adds `values` (the value in force of each key; a secret key has no value) to this document."},
+        "read_light": READ_LIGHT,
         "write": {
             "policy": {"method": "PUT", "path": POLICY_PATH, "role": "admin", "scope": "admin:policy",
                        "body": {"key": "string", "value": "boolean | integer", "confirm_weak": "boolean, default false"},

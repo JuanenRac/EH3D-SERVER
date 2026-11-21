@@ -102,6 +102,7 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/projects/:id/shares/:who` | DELETE | operator + `projects:write` | Take a sharing back |
 | `/api/v1/session` | GET | any login or token | Say who is logged in |
 | `/api/v1/settings/contract` | GET | admin + `admin:policy` | The contract of the settings and their values |
+| `/api/v1/settings/values` | GET | viewer | The values in force of the settings, light and read only |
 | `/api/v1/setup` | GET | none | Ask whether the first administrator is still needed |
 | `/api/v1/setup` | POST | none | Make the first administrator |
 | `/api/v1/slice` | POST | operator + `jobs:prepare` | Slice a mesh into G-code inside the limits of a printer profile |

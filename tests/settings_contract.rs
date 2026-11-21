@@ -93,6 +93,10 @@ async fn an_administrator_reads_the_contract_with_the_values_and_nobody_else_doe
     let object = without.as_object_mut().unwrap();
     object.remove("values");
     object.remove("server_version");
+    assert_eq!(
+        object.remove("contract_hash"),
+        Some(json!(settings::contract_hash()))
+    );
     assert_eq!(&without, settings::contract());
     let values = doc["values"].as_object().unwrap();
     for e in entries() {

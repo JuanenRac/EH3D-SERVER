@@ -11053,6 +11053,57 @@ paths:
               example:
                 error: forbidden
                 detail: ""
+  "/settings/values":
+    get:
+      operationId: get_settings_values
+      tags:
+        - admin
+      summary: "The values in force of the settings, light and read only"
+      description: "For the screens of the machines and any client that logs in as an operator or a viewer: for each key of `server.cfg`, the value in force (`v`), where it comes from (`origin`) and whether `PUT /auth/policy` changes it (`editable`). A secret key shows `***` and a key that is a path of the computer is `hidden`; there are no texts, so the answer is a few kilobytes (never more than 16 KiB). `contract_hash` says whether the copy of the contract that the client holds is still the one of this server. `If-None-Match` with the tag is answered `304` with no body. A refusal is in the audit like the others. Role viewer or higher."
+      x-role: viewer
+      x-error-codes:
+        - bad_request
+        - unauthorized
+      parameters:
+        - name: keys
+          in: query
+          required: false
+          description: "Comma separated keys of the contract; the answer lists only these."
+          schema:
+            type: string
+        - name: group
+          in: query
+          required: false
+          description: "The id of a group of the contract; the answer lists only its keys."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "The values, with an `ETag` (the SHA-256 of the answer in quotes) and `Cache-Control: private, no-cache`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/SettingsValues"
+        "400":
+          description: "Refused with `bad_request`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_request
+                detail: ""
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "304":
+          description: "The answer is the one the `If-None-Match` header names; no body."
   "/auth/keys":
     get:
       operationId: get_auth_keys
@@ -14092,6 +14143,53 @@ components:
         - apps
         - known_only
       additionalProperties: false
+    SettingsValues:
+      type: object
+      properties:
+        schema:
+          type: string
+          description: "`eh3d.settings.values/1`."
+        server_version:
+          type: string
+          description: The version of the server that answers.
+        contract_hash:
+          type: string
+          description: "The SHA-256 (hex) of the contract document with LF line ends; a client that holds a copy of the contract reads it again only when this changes."
+        count:
+          type: integer
+        settings:
+          type: object
+          description: By key of the contract.
+          additionalProperties:
+            type: object
+            properties:
+              v:
+                description: "The value in force; `***` for a key marked `secret`; absent for a key whose format is `path`."
+              origin:
+                type: string
+                enum:
+                  - file
+                  - override
+                description: "`override` when a change through the security page differs from `server.cfg`; absent for a secret key."
+              editable:
+                type: boolean
+              secret:
+                type: boolean
+              hidden:
+                type: boolean
+              truncated:
+                type: boolean
+            required:
+              - editable
+            additionalProperties: false
+      required:
+        - schema
+        - server_version
+        - contract_hash
+        - count
+        - settings
+      additionalProperties: false
+      description: "The light, read-only view of the settings: a few kilobytes, no texts, no secret and no path."
     PolicyChange:
       type: object
       properties:

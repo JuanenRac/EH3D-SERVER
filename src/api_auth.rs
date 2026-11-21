@@ -3,9 +3,9 @@
 //! logins, the logouts and the refusals. The first version of the login (`POST /login`, `POST /logout`, `GET /session`) is not touched: it makes the same kind of login
 //! with no application. The rules are in `src/auth.rs` and `docs/AUTH.md`.
 
-use axum::extract::{ConnectInfo, Path, Query, State};
+use axum::extract::{ConnectInfo, Path, Query, RawQuery, State};
 use axum::http::{header, HeaderMap, StatusCode};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
@@ -27,6 +27,7 @@ pub fn routes() -> Router<Shared> {
         .route("/api/v1/auth/sessions/:id", delete(close_session))
         .route("/api/v1/auth/policy", get(policy).put(change_policy))
         .route("/api/v1/settings/contract", get(settings_contract))
+        .route("/api/v1/settings/values", get(settings_values))
         .route("/api/v1/auth/keys", get(keys))
         .route("/api/v1/audit", get(audit_lines))
         .route("/api/v1/auth/apps", get(apps))
@@ -379,6 +380,54 @@ async fn settings_contract(State(s): State<Shared>, Authed(who, _): Authed) -> A
     crate::api::need(&who, Role::Admin)?;
     crate::api::need_scope(&who, "admin:policy")?;
     Ok(Json(crate::settings::document(&s.cfg, &s.policy.get())))
+}
+
+/// The light, read-only view of the settings (`eh3d.settings.values/1`): the value in force of each key, where it comes from and whether the security page changes it, with no
+/// texts, no secret and no path (a few kilobytes). Any login or token of any role may read it: it is what the screens of the machines, which log in as an operator, need to show
+/// the state of the server. It has an `ETag` (and `contract_hash` for the copy of the contract) so that a client asks again only when something changed; `If-None-Match` with the
+/// same tag is answered `304`. A refusal is in the audit like every other (`audit_denials`). `?keys=a,b` and `?group=id` narrow it.
+async fn settings_values(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    RawQuery(query): RawQuery,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(e) = crate::api::need(&who, Role::Viewer) {
+        return e.into_response();
+    }
+    let selection =
+        match crate::settings::parse_selection(query.as_deref(), crate::settings::entries()) {
+            Ok(selection) => selection,
+            Err(detail) => {
+                return ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "bad_request", detail)
+                    .into_response()
+            }
+        };
+    let answer = crate::settings::values_view(&s.cfg, &s.policy.get(), &selection);
+    let tag = crate::settings::values_etag(&answer);
+    let cache = "private, no-cache";
+    let unchanged = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| crate::api::etag_matches(v, &tag));
+    if unchanged {
+        return (
+            StatusCode::NOT_MODIFIED,
+            [
+                (header::ETAG, tag),
+                (header::CACHE_CONTROL, cache.to_string()),
+            ],
+        )
+            .into_response();
+    }
+    (
+        [
+            (header::ETAG, tag),
+            (header::CACHE_CONTROL, cache.to_string()),
+        ],
+        Json(answer),
+    )
+        .into_response()
 }
 
 #[derive(Deserialize)]

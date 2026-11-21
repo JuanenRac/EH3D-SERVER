@@ -838,6 +838,17 @@ SCHEMAS.update({
     }, ["schema", "server_version", "languages", "write", "groups", "settings", "values"],
         description="Every key of `server.cfg` with its type, range, default, group, whether a change is read at once, the route that writes it, and its label, help and warning in en, es, de, fr, it, ja, zh and pt; the same document as `docs/settings-contract.json` plus `server_version` and `values`."),
     "AuthApps": obj({"apps": arr(S), "known_only": B}, ["apps", "known_only"]),
+    "SettingsValues": obj({
+        "schema": s("`eh3d.settings.values/1`."), "server_version": s("The version of the server that answers."),
+        "contract_hash": s("The SHA-256 (hex) of the contract document with LF line ends; a client that holds a copy of the contract reads it again only when this changes."),
+        "count": I,
+        "settings": {"type": "object", "description": "By key of the contract.", "additionalProperties": obj({
+            "v": {"description": "The value in force; `***` for a key marked `secret`; absent for a key whose format is `path`."},
+            "origin": {"type": "string", "enum": ["file", "override"], "description": "`override` when a change through the security page differs from `server.cfg`; absent for a secret key."},
+            "editable": B, "secret": B, "hidden": B, "truncated": B,
+        }, ["editable"])},
+    }, ["schema", "server_version", "contract_hash", "count", "settings"],
+        description="The light, read-only view of the settings: a few kilobytes, no texts, no secret and no path."),
 })
 
 op("POST", "/auth/login", "auth", "none", "Log in for an application", body="AppLoginRequest", ok=(200, "AppLoginResponse", "application/json"),
@@ -863,6 +874,15 @@ op("GET", "/settings/contract", "admin", "admin", "The contract of the settings 
    desc="Every key of `server.cfg` with its type, range, default, group, label, short help and warning in eight languages, whether a change is read at once or when the server starts, "
         "and the route that writes it (`PUT /auth/policy` for the keys in `editable`; the others are set in `server.cfg`). `values` has the value in force of each key; a key marked `secret` has none. "
         "The same document is `docs/settings-contract.json`, which the clients copy and check against the server.")
+op("GET", "/settings/values", "admin", "viewer", "The values in force of the settings, light and read only", ok=(200, "SettingsValues", "application/json"),
+   ok_desc="The values, with an `ETag` (the SHA-256 of the answer in quotes) and `Cache-Control: private, no-cache`.",
+   query=[q("keys", S, "Comma separated keys of the contract; the answer lists only these."), q("group", S, "The id of a group of the contract; the answer lists only its keys.")],
+   errors=["bad_request"],
+   desc="For the screens of the machines and any client that logs in as an operator or a viewer: for each key of `server.cfg`, the value in force (`v`), where it comes from (`origin`) and whether "
+        "`PUT /auth/policy` changes it (`editable`). A secret key shows `***` and a key that is a path of the computer is `hidden`; there are no texts, so the answer is a few kilobytes "
+        "(never more than 16 KiB). `contract_hash` says whether the copy of the contract that the client holds is still the one of this server. `If-None-Match` with the tag is answered `304` with no body. "
+        "A refusal is in the audit like the others.",
+   responses={"304": {"description": "The answer is the one the `If-None-Match` header names; no body."}})
 
 # -- policy changes, keys and audit (docs/AUTH.md), the quota of the store and the design run (docs/DESIGN_RUN.md)
 SCHEMAS.update({
