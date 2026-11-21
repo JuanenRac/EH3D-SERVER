@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.2.0` |
 | Reifegrad | Funktionsfähig |
-| Tests | 740 |
+| Tests | 757 |
 | Technologie-Stack | Rust (axum, tokio) |
 | Auf echter Hardware | Nein: gegen den Simulator getestet; über den Server lief noch nichts auf einer echten Maschine |
 
@@ -45,7 +45,7 @@ Jede Zeile ist ein Teil dieses Repositorys, und die Ampel sagt, wie weit er heut
 | Bereich | Stand | Was das hier bedeutet |
 |---|---|---|
 | Software | 🟡 | Ein Rust-Server (axum) verwaltet Benutzer, Maschinen und Aufträge, plant Bohr- und Fräsaufträge mit den Bibliotheken von EH3D-DRILLPRO und EH3D-ROUTEPRO, zeigt eine Vorschau und führt den Auftrag mit Bedienerdialogen und einem Stopp aus. |
-| Tests | 🟡 | 740 Tests bestehen (`cargo test`): 480 in den Modulen und 260 an der Schnittstelle von Ende zu Ende, mit Aufträgen im Simulator (41 in `tests/api.rs`, 7 mit den echten Programmen in `tests/programs.rs`). |
+| Tests | 🟡 | 757 Tests bestehen (`cargo test`): 488 in den Modulen und 269 an der Schnittstelle von Ende zu Ende, mit Aufträgen im Simulator (41 in `tests/api.rs`, 7 mit den echten Programmen in `tests/programs.rs`). |
 | Schnittstelle für Clients (API) | 🟡 | Die REST-Anfragen und die Websocket-Ereignisse sind in `docs/API.md` (die Routen außerdem im OpenAPI-Vertrag `docs/openapi.yaml`) beschrieben und von den Tests abgedeckt; bisher nutzt sie nur die Serververbindung der Programme selbst. |
 | Gemeinsame Dienste | 🟠 | Projektspeicher, gemeinsame Kataloge, Maschinen-Plugins mit Warteschlange und Ereignissen und die einheitliche Anmeldung laufen in den Tests auf einem Rechner; keine Anwendung nutzt sie bisher, über die Warteschlange lief nichts auf einer echten Maschine, und die Kataloge wurden nicht mit den echten Daten ihrer Programme gefüllt. |
 | Clients | 🔴 | EH3D-STUDIO nutzt ihn (nie an einer echten Maschine probiert); die Android-App und das Touch-Panel an der Maschine gibt es noch nicht. |
@@ -269,7 +269,7 @@ README und Texte gibt es auf Englisch, Spanisch, Französisch, Italienisch, Deut
 
 * [Die API](docs/API.md): jede Anfrage, der Auftrag und die Ansicht, die ein Client zeichnet, die Zustände und der Websocket.
 * [Die Routen](docs/openapi.yaml): der OpenAPI-Vertrag jeder Route (Rolle, Scope, Schemas, Beispiele und Fehlercodes), mit ihrer Tabelle in [docs/ROUTES.md](docs/ROUTES.md).
-* [Der Einstellungsvertrag](docs/CLIENT_SYNC.md): jeder Schlüssel von `server.cfg` mit Bereich, Standardwert, Änderungsweg und Texten in acht Sprachen (`docs/settings-contract.json`, geliefert von `GET /api/v1/settings/contract`) und wie Studio und die Apps damit Schritt halten.
+* [Der Einstellungsvertrag](docs/CLIENT_SYNC.md): jeder Schlüssel von `server.cfg` mit Bereich, Standardwert, Änderungsweg und Texten in acht Sprachen (`docs/settings-contract.json`, geliefert von `GET /api/v1/settings/contract`) und wie Studio und die Apps damit Schritt halten. `GET /api/v1/settings/values` ist die leichte Nur-Lese-Ansicht für jede Anmeldung (einige KB, mit `ETag`, ohne Geheimnis, Text oder Pfad) für die Bildschirme der Maschinen.
 * [Die gemeinsamen Dienste](docs/SERVICES.md): der Projektspeicher, die gemeinsamen Kataloge, die Maschinen-Plugins mit Warteschlange und Ereignissen und die einheitliche Anmeldung, jeder mit eigener Seite ([PROJECT_STORE.md](docs/PROJECT_STORE.md), [CATALOGS.md](docs/CATALOGS.md), [MACHINE_PLUGINS.md](docs/MACHINE_PLUGINS.md), [AUTH.md](docs/AUTH.md)).
 * [Der Entwurfslauf, das Audit und die Sicherheitsschalter](docs/DESIGN_RUN.md): das installierte Entwurfsprogramm auf einer Platine eines Projekts ausführen, mit dem Bericht als Datei des Projekts, und was der Administrator bei laufendem Server liest und ändert ([AUTH.md](docs/AUTH.md)).
 * [Den Server betreiben](docs/DEPLOY.md): der Build, der erste Start, der Dienst auf der CM5 und die Sicherheit der Bereitstellung.

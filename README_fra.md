@@ -30,7 +30,7 @@
 |---|---|
 | Version | `0.2.0` |
 | Maturité | Fonctionnel |
-| Tests | 740 |
+| Tests | 757 |
 | Pile technique | Rust (axum, tokio) |
 | Sur du matériel réel | Non : testé contre le simulateur ; rien n'a encore tourné sur une vraie machine par le serveur |
 
@@ -45,7 +45,7 @@ Chaque ligne est une partie de ce dépôt et le feu dit où elle en est aujourd'
 | Domaine | État | Ce que cela veut dire ici |
 |---|---|---|
 | Logiciel | 🟡 | Un serveur Rust (axum) garde utilisateurs, machines et travaux, planifie des travaux de perçage et de défonçage avec les bibliothèques d'EH3D-DRILLPRO et d'EH3D-ROUTEPRO, montre un aperçu et exécute le travail avec des dialogues d'opérateur et un arrêt. |
-| Tests | 🟡 | 740 tests réussissent (`cargo test`) : 480 dans les modules et 260 sur l'interface de bout en bout, avec des travaux sur le simulateur (41 dans `tests/api.rs`, 7 avec les vrais programmes dans `tests/programs.rs`). |
+| Tests | 🟡 | 757 tests réussissent (`cargo test`) : 488 dans les modules et 269 sur l'interface de bout en bout, avec des travaux sur le simulateur (41 dans `tests/api.rs`, 7 avec les vrais programmes dans `tests/programs.rs`). |
 | Interface pour les clients (API) | 🟡 | Les requêtes REST et les événements websocket sont décrits dans `docs/API.md` (les routes aussi dans le contrat OpenAPI `docs/openapi.yaml`) et couverts par les tests ; seule la connexion au serveur des programmes eux-mêmes les utilise pour l'instant. |
 | Services communs | 🟠 | Le magasin de projets, les catalogues partagés, les plugins de machine avec leur file et leurs événements, et la connexion unique tournent dans les tests sur un ordinateur ; aucune application ne les utilise encore, rien n'a tourné sur une vraie machine par la file et les catalogues n'ont pas été chargés avec les vraies données de leurs programmes. |
 | Clients | 🔴 | EH3D-STUDIO l'utilise (jamais essayé avec une vraie machine) ; l'application Android et le panneau tactile à côté de la machine n'existent pas encore. |
@@ -269,7 +269,7 @@ Le README et les textes existent en anglais, espagnol, français, italien, allem
 
 * [L'API](docs/API.md) : chaque requête, le travail et la vue que dessine un client, les états et le websocket.
 * [Les routes](docs/openapi.yaml) : le contrat OpenAPI de chaque route (rôle, portée, schémas, exemples et codes d'erreur), avec son tableau dans [docs/ROUTES.md](docs/ROUTES.md).
-* [Le contrat des réglages](docs/CLIENT_SYNC.md) : chaque clé de `server.cfg` avec sa plage, sa valeur par défaut, la façon de la changer et ses textes en huit langues (`docs/settings-contract.json`, servi par `GET /api/v1/settings/contract`), et comment Studio et les applis restent à jour.
+* [Le contrat des réglages](docs/CLIENT_SYNC.md) : chaque clé de `server.cfg` avec sa plage, sa valeur par défaut, la façon de la changer et ses textes en huit langues (`docs/settings-contract.json`, servi par `GET /api/v1/settings/contract`), et comment Studio et les applis restent à jour. `GET /api/v1/settings/values` en est la vue légère en lecture seule pour tout compte (quelques Ko, avec un `ETag`, sans secret, texte ni chemin), pour les écrans des machines.
 * [Les services communs](docs/SERVICES.md) : le magasin de projets, les catalogues partagés, les plugins de machine avec la file et les événements, et la connexion unique, chacun avec sa page ([PROJECT_STORE.md](docs/PROJECT_STORE.md), [CATALOGS.md](docs/CATALOGS.md), [MACHINE_PLUGINS.md](docs/MACHINE_PLUGINS.md), [AUTH.md](docs/AUTH.md)).
 * [L'exécution de conception, l'audit et les interrupteurs de sécurité](docs/DESIGN_RUN.md) : lancer le programme de conception installé sur une carte d'un projet, avec le rapport gardé comme fichier du projet, et ce que l'administrateur lit et change pendant que le serveur tourne ([AUTH.md](docs/AUTH.md)).
 * [Exécuter le serveur](docs/DEPLOY.md) : la compilation, le premier démarrage, le service sur la CM5 et la sécurité du déploiement.

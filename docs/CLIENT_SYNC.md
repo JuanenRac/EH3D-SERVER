@@ -27,12 +27,43 @@ How a key is written is in its `write`:
 * `write.via = "file"`: the key is set in `server.cfg` and read when the server starts; there is no route. The contract lists it so that a client shows its value and says where it
   is set. A `PUT /auth/policy` that names it is refused with `bad_policy` and says so.
 
+### The light view for the screens of the machines
+
+The full contract needs an administrator with `admin:policy` and is some 250 KB, because of its texts in eight languages. A screen of a machine (the HMI of a node, which logs in
+as the application `hmi` with the role of an operator) can read neither, so it keeps the copy of the contract and needs only the values. `GET /api/v1/settings/values` is for it:
+read only, any login or token (viewer, operator or administrator; no scope), a few kilobytes and never more than 16 KiB, with no text, no secret and no path of the computer.
+
+```json
+{ "schema": "eh3d.settings.values/1", "server_version": "0.2.0", "contract_hash": "<sha-256>", "count": 89,
+  "settings": { "session_hours": {"v": 12, "origin": "file", "editable": false},
+                "password_min_len": {"v": 12, "origin": "override", "editable": true},
+                "data_dir": {"hidden": true, "origin": "file", "editable": false} } }
+```
+
+* `v` is the value in force; `origin` is `override` when a change made through `PUT /api/v1/auth/policy` differs from `server.cfg`, and `file` otherwise (the built-in default
+  included); `editable` says whether that route changes the key (only an administrator may). A key marked `secret` in the contract has `"v": "***"` and `"secret": true` and no
+  `origin`, whatever its value; a key whose `format` is `path` has `"hidden": true` and no `v`. A long text or list is cut (`truncated: true`; the limits are in `read_light.limits`
+  of the contract).
+* `contract_hash` is the SHA-256 of `docs/settings-contract.json` with LF line ends (the full answer has it too). A client that keeps a copy of the contract compares it with the
+  hash of its copy: the same hash, same keys and texts; another hash, the copy is out of date and the client says so (and an administrator reads the full contract).
+* The answer has an `ETag` (the SHA-256 of its text in quotes) and `Cache-Control: private, no-cache`; `If-None-Match` with the tag, a list of tags or `*` is answered `304` with
+  no body. A client asks every few seconds and reads the body only when the tag changed.
+* `?keys=a,b` and `?group=id` narrow it; a key or group that the contract does not have, a query that does not decode and a query over 2048 bytes are `422 bad_request` and the detail
+  names what was wrong. A parameter it does not know is ignored.
+* A refusal (no login, a token that is not valid) is in the audit as `denied`, like every other route; a read that is allowed writes no line, like the other reads. The server has no
+  limit of requests of its own for the reads; the limit of wrong passwords of the login is the only one, and it applies as it does everywhere.
+* It opens no write: `PUT /api/v1/auth/policy` is as it was, administrator with `admin:policy`.
+
+What a client regenerates: it copies the new `docs/settings-contract.json` (it has `read_light`; no key was changed or moved) and its parity guard passes as before. A client that has
+no copy of the contract in its tree (the screens of the nodes keep the embedded one) may read `contract_hash` to know whether its copy is the one of the server. No new error code
+was added (`bad_request` already exists), so `docs/error-codes.json` and the tables of texts do not change.
+
 ### How a client uses it
 
 1. Copy `docs/settings-contract.json` of the server it is built for into its own tree (the same way it copies `docs/error-codes.json`).
 2. Draw the settings page from it: the groups in order, then the settings of each group, with `label[lang]`, `help[lang]` and `warning[lang]`; a switch for a `boolean`, a number with
    `min`, `max` and `unit` for an `integer`, a text for a `string`, a list for a `list`. Show `warning` before a change whose `risk` is not `none` or whose `apply` is `restart`.
-3. Read the values from `GET /api/v1/settings/contract` (`values`) and write with the `write` of each entry. Do not write a key the contract does not list, and do not hide one it
+3. Read the values from `GET /api/v1/settings/contract` (`values`; an administrator) or, for any other role, from `GET /api/v1/settings/values`, and write with the `write` of each entry. Do not write a key the contract does not list, and do not hide one it
    does list.
 4. Keep a **parity guard** like the one of the error codes: a test that fails when the copy of the contract differs from the file of the server (it compares the files, or runs
    `python tools/gen_settings_contract.py --check` of the server it is next to), and when a key the client shows is not in the contract or a key of the contract is not shown. A
