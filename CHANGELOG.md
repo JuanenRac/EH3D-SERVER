@@ -3,6 +3,7 @@
 All notable changes to this project are documented here.
 
 ## [Unreleased]
+- Add tests of the pure parts of the server: the ids and their order, the two compressions (round trip, checksums, damaged and cut streams), the multipart reader, the simulated clock, the G-code comment and speed helpers and the catalog of errors.
 
 ## [0.2.2] - A register of the feeder and head nodes of the pick-and-place machines and the authorization of a job by the hash of its toolpath
 
