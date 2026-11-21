@@ -35,7 +35,7 @@ pub struct Answer {
 /// The address as `host:port`: a node on port 80 may be written without it.
 pub fn host_port(address: &str) -> Result<String, HeadError> {
     let a = address.trim();
-    if a.is_empty() || a.contains(' ') || a.contains('/') {
+    if a.is_empty() || a.contains(' ') || a.contains('/') || a.chars().any(char::is_control) {
         return Err(HeadError::NoAddress);
     }
     Ok(if a.contains(':') {
@@ -47,6 +47,9 @@ pub fn host_port(address: &str) -> Result<String, HeadError> {
 
 /// The bytes of a request: HTTP/1.0 so that the node closes the connection when it has said everything.
 pub fn request_bytes(method: &str, path: &str, host: &str, token: &str) -> Vec<u8> {
+    // a line break (or any control character) in a part of the request would end its line and begin another header
+    let plain = |text: &str| text.chars().filter(|c| !c.is_control()).collect::<String>();
+    let (method, path, host, token) = (plain(method), plain(path), plain(host), plain(token));
     let mut r = format!("{method} {path} HTTP/1.0\r\nHost: {host}\r\nAccept: */*\r\n");
     if !token.is_empty() {
         r.push_str(&format!("Authorization: Bearer {token}\r\n"));

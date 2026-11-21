@@ -376,6 +376,8 @@ fn flag(key: &str, value: &str) -> Result<bool, String> {
 
 pub fn parse(text: &str) -> Result<ServerConfig, String> {
     let mut c = ServerConfig::default();
+    // an editor of Windows may save the file with a byte order mark; it is not part of the first key
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     for (n, raw) in text.lines().enumerate() {
         let line = raw.trim();
         if line.is_empty() || line.starts_with('#') || line.starts_with(';') {

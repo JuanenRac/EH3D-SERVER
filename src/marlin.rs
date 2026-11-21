@@ -61,7 +61,8 @@ fn pair(rest: &str) -> Option<(f64, f64)> {
     let mut parts = rest.split_whitespace();
     let current: f64 = parts.next()?.parse().ok()?;
     let target: f64 = parts.next()?.strip_prefix('/')?.parse().ok()?;
-    Some((current, target))
+    // a reading that is not a number (`nan`, `inf`) is not a temperature: every comparison with it is false, so a limit would never trip
+    (current.is_finite() && target.is_finite()).then_some((current, target))
 }
 
 /// Reads the answer to `M105`: `ok T:200.00 /200.00 B:60.00 /60.00 @:127 B@:0`. A line that has no hotend and no bed in it is not an answer.
@@ -200,7 +201,7 @@ impl MarlinSim {
 
     /// Lets `dt` seconds go by: the heaters move to their targets and a print goes on by the lines it can do.
     pub fn advance(&mut self, dt: f64) {
-        if self.halted || dt <= 0.0 {
+        if self.halted || !dt.is_finite() || dt <= 0.0 {
             return;
         }
         self.hotend = approach(self.hotend, self.hotend_target, 4.0, 0.6, dt);
@@ -216,7 +217,7 @@ impl MarlinSim {
                 self.carry_s += dt;
                 let lines = (self.carry_s / self.line_s) as usize;
                 self.carry_s -= lines as f64 * self.line_s;
-                self.line_done = (self.line_done + lines).min(total);
+                self.line_done = self.line_done.saturating_add(lines).min(total);
             }
             if self.line_done >= total {
                 self.printing = false;
@@ -247,7 +248,7 @@ impl MarlinSim {
             Err(why) => {
                 return vec![
                     format!("Error:{why}"),
-                    format!("Resend: {}", self.last_n + 1),
+                    format!("Resend: {}", self.last_n.saturating_add(1)),
                     "ok".into(),
                 ]
             }

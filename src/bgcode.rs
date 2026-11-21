@@ -296,7 +296,9 @@ pub fn read(bytes: &[u8], limits: &Limits) -> Result<Bgcode, BgError> {
         let params_at = at + header_len;
         let data_at = params_at + kind.params_len();
         let data_end = data_at.checked_add(stored_len).ok_or_else(cut)?;
-        let end = data_end + if crc32 { 4 } else { 0 };
+        let end = data_end
+            .checked_add(if crc32 { 4 } else { 0 })
+            .ok_or_else(cut)?;
         if end > bytes.len() {
             return Err(cut());
         }
@@ -522,6 +524,10 @@ pub fn write(file: &Bgcode, options: &WriteOptions) -> Result<Vec<u8>, BgError> 
     let mut rest = file.gcode.as_str();
     while !rest.is_empty() {
         let mut cut = rest.len().min(block);
+        // a limit that falls inside a character moves back to the start of it
+        while !rest.is_char_boundary(cut) {
+            cut -= 1;
+        }
         if cut < rest.len() {
             // the block ends after the last line break inside the limit (or after the first one past it when a line is longer)
             cut = match rest[..cut].rfind('\n') {
