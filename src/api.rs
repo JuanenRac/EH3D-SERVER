@@ -317,6 +317,7 @@ pub fn router(state: Shared) -> Router {
         .route("/api/v1/updates/clear-history", post(updates_clear_history))
         .route("/api/v1/events", get(events))
         .merge(crate::api_tasks::routes())
+        .merge(crate::api_pnp_nodes::routes())
         .merge(crate::api_artifacts::routes())
         .merge(crate::api_projects::routes())
         .merge(crate::api_pstore::routes(&state.cfg))
@@ -968,11 +969,16 @@ async fn fleet(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResult {
     // the machines of a named station first, those without one at the end
     stations.sort_by(|a, b| a.0.is_empty().cmp(&b.0.is_empty()).then(a.0.cmp(&b.0)));
     let station_count = stations.iter().filter(|(id, _)| !id.is_empty()).count();
-    Ok(Json(json!({
+    let mut answer = json!({
         "stations": stations.into_iter().map(|(id, ids)| json!({"id": id, "machines": ids})).collect::<Vec<_>>(),
         "machines": list,
         "summary": {"machines": idle + busy + waiting, "idle": idle, "busy": busy, "waiting": waiting, "stations": station_count},
-    })))
+    });
+    // the nodes of the pick-and-place machines: only while their switch is on, so that the answer of a server that does not use them is what it was
+    if s.pnp_nodes.limits.enabled {
+        answer["pnp_nodes"] = s.pnp_nodes.counts(std::time::Instant::now());
+    }
+    Ok(Json(answer))
 }
 
 async fn add_machine(

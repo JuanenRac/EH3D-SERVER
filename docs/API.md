@@ -42,7 +42,7 @@ A machine is how to reach it (a node over the network, or the simulator), the te
 | Request | Role | What it does |
 |---|---|---|
 | `GET /machines`, `GET /machines/:id` | viewer | the machines (each with its `station`, the short name of the bench, the room or the workshop it belongs to; empty when it has none) |
-| `GET /fleet` | viewer | every machine at once, grouped by station: `stations` (`id` and the `machines` in it), `machines` (`id`, `name`, `model`, `station`, `connection`, `state`: `idle`, `busy` or `waiting` for the operator, the active `job` with `percent`, `items_done`, `items_total`, `pause`, `tool` (the drill or pen at work now, or the one the operator is asked to put in; `null` for a G-code job), and the number of jobs `ready`) and a `summary` with the counts |
+| `GET /fleet` | viewer | every machine at once, grouped by station: `stations` (`id` and the `machines` in it), `machines` (`id`, `name`, `model`, `station`, `connection`, `state`: `idle`, `busy` or `waiting` for the operator, the active `job` with `percent`, `items_done`, `items_total`, `pause`, `tool` (the drill or pen at work now, or the one the operator is asked to put in; `null` for a G-code job), and the number of jobs `ready`) and a `summary` with the counts; with `pnp_nodes_enabled` on also `pnp_nodes` (the nodes of the pick-and-place machines: `registered`, `ready`, `not_ready`, `by_health`) |
 | `POST /machines` | admin | creates one |
 | `PUT /machines/:id`, `DELETE /machines/:id` | admin | changes or removes one (not while a job runs on it: `409 machine_busy`) |
 | `POST /machines/:id/preview` | operator | plans a job and answers its view, creating nothing |
@@ -147,6 +147,25 @@ For a machine whose configuration names the node of its drill head (`head_node`,
 
 Refusals: `422 bad_light` (the query for the ring has signs the node does not use), `422 too_many_holes` (more than 500), `422 bad_profile`, `502 bad_picture` (the picture of the node could not be read), `404 no_head` (the machine has no `head_address`), `422 bad_address`, `422 bad_samples`, `502 head_unreachable` (the node does not answer in four seconds) and `502 head_refused` (the node answered with a status other than 200).
 
+## The nodes of the pick-and-place machines
+
+A pick-and-place machine can stand on two kinds of node: a **feeder** node (the chain of tape feeders) and a **head** node (the pump, the valves and the axes of the nozzles). Their words are in the `docs/CONTRACT.md` of EH3D-NODE-PNP-FEEDER and EH3D-NODE-PNP-HEAD: HTTP and JSON, a token as `Authorization: Bearer`, `GET /api/status` answered with or without it. The server keeps a list of them, asks each one on a timer and shows what it said, so a client never reaches a node by itself. It is off by default (`pnp_nodes_enabled`): with it off every request below answers `501 pnp_nodes_off`, no connection to a node is opened and `GET /fleet` is as it was. Nothing here has run on a real feeder or head: the tests ask nodes in memory, and every node says `evidence: simulator`.
+
+| Request | Who | What it does |
+|---|---|---|
+| `GET /pnp/nodes` | viewer, `machines:view` | `nodes` (each as below), a `summary` (`registered`, `ready`, `not_ready`, `by_health`) and the `limits` in force; it opens no connection |
+| `POST /pnp/nodes` | admin, `machines:manage` | registers `{"kind": "feeder" or "head", "name", "address": "host:port", "token", "machine", "id", "enabled"}`; the id is `<kind>-<n>` when it is not given; `422 bad_pnp_node`, `409 pnp_node_exists` (the same id or address), `409 pnp_nodes_full`; audited |
+| `GET /pnp/nodes/:id` | viewer, `machines:view` | one node; `404 unknown_pnp_node` |
+| `PUT /pnp/nodes/:id` | admin, `machines:manage` | changes `name`, `address`, `token` (`********` keeps it), `machine` or `enabled`; a node whose address, token or switch changes starts again from `unknown`; audited |
+| `DELETE /pnp/nodes/:id` | admin, `machines:manage` | removes it; audited |
+| `POST /pnp/nodes/:id/poll` | operator, `jobs:prepare` | asks the node now (the status, then a read that needs the token) and gives the node as the server sees it; `409 pnp_node_disabled`; audited |
+
+A node is `id`, `kind`, `name`, `address`, `token` (`********` or empty; the token is never shown, logged or audited), `machine` (a machine of the plugin `pnp`, or empty), `enabled`, `health`, `ready`, `silent_for_s`, `polls` (`ok` and `failed`), `last_error`, `status` (what the node said last, only the keys of its contract with their sizes bound: for a feeder `safe`, `selfcheck`, `slots`, `online`, `bus`, the `feeders` and the counts `low`, `empty` and `faulted`; for a head `safe`, `selfcheck`, `nozzle_count`, `pump`, `xy_clear`, `xy_blocking`, `z_safe_mm`, the `nozzles` and `faulted`), `evidence` and `simulator_only`.
+
+**Health, and what is safe.** The server degrades towards what is safer: only `ok` and `warn` (the node's own verdict) are *ready*. `unknown` (never asked), `disabled`, `unreachable` (the last poll failed: no answer, an HTTP status other than 200, an answer that is not the contract or too big), `refused` (the node answered but refuses the token, so it will go to its own safe state), `silent` (nothing good for `pnp_node_silence_s`, never less than two polls, whatever it said before), `safe` (the node says it is safe, or does not say), `fail` (its own check) are not ready. A machine of the plugin `pnp` that has a node that is switched on and not ready does not start a job: `409 pnp_node_not_ready` with the node and its health; jobs that were prepared wait. A person acknowledges the safe state on the node itself; the server only sees it come back. The detail of such a machine lists its `nodes`, and while the switch is on `GET /fleet` has `pnp_nodes` with the same counts. The websocket sends `{"type":"pnp_node","id":"...","health":"...","ready":true}` when a node changes its health (not at every poll).
+
+**Settings** (`server.cfg`, read when the server starts): `pnp_nodes_enabled`, `pnp_nodes_max` (1 to 200), `pnp_node_poll_s` (1 to 3600; well below the time after which a node goes safe for not hearing the server), `pnp_node_silence_s` (2 to 3600) and `pnp_node_timeout_s` (1 to 30). All five are in `docs/settings-contract.json` with their texts in the eight languages.
+
 ## The spindle of the machine
 
 A machine carries one of two spindles, `original` (the one it leaves the factory with) or `vfd` (with a variable-frequency drive that the node of the machine drives), or none is said (empty: no job is judged against a spindle). The limits of each are the starting ones (`original`: 5000 to 63000 turns, 3000 mm/min along the cut, 4000 mm/min of plunge, bits up to 3.2 mm; `vfd`: 6000 to 24000 turns, 1500 and 1200 mm/min, bits up to 6 mm) with what the machine changed on top. They are also members of the machine (`spindle`, `spindle_guard`, `spindle_original`, `spindle_vfd`); a `PUT /machines/:id` that does not send them leaves them as they were.
@@ -247,7 +266,7 @@ An upload nobody touched for `upload_ttl_s` is cleaned, and so are the files of 
 | `tasks:read`, `tasks:run` | list and read tasks; make, cancel and delete them |
 | `machines:view` | read the machines, the fleet and the jobs, and what the head of a machine says (status, light, camera, last check, profile of the analyser) |
 | `jobs:prepare` | the preview, the creation of a job and the resuming from a stopped one, and the actions on the head of a machine (measure, light, check, calibration, profile) |
-| `jobs:authorize` | authorising a prepared job (reserved: no request uses it yet) |
+| `jobs:authorize` | authorising the hash of a prepared job of the generic queue (`POST /work/jobs/:id/authorize`); never given to a token of the `phoenix` or `cam` template |
 | `jobs:start` | start, hold and resume a job |
 | `jobs:confirm` | answer the dialog a running job waits at |
 | `jobs:cancel` | cancel a job, remove a finished one and stop a machine |
@@ -283,6 +302,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 |---|---|---|
 | `air_assist_off` | 409 | The air assist input of the laser machine says off and the machine requires it on. |
 | `artifact_in_use` | 409 | A task still works on this artifact or made it: remove the task first. |
+| `authorization_required` | 409 | The server asks for the authorization of a job of this plugin before it starts (work_require_authorization) and the job has none for its present hash. |
 | `bad_address` | 422 | The address of a machine or of its drill head node is missing or is not host:port. |
 | `bad_app` | 422 | The name of the application is not one this server accepts (lower case letters, digits and hyphens, one of the known applications or of auth_extra_apps). |
 | `bad_artifact` | 422 | The description of an artifact does not fit (name, format, result_type, inputs or params). |
@@ -313,6 +333,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `bad_picture` | 502 | The picture the camera of the drill head sent cannot be read. |
 | `bad_placement_list` | 422 | A list of placements that came as an artifact cannot be read as JSON or as CSV with the columns ref, part, x and y. |
 | `bad_plugin_request` | 422 | The request does not fit what the plugin of the machine takes, or the settings of a machine of a plugin are not valid. |
+| `bad_pnp_node` | 422 | A node of a pick-and-place machine does not fit: its kind (feeder or head), its id, its name, its address (host:port), its token (no spaces or control characters) or its machine (a machine of the plugin pnp). |
 | `bad_policy` | 422 | The switch of security is not one that can change while the server runs, or its value is not of the right type or is out of range. |
 | `bad_profile` | 422 | The inspection profile is not valid. |
 | `bad_rack` | 422 | The rack of a job request of the second version does not fit: places that repeat, the test pin as a place, more places than rack_max_slots, a carry_slot without carry_in, or a place the machine does not define or reach. |
@@ -381,6 +402,11 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `outside_course` | 422 | The work goes past the course of an axis (the machine's switch is on reject). |
 | `plugin_failed` | 502 | The plugin or the machine behind it failed while doing this. |
 | `pnp_feeder_short` | 409 | A part of the placement job is in no feeder of the pick-and-place machine, or the feeders hold fewer than the job needs while the machine requires the stock. |
+| `pnp_node_disabled` | 409 | The node of the pick-and-place machine is switched off, so it is not asked. |
+| `pnp_node_exists` | 409 | A node with this id or this address is already registered. |
+| `pnp_node_not_ready` | 409 | A node of this pick-and-place machine is silent, refuses the token, says it is safe or fails its own check, so the job does not start. |
+| `pnp_nodes_full` | 409 | The list of the nodes of the pick-and-place machines is full (pnp_nodes_max). |
+| `pnp_nodes_off` | 501 | The nodes of the pick-and-place machines are switched off on this server (pnp_nodes_enabled). |
 | `precondition_failed` | 412 | The If-Match tag is not the one of the current version: read the file again before writing. |
 | `precondition_required` | 428 | A write over an existing file needs If-Match with the tag (SHA-256) of the version it was made from. |
 | `printer_disconnected` | 502 | The printer does not answer. |
@@ -396,6 +422,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `slice_limit` | 422 | The object or the profile goes past a limit of the printer or of the slicer; nothing is cut down to fit. |
 | `slice_off` | 404 | Slicing on the server is off: the switch slice of the security page is not on. |
 | `spindle_limit` | 422 | The job asks for more than the spindle of the machine gives (the machine's switch is on reject). |
+| `stale_authorization` | 409 | The hash a person authorised, or the one a start names, is not the hash of the job as it is now, so nothing starts. |
 | `stale_parent` | 409 | The revision does not follow the last one of the project: look at what changed first. |
 | `storage` | 500 | The data folder could not be written. |
 | `store` | 500 | The inspection profile could not be saved. |
@@ -419,6 +446,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `unknown_kind` | 422 | There is no such kind of task. |
 | `unknown_machine` | 404 | There is no machine with this id. |
 | `unknown_plugin` | 422 | There is no plugin of this kind. |
+| `unknown_pnp_node` | 404 | There is no node of a pick-and-place machine with this id. |
 | `unknown_project` | 404 | There is no project with this id, or it belongs to somebody else. |
 | `unknown_session` | 404 | There is no open login with this id, or it is not the caller's, or the login cannot be renewed any more. |
 | `unknown_task` | 404 | There is no task with this id, or it belongs to somebody else. |

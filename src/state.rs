@@ -97,6 +97,8 @@ pub struct AppState {
     pub policy: crate::policy::Policy,
     /// The keys of the compatibility routes of Moonraker and OctoPrint, by machine.
     pub compat_keys: crate::compat::CompatKeys,
+    /// The nodes of the pick-and-place machines (feeders and heads) and what they said last.
+    pub pnp_nodes: crate::pnp_nodes::PnpNodes,
 }
 
 #[derive(Debug, PartialEq)]
@@ -169,6 +171,7 @@ impl AppState {
             cfg.log_max_kb,
         );
         let compat_keys = crate::compat::CompatKeys::open(&cfg.data_dir)?;
+        let pnp_nodes = crate::pnp_nodes::PnpNodes::open(&cfg)?;
         let updates = cfg.updates_dir.clone().map(|d| {
             crate::updates::Updates::new(d, env!("CARGO_PKG_VERSION"), cfg.studio_dir.clone())
         });
@@ -197,6 +200,7 @@ impl AppState {
             job_log,
             policy,
             compat_keys,
+            pnp_nodes,
         });
         // the tasks that were queued when the server stopped go on, and what waited long enough is cleaned
         state.tasks_pump();

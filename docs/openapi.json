@@ -46,6 +46,10 @@
       "description": "Work for the computer that never moves a machine."
     },
     {
+      "name": "pnp",
+      "description": "The feeder and head nodes of the pick-and-place machines: registered, asked with their token and shown with their health (off until the switch pnp_nodes_enabled is on)."
+    },
+    {
       "name": "artifacts",
       "description": "Files kept by identity: artifacts, blobs and uploads."
     },
@@ -5407,6 +5411,670 @@
                 },
                 "example": {
                   "error": "store",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pnp/nodes": {
+      "get": {
+        "operationId": "get_pnp_nodes",
+        "tags": [
+          "pnp"
+        ],
+        "summary": "List the nodes of the pick-and-place machines",
+        "description": "What the poller found last; no connection is opened by this request. Role viewer or higher. Scope `machines:view` if the token is limited by scopes.",
+        "x-role": "viewer",
+        "x-scope": "machines:view",
+        "x-error-codes": [
+          "forbidden_scope",
+          "pnp_nodes_off",
+          "unauthorized"
+        ],
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PnpNodeList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden_scope",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refused with `pnp_nodes_off`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "pnp_nodes_off",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "post_pnp_nodes",
+        "tags": [
+          "pnp"
+        ],
+        "summary": "Register a feeder or head node",
+        "description": "Role admin. Scope `machines:manage` if the token is limited by scopes.",
+        "x-role": "admin",
+        "x-scope": "machines:manage",
+        "x-error-codes": [
+          "bad_pnp_node",
+          "bad_request",
+          "forbidden",
+          "forbidden_scope",
+          "pnp_node_exists",
+          "pnp_nodes_full",
+          "pnp_nodes_off",
+          "unauthorized"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewPnpNode"
+              },
+              "example": {
+                "kind": "feeder",
+                "name": "Feeders left",
+                "address": "192.168.0.60:80",
+                "token": "the-token-of-the-node",
+                "machine": "pnp-1"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PnpNode"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused with `bad_request`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_request",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Refused with `pnp_node_exists`, `pnp_nodes_full`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "pnp_node_exists",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Refused with `bad_pnp_node`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_pnp_node",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refused with `pnp_nodes_off`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "pnp_nodes_off",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pnp/nodes/{id}": {
+      "get": {
+        "operationId": "get_pnp_nodes_id",
+        "tags": [
+          "pnp"
+        ],
+        "summary": "Read a node with what it said last",
+        "description": "Role viewer or higher. Scope `machines:view` if the token is limited by scopes.",
+        "x-role": "viewer",
+        "x-scope": "machines:view",
+        "x-error-codes": [
+          "forbidden_scope",
+          "pnp_nodes_off",
+          "unauthorized",
+          "unknown_pnp_node"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PnpNode"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden_scope",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused with `unknown_pnp_node`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unknown_pnp_node",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refused with `pnp_nodes_off`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "pnp_nodes_off",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "put_pnp_nodes_id",
+        "tags": [
+          "pnp"
+        ],
+        "summary": "Change a node",
+        "description": "What is left out stays. A node whose address, token or switch changes starts again from `unknown`. Role admin. Scope `machines:manage` if the token is limited by scopes.",
+        "x-role": "admin",
+        "x-scope": "machines:manage",
+        "x-error-codes": [
+          "bad_pnp_node",
+          "bad_request",
+          "forbidden",
+          "forbidden_scope",
+          "pnp_node_exists",
+          "pnp_nodes_off",
+          "unauthorized",
+          "unknown_pnp_node"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PnpNodeChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PnpNode"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused with `bad_request`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_request",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused with `unknown_pnp_node`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unknown_pnp_node",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Refused with `pnp_node_exists`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "pnp_node_exists",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Refused with `bad_pnp_node`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_pnp_node",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refused with `pnp_nodes_off`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "pnp_nodes_off",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "delete_pnp_nodes_id",
+        "tags": [
+          "pnp"
+        ],
+        "summary": "Remove a node",
+        "description": "Role admin. Scope `machines:manage` if the token is limited by scopes.",
+        "x-role": "admin",
+        "x-scope": "machines:manage",
+        "x-error-codes": [
+          "forbidden",
+          "forbidden_scope",
+          "pnp_nodes_off",
+          "unauthorized",
+          "unknown_pnp_node"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ok"
+                },
+                "example": {
+                  "ok": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused with `unknown_pnp_node`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unknown_pnp_node",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refused with `pnp_nodes_off`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "pnp_nodes_off",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pnp/nodes/{id}/poll": {
+      "post": {
+        "operationId": "post_pnp_nodes_id_poll",
+        "tags": [
+          "pnp"
+        ],
+        "summary": "Ask a node now",
+        "description": "Asks the node for its status and then for a read that needs its token, and gives the node as the server sees it. This is the only request that opens a connection to a node (the poller does the same on a timer). Role operator or higher. Scope `jobs:prepare` if the token is limited by scopes.",
+        "x-role": "operator",
+        "x-scope": "jobs:prepare",
+        "x-error-codes": [
+          "forbidden",
+          "forbidden_scope",
+          "pnp_node_disabled",
+          "pnp_nodes_off",
+          "unauthorized",
+          "unknown_pnp_node"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PnpNode"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused with `unknown_pnp_node`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unknown_pnp_node",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Refused with `pnp_node_disabled`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "pnp_node_disabled",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Refused with `pnp_nodes_off`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "pnp_nodes_off",
                   "detail": ""
                 }
               }
@@ -12471,6 +13139,163 @@
         }
       }
     },
+    "/work/jobs/{id}/authorize": {
+      "post": {
+        "operationId": "post_work_jobs_id_authorize",
+        "tags": [
+          "work"
+        ],
+        "summary": "Authorize the hash of a queued job",
+        "description": "A person says that what the job will do is what they were shown: the body is the `toolpath_sha256` of the job. The server records who authorised which hash. A hash that is not the job's is `409 stale_authorization`. A token of the `phoenix` or `cam` template can never hold the scope `jobs:authorize`. Role operator or higher. Scope `jobs:authorize` if the token is limited by scopes.",
+        "x-role": "operator",
+        "x-scope": "jobs:authorize",
+        "x-error-codes": [
+          "bad_request",
+          "forbidden",
+          "forbidden_scope",
+          "not_ready",
+          "plugin_failed",
+          "stale_authorization",
+          "storage",
+          "unauthorized",
+          "unknown_job"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkJobHash"
+              },
+              "example": {
+                "toolpath_sha256": "3b1f0000000000000000000000000000000000000000000000000000000000aa"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Done.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkJob"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused with `bad_request`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_request",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused with `unauthorized`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unauthorized",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Refused with `forbidden`, `forbidden_scope`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "forbidden",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Refused with `unknown_job`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "unknown_job",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Refused with `not_ready`, `stale_authorization`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "not_ready",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Refused with `storage`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "storage",
+                  "detail": ""
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Refused with `plugin_failed`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "plugin_failed",
+                  "detail": ""
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/work/jobs/{id}/start": {
       "post": {
         "operationId": "post_work_jobs_id_start",
@@ -12483,7 +13308,9 @@
         "x-scope": "jobs:start",
         "x-error-codes": [
           "air_assist_off",
+          "authorization_required",
           "bad_plugin_request",
+          "bad_request",
           "bambu_lan_off",
           "enclosure_open",
           "focus_not_checked",
@@ -12495,9 +13322,11 @@
           "not_ready",
           "plugin_failed",
           "pnp_feeder_short",
+          "pnp_node_not_ready",
           "printer_disconnected",
           "printer_latched",
           "printer_untrusted",
+          "stale_authorization",
           "unauthorized",
           "unknown_job",
           "unknown_machine"
@@ -12513,6 +13342,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkJobHash"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Done.",
@@ -12520,6 +13359,20 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/WorkJob"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused with `bad_request`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_request",
+                  "detail": ""
                 }
               }
             }
@@ -12567,7 +13420,7 @@
             }
           },
           "409": {
-            "description": "Refused with `air_assist_off`, `bambu_lan_off`, `enclosure_open`, `focus_not_checked`, `laser_estop_latched`, `machine_alarm`, `machine_busy`, `not_ready`, `pnp_feeder_short`, `printer_latched`.",
+            "description": "Refused with `air_assist_off`, `authorization_required`, `bambu_lan_off`, `enclosure_open`, `focus_not_checked`, `laser_estop_latched`, `machine_alarm`, `machine_busy`, `not_ready`, `pnp_feeder_short`, `pnp_node_not_ready`, `printer_latched`, `stale_authorization`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17688,6 +18541,11 @@
           "summary": {
             "type": "object",
             "additionalProperties": true
+          },
+          "pnp_nodes": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Present only while the switch `pnp_nodes_enabled` is on: how many nodes of the pick-and-place machines there are (`registered`), how many are ready (`ready`, `not_ready`) and the count of each health (`by_health`)."
           }
         },
         "required": [
@@ -19240,6 +20098,236 @@
         "additionalProperties": false,
         "description": "A user or a token, not both."
       },
+      "PnpNode": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "feeder",
+              "head"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string",
+            "description": "`host:port` of the node."
+          },
+          "token": {
+            "type": "string",
+            "description": "`********` when the node has a token, empty when it has none; the token itself is never shown."
+          },
+          "machine": {
+            "type": "string",
+            "description": "The machine of the plugin `pnp` the node belongs to; empty when it is not linked."
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "health": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "disabled",
+              "ok",
+              "warn",
+              "fail",
+              "safe",
+              "unreachable",
+              "refused",
+              "silent"
+            ],
+            "description": "`ok` and `warn` are ready; every other health is not ready (the safe way)."
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "silent_for_s": {
+            "oneOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "polls": {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "type": "integer"
+              },
+              "failed": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "ok",
+              "failed"
+            ],
+            "additionalProperties": false
+          },
+          "last_error": {
+            "type": "string",
+            "description": "`unreachable`, `bad_answer`, `too_big`, `token_rejected` or `http_<status>`; empty when the last poll was good."
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "What the node said last, with only the keys of its contract (`safe`, `selfcheck`, the feeders or the nozzles, `low`, `empty`, `faulted`)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "description": "Always `simulator`: nothing has run on a real feeder or head."
+          },
+          "simulator_only": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "address",
+          "token",
+          "machine",
+          "enabled",
+          "health",
+          "ready",
+          "polls",
+          "last_error",
+          "status",
+          "evidence"
+        ],
+        "additionalProperties": false
+      },
+      "PnpNodeList": {
+        "type": "object",
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PnpNode"
+            }
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "max": {
+                "type": "integer"
+              },
+              "poll_s": {
+                "type": "integer"
+              },
+              "silence_s": {
+                "type": "integer"
+              },
+              "timeout_s": {
+                "type": "integer"
+              },
+              "kinds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "max",
+              "poll_s",
+              "silence_s",
+              "timeout_s",
+              "kinds"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "nodes",
+          "summary",
+          "limits"
+        ],
+        "additionalProperties": false
+      },
+      "NewPnpNode": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Lowercase letters, digits and hyphens (up to 32); empty: the server gives `<kind>-<n>`."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "feeder",
+              "head"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string",
+            "description": "`host:port` of the node."
+          },
+          "token": {
+            "type": "string",
+            "description": "The token of the node (no spaces); it is kept and never shown."
+          },
+          "machine": {
+            "type": "string",
+            "description": "A machine of the plugin `pnp`."
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "address"
+        ],
+        "additionalProperties": false
+      },
+      "PnpNodeChange": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string",
+            "description": "`********` keeps the token."
+          },
+          "machine": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
       "StoreFile": {
         "type": "object",
         "properties": {
@@ -19899,6 +20987,20 @@
           "cancelled"
         ]
       },
+      "WorkJobHash": {
+        "type": "object",
+        "properties": {
+          "toolpath_sha256": {
+            "type": "string",
+            "description": "64 hexadecimal digits: the hash the person was shown."
+          }
+        },
+        "required": [
+          "toolpath_sha256"
+        ],
+        "additionalProperties": false,
+        "description": "Naming a hash makes the request refuse (`409 stale_authorization`) when the job is no longer the one that was shown. A start may leave the body out; while `work_require_authorization` is on a job of `laser`, `pnp` or `cnc` also needs its authorization."
+      },
       "WorkHistoryEntry": {
         "type": "object",
         "properties": {
@@ -19992,6 +21094,37 @@
             "type": "integer",
             "minimum": 0,
             "description": "The place among the queued jobs of its machine (1 is the next); 0 when it is not queued."
+          },
+          "toolpath_sha256": {
+            "type": "string",
+            "description": "The hash of what the job will do, made when it was prepared: the one a person authorises and a start may name. Empty for a job prepared before the hash existed."
+          },
+          "authorization": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "by": {
+                    "type": "string"
+                  },
+                  "at": {
+                    "type": "integer"
+                  },
+                  "toolpath_sha256": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "by",
+                  "at",
+                  "toolpath_sha256"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [

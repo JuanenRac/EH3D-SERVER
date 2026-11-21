@@ -84,6 +84,7 @@ pub fn routes() -> Router<Shared> {
         .route("/api/v1/work/jobs/:id", get(get_job).delete(remove_job))
         .route("/api/v1/work/jobs/:id/layers", get(job_layers))
         .route("/api/v1/work/jobs/:id/findings", get(job_findings))
+        .route("/api/v1/work/jobs/:id/authorize", post(authorize_job))
         .route("/api/v1/work/jobs/:id/start", post(start_job))
         .route("/api/v1/work/jobs/:id/pause", post(pause_job))
         .route("/api/v1/work/jobs/:id/resume", post(resume_job))
@@ -831,16 +832,76 @@ async fn job_findings(
     Ok(Json(page))
 }
 
+/// The body of a start or an authorization: the hash of what the person was shown. A start may have no body at all.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HashBody {
+    toolpath_sha256: Option<String>,
+}
+
+/// The hash named by the body of a request, if it has a body; a body that does not read is refused, never ignored.
+fn named_hash(body: &axum::body::Bytes) -> Result<Option<String>, ApiError> {
+    if body.iter().all(u8::is_ascii_whitespace) {
+        return Ok(None);
+    }
+    let parsed: HashBody = serde_json::from_slice(body).map_err(|e| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "bad_request",
+            format!("the body is {{\"toolpath_sha256\": \"...\"}}: {e}"),
+        )
+    })?;
+    match parsed.toolpath_sha256 {
+        Some(h) if h.len() != 64 || !h.bytes().all(|b| b.is_ascii_hexdigit()) => {
+            Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "bad_request",
+                "toolpath_sha256 is 64 hexadecimal digits",
+            ))
+        }
+        other => Ok(other.map(|h| h.to_ascii_lowercase())),
+    }
+}
+
+async fn authorize_job(
+    State(s): State<Shared>,
+    Authed(who, _): Authed,
+    Path(id): Path<String>,
+    body: axum::body::Bytes,
+) -> ApiResult {
+    crate::api::need(&who, Role::Operator)?;
+    crate::api::need_scope(&who, "jobs:authorize")?;
+    let hash = named_hash(&body)?.ok_or_else(|| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "bad_request",
+            "the body is {\"toolpath_sha256\": \"...\"}: the hash of the job as it was shown",
+        )
+    })?;
+    let state = s.clone();
+    let (wanted, by, h) = (id.clone(), who.clone(), hash.clone());
+    let job = run(move || state.work_authorize(&wanted, &by, &h)).await?;
+    crate::api::note(
+        &s,
+        "work_job_authorize",
+        &who,
+        &[("job", &id), ("toolpath_sha256", &hash)],
+    );
+    Ok(Json(job_view(&s, &job, true)))
+}
+
 async fn start_job(
     State(s): State<Shared>,
     Authed(who, _): Authed,
     Path(id): Path<String>,
+    body: axum::body::Bytes,
 ) -> ApiResult {
     crate::api::need(&who, Role::Operator)?;
     crate::api::need_scope(&who, "jobs:start")?;
+    let hash = named_hash(&body)?;
     let state = s.clone();
     let (wanted, by) = (id.clone(), who.clone());
-    let job = run(move || state.work_start(&wanted, &by)).await?;
+    let job = run(move || state.work_start_checked(&wanted, &by, hash.as_deref())).await?;
     crate::api::note(&s, "work_job_start", &who, &[("job", &id)]);
     Ok(Json(job_view(&s, &job, true)))
 }

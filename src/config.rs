@@ -44,6 +44,17 @@ pub struct ServerConfig {
     pub bambu_lan_port: u16,
     /// How long, in seconds, the connection to a Bambu Lab printer and each of its answers may take (1 to 60).
     pub bambu_lan_timeout_s: u64,
+    /// Whether the server keeps a list of the nodes of the pick-and-place machines (feeders and heads), asks them for their status and shows it (`/api/v1/pnp/nodes`, the
+    /// fleet). Off by default: with it off the routes answer 501 and the server opens no connection to any node. Read when the server starts.
+    pub pnp_nodes_enabled: bool,
+    /// The most nodes the list takes (1 to 200).
+    pub pnp_nodes_max: u32,
+    /// Every how many seconds the server asks each node for its status (1 to 3600). A node goes to its safe state when it hears nothing for its own `server_lost_ms`, so this must be well below it.
+    pub pnp_node_poll_s: u64,
+    /// How many seconds a node may be quiet before it counts as silent and not ready (2 to 3600); never less than two polls.
+    pub pnp_node_silence_s: u64,
+    /// How many seconds a request to a node may take (1 to 30).
+    pub pnp_node_timeout_s: u64,
     /// The program of the suite that slices (`phoenix-3dp`), by its full path, for the requests that ask for it. Empty: only the small slicer of the server is used.
     pub slice_phoenix_bin: Option<PathBuf>,
     /// The longest a slice may take, in seconds (1 to 600).
@@ -169,6 +180,9 @@ pub struct ServerConfig {
     pub work_queue_max: usize,
     /// How many finished jobs of the generic queue are kept.
     pub work_keep: usize,
+    /// Whether a job of the plugins `laser`, `pnp` and `cnc` starts only after a person authorised the hash of what it will do (`POST /api/v1/work/jobs/:id/authorize`) and
+    /// the start names the same hash. Off by default: a job starts as it always did. Read when the server starts.
+    pub work_require_authorization: bool,
     /// How many clients may listen to the stream of events (`/api/v1/events/stream`) at once.
     pub events_clients_max: usize,
     /// How many events the stream keeps for a client that reconnects with `Last-Event-ID`, and how many a client may fall behind.
@@ -255,6 +269,11 @@ impl Default for ServerConfig {
             bambu_lan_enabled: false,
             bambu_lan_port: 8883,
             bambu_lan_timeout_s: 5,
+            pnp_nodes_enabled: false,
+            pnp_nodes_max: 32,
+            pnp_node_poll_s: 5,
+            pnp_node_silence_s: 20,
+            pnp_node_timeout_s: 3,
             slice_phoenix_bin: None,
             slice_timeout_s: 60,
             slice_max_mb: 20,
@@ -314,6 +333,7 @@ impl Default for ServerConfig {
             catalog_page_max: 200,
             work_queue_max: 200,
             work_keep: 500,
+            work_require_authorization: false,
             events_clients_max: 32,
             events_queue: 256,
             notifications_keep: 200,
@@ -510,6 +530,9 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
             "work_queue_max" => {
                 c.work_queue_max = number(&key, value, 1, 100_000).map_err(at)? as usize
             }
+            "work_require_authorization" => {
+                c.work_require_authorization = flag(&key, value).map_err(at)?
+            }
             "work_keep" => c.work_keep = number(&key, value, 0, 1_000_000).map_err(at)? as usize,
             "events_clients_max" => {
                 c.events_clients_max = number(&key, value, 1, 10_000).map_err(at)? as usize
@@ -574,6 +597,15 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
             }
             "bambu_lan_timeout_s" => {
                 c.bambu_lan_timeout_s = number(&key, value, 1, 60).map_err(at)?
+            }
+            "pnp_nodes_enabled" => c.pnp_nodes_enabled = flag(&key, value).map_err(at)?,
+            "pnp_nodes_max" => c.pnp_nodes_max = number(&key, value, 1, 200).map_err(at)? as u32,
+            "pnp_node_poll_s" => c.pnp_node_poll_s = number(&key, value, 1, 3_600).map_err(at)?,
+            "pnp_node_silence_s" => {
+                c.pnp_node_silence_s = number(&key, value, 2, 3_600).map_err(at)?
+            }
+            "pnp_node_timeout_s" => {
+                c.pnp_node_timeout_s = number(&key, value, 1, 30).map_err(at)?
             }
             "slice_phoenix_bin" => {
                 c.slice_phoenix_bin = if value.is_empty() {

@@ -357,6 +357,8 @@ fn prepare(s: &Shared, who: &Identity, b: NewDesignJob) -> Result<WorkJob, ApiEr
         started: Some(at),
         finished: None,
         native: String::new(),
+        toolpath_sha256: String::new(),
+        authorization: None,
         done: 0,
         total: 1,
         message: String::new(),

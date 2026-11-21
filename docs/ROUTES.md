@@ -92,6 +92,12 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/notifications/read` | POST | viewer + `machines:view` | Mark notifications as read |
 | `/api/v1/openapi.json` | GET | viewer | The contract of the interface this server has |
 | `/api/v1/plugins` | GET | viewer + `machines:view` | List the machine plugins |
+| `/api/v1/pnp/nodes` | GET | viewer + `machines:view` | List the nodes of the pick-and-place machines |
+| `/api/v1/pnp/nodes` | POST | admin + `machines:manage` | Register a feeder or head node |
+| `/api/v1/pnp/nodes/:id` | GET | viewer + `machines:view` | Read a node with what it said last |
+| `/api/v1/pnp/nodes/:id` | PUT | admin + `machines:manage` | Change a node |
+| `/api/v1/pnp/nodes/:id` | DELETE | admin + `machines:manage` | Remove a node |
+| `/api/v1/pnp/nodes/:id/poll` | POST | operator + `jobs:prepare` | Ask a node now |
 | `/api/v1/projects` | GET | viewer + `projects:read` | List the projects the caller sees |
 | `/api/v1/projects` | POST | operator + `projects:write` | Make a project |
 | `/api/v1/projects/:id` | GET | viewer + `projects:read` | Read a project with its revisions |
@@ -136,6 +142,7 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/work/jobs` | POST | operator + `jobs:prepare` | Prepare a job on a machine of any plugin |
 | `/api/v1/work/jobs/:id` | GET | viewer + `machines:view` | Read a job with its history |
 | `/api/v1/work/jobs/:id` | DELETE | operator + `jobs:cancel` | Remove a finished job |
+| `/api/v1/work/jobs/:id/authorize` | POST | operator + `jobs:authorize` | Authorize the hash of a queued job |
 | `/api/v1/work/jobs/:id/cancel` | POST | operator + `jobs:cancel` | Cancel a queued job or stop a running one |
 | `/api/v1/work/jobs/:id/findings` | GET | viewer + `machines:view` | The findings a gerber job made |
 | `/api/v1/work/jobs/:id/layers` | GET | viewer + `machines:view` | The layers a gerber job read |

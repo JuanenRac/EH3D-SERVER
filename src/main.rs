@@ -75,6 +75,8 @@ async fn main() {
     );
     // the announcement on the local network answers only while its switch is on (off by default)
     let _announcer = eh3d_server::mdns::spawn(state.clone(), address);
+    // the nodes of the pick-and-place machines are asked only while their switch is on (off by default)
+    let _node_poller = eh3d_server::pnp_nodes::spawn(state.clone());
     let app = api::router(state.clone());
     let stopper = state.clone();
     let served = axum::serve(

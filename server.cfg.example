@@ -48,6 +48,15 @@ bambu_lan_enabled = false
 # The port of the MQTT broker of the printer and how long, in seconds, a connection and each answer may take (1 to 60).
 bambu_lan_port = 8883
 bambu_lan_timeout_s = 5
+# ---- the nodes of the pick-and-place machines (feeders and heads), docs/MACHINE_PLUGINS.md
+# Let the server keep a list of the nodes, ask them for their status and show it in /api/v1/pnp/nodes and in the fleet. Off: the routes answer 501 and no connection to a node is opened.
+pnp_nodes_enabled = false
+# The most nodes in the list (1 to 200).
+pnp_nodes_max = 32
+# Every how many seconds each node is asked (1 to 3600), how long a node may be quiet before it is silent and not ready (2 to 3600, never less than two polls) and how long a request may take (1 to 30).
+pnp_node_poll_s = 5
+pnp_node_silence_s = 20
+pnp_node_timeout_s = 3
 # The program of the suite that slices (phoenix-3dp), by its full path. Empty: only the small slicer of the server is used. The server runs only this one file, with arguments of its own.
 slice_phoenix_bin =
 # The longest a slice may take, in seconds (1 to 600), the biggest mesh in megabytes (1 to 200), the most layers (10 to 20000) and the biggest G-code in megabytes (1 to 200).
@@ -143,6 +152,9 @@ catalog_page_max = 200
 # How many jobs of the generic queue may wait, all machines together, and how many finished ones are kept.
 work_queue_max = 200
 work_keep = 500
+# Whether a job of a laser, a pick-and-place machine or a CNC machine starts only after a person authorised the hash of what it will do (POST /api/v1/work/jobs/<id>/authorize,
+# scope jobs:authorize) and the start names the same hash. Off by default: a job starts as it always did. Turning it on is the stricter choice.
+work_require_authorization = false
 # How many clients may listen to the stream of events (GET /api/v1/events/stream) at once, how many events it keeps for a client that reconnects with Last-Event-ID (16 to 65536; also how far a client may fall behind), and how many notifications are kept.
 events_clients_max = 32
 events_queue = 256

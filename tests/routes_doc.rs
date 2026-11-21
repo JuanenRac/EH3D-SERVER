@@ -55,7 +55,12 @@ fn documented(prefixes: &[&str]) -> BTreeSet<String> {
 #[test]
 fn every_route_of_the_new_families_is_in_the_api_document() {
     let mut routes = BTreeSet::new();
-    for file in ["api_tasks.rs", "api_artifacts.rs", "api_projects.rs"] {
+    for file in [
+        "api_tasks.rs",
+        "api_artifacts.rs",
+        "api_projects.rs",
+        "api_pnp_nodes.rs",
+    ] {
         let found = registered(file);
         assert!(
             !found.is_empty(),
@@ -63,7 +68,14 @@ fn every_route_of_the_new_families_is_in_the_api_document() {
         );
         routes.extend(found);
     }
-    let documented = documented(&["/tasks", "/artifacts", "/blobs", "/uploads", "/projects"]);
+    let documented = documented(&[
+        "/tasks",
+        "/artifacts",
+        "/blobs",
+        "/uploads",
+        "/projects",
+        "/pnp",
+    ]);
     let missing: Vec<_> = routes.difference(&documented).collect();
     assert!(
         missing.is_empty(),

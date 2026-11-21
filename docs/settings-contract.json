@@ -188,6 +188,19 @@
       }
     },
     {
+      "id": "pnp_nodes",
+      "label": {
+        "en": "Pick-and-place nodes",
+        "es": "Nodos de pick and place",
+        "de": "Pick-and-place-Knoten",
+        "fr": "Nœuds pick and place",
+        "it": "Nodi pick and place",
+        "ja": "ピックアンドプレースのノード",
+        "zh": "贴片机节点",
+        "pt": "Nós de pick and place"
+      }
+    },
+    {
       "id": "tasks",
       "label": {
         "en": "Computing tasks",
@@ -2861,6 +2874,305 @@
         "ja": "server.cfg で設定し、サーバーの再起動後に反映されます。",
         "zh": "在 server.cfg 中设置；服务器重启后生效。",
         "pt": "Define-se em server.cfg; aplica-se após reiniciar o servidor."
+      }
+    },
+    {
+      "key": "pnp_nodes_enabled",
+      "group": "pnp_nodes",
+      "type": "boolean",
+      "default": false,
+      "apply": "restart",
+      "write": {
+        "via": "file",
+        "method": null,
+        "path": null,
+        "file": "server.cfg"
+      },
+      "role": null,
+      "scope": null,
+      "confirm_when_looser": false,
+      "secret": false,
+      "risk": "exposure",
+      "label": {
+        "en": "Feeder and head nodes",
+        "es": "Nodos de alimentadores y cabezal",
+        "de": "Zuführer- und Kopfknoten",
+        "fr": "Nœuds d'alimentateurs et de tête",
+        "it": "Nodi di alimentatori e testa",
+        "ja": "フィーダーとヘッドのノード",
+        "zh": "供料器与贴装头节点",
+        "pt": "Nós de alimentadores e cabeça"
+      },
+      "help": {
+        "en": "Keep a list of the nodes of the pick-and-place machines and ask them for their status; off: the routes answer 501 and no connection to a node is opened.",
+        "es": "Mantiene una lista de los nodos de las máquinas pick and place y les pide su estado; apagado: las rutas responden 501 y no se abre ninguna conexión a un nodo.",
+        "de": "Führt eine Liste der Knoten der Pick-and-place-Maschinen und fragt ihren Status ab; aus: die Routen antworten mit 501 und es wird keine Verbindung zu einem Knoten geöffnet.",
+        "fr": "Tient une liste des nœuds des machines pick and place et leur demande leur état ; désactivé : les routes répondent 501 et aucune connexion à un nœud n'est ouverte.",
+        "it": "Tiene un elenco dei nodi delle macchine pick and place e ne chiede lo stato; spento: le route rispondono 501 e non si apre alcuna connessione a un nodo.",
+        "ja": "ピックアンドプレース機のノードの一覧を保持し、状態を問い合わせます。オフならルートは 501 を返し、ノードへの接続は開きません。",
+        "zh": "保存贴片机节点列表并查询其状态；关闭则路由返回 501，且不会连接任何节点。",
+        "pt": "Mantém uma lista dos nós das máquinas pick and place e pede-lhes o estado; desligado: as rotas respondem 501 e não se abre nenhuma ligação a um nó."
+      },
+      "warning": {
+        "en": "Set in server.cfg; it takes effect after the server restarts. Turning it on makes the server, or a feature of it, reachable from outside or lets it run a program.",
+        "es": "Se fija en server.cfg; se aplica tras reiniciar el servidor. Activarlo hace accesible el servidor, o una función suya, desde fuera o le permite ejecutar un programa.",
+        "de": "Wird in server.cfg gesetzt und wirkt nach einem Neustart des Servers. Aktiviert, ist der Server oder eine Funktion von außen erreichbar oder führt ein Programm aus.",
+        "fr": "Défini dans server.cfg ; effectif après le redémarrage du serveur. Activé, il rend le serveur, ou une fonction, joignable de l'extérieur ou lui fait exécuter un programme.",
+        "it": "Si imposta in server.cfg; ha effetto dopo il riavvio del server. Attivandolo il server, o una sua funzione, diventa raggiungibile dall'esterno o può eseguire un programma.",
+        "ja": "server.cfg で設定し、サーバーの再起動後に反映されます。有効にすると、サーバーまたはその機能が外部から到達可能になるか、プログラムを実行します。",
+        "zh": "在 server.cfg 中设置；服务器重启后生效。开启后，服务器或其某项功能可从外部访问，或会运行外部程序。",
+        "pt": "Define-se em server.cfg; aplica-se após reiniciar o servidor. Ativado, torna o servidor, ou uma função dele, acessível a partir do exterior ou deixa-o executar um programa."
+      }
+    },
+    {
+      "key": "pnp_nodes_max",
+      "group": "pnp_nodes",
+      "type": "integer",
+      "min": 1,
+      "max": 200,
+      "default": 32,
+      "apply": "restart",
+      "write": {
+        "via": "file",
+        "method": null,
+        "path": null,
+        "file": "server.cfg"
+      },
+      "role": null,
+      "scope": null,
+      "confirm_when_looser": false,
+      "secret": false,
+      "risk": "capacity",
+      "label": {
+        "en": "Most nodes",
+        "es": "Máximo de nodos",
+        "de": "Höchstzahl Knoten",
+        "fr": "Maximum de nœuds",
+        "it": "Massimo di nodi",
+        "ja": "ノードの最大数",
+        "zh": "节点数量上限",
+        "pt": "Máximo de nós"
+      },
+      "help": {
+        "en": "How many feeder and head nodes the list takes (1 to 200).",
+        "es": "Cuántos nodos de alimentadores y cabezal admite la lista (1 a 200).",
+        "de": "Wie viele Zuführer- und Kopfknoten die Liste aufnimmt (1 bis 200).",
+        "fr": "Combien de nœuds d'alimentateurs et de tête la liste accepte (1 à 200).",
+        "it": "Quanti nodi di alimentatori e testa accetta l'elenco (da 1 a 200).",
+        "ja": "一覧に登録できるフィーダーとヘッドのノード数 (1〜200)。",
+        "zh": "列表可容纳的供料器与贴装头节点数（1 至 200）。",
+        "pt": "Quantos nós de alimentadores e cabeça a lista aceita (1 a 200)."
+      },
+      "warning": {
+        "en": "Set in server.cfg; it takes effect after the server restarts. A value too low refuses honest work; one too high spends memory or disk.",
+        "es": "Se fija en server.cfg; se aplica tras reiniciar el servidor. Un valor demasiado bajo rechaza trabajo legítimo; uno demasiado alto consume memoria o disco.",
+        "de": "Wird in server.cfg gesetzt und wirkt nach einem Neustart des Servers. Ein zu niedriger Wert weist rechtmäßige Arbeit ab, ein zu hoher verbraucht Speicher oder Platte.",
+        "fr": "Défini dans server.cfg ; effectif après le redémarrage du serveur. Une valeur trop basse refuse du travail légitime ; trop haute, elle consomme mémoire ou disque.",
+        "it": "Si imposta in server.cfg; ha effetto dopo il riavvio del server. Un valore troppo basso rifiuta lavoro legittimo; troppo alto consuma memoria o disco.",
+        "ja": "server.cfg で設定し、サーバーの再起動後に反映されます。低すぎると正当な作業が拒否され、高すぎるとメモリやディスクを消費します。",
+        "zh": "在 server.cfg 中设置；服务器重启后生效。过低会拒绝正常工作，过高会占用内存或磁盘。",
+        "pt": "Define-se em server.cfg; aplica-se após reiniciar o servidor. Um valor demasiado baixo recusa trabalho legítimo; demasiado alto gasta memória ou disco."
+      }
+    },
+    {
+      "key": "pnp_node_poll_s",
+      "group": "pnp_nodes",
+      "type": "integer",
+      "min": 1,
+      "max": 3600,
+      "default": 5,
+      "unit": "seconds",
+      "apply": "restart",
+      "write": {
+        "via": "file",
+        "method": null,
+        "path": null,
+        "file": "server.cfg"
+      },
+      "role": null,
+      "scope": null,
+      "confirm_when_looser": false,
+      "secret": false,
+      "risk": "none",
+      "label": {
+        "en": "Seconds between questions to a node",
+        "es": "Segundos entre preguntas a un nodo",
+        "de": "Sekunden zwischen Abfragen eines Knotens",
+        "fr": "Secondes entre deux questions à un nœud",
+        "it": "Secondi tra una domanda e l'altra a un nodo",
+        "ja": "ノードへの問い合わせ間隔 (秒)",
+        "zh": "查询节点的间隔秒数",
+        "pt": "Segundos entre perguntas a um nó"
+      },
+      "help": {
+        "en": "Every how many seconds each node is asked; keep it well below the time after which the node goes to its safe state (1 to 3600).",
+        "es": "Cada cuántos segundos se pregunta a cada nodo; manténgalo muy por debajo del tiempo tras el cual el nodo pasa a su estado seguro (1 a 3600).",
+        "de": "Alle wie viele Sekunden jeder Knoten abgefragt wird; deutlich unter der Zeit halten, nach der der Knoten in den sicheren Zustand geht (1 bis 3600).",
+        "fr": "Toutes les combien de secondes chaque nœud est interrogé ; à garder bien en dessous du délai après lequel le nœud passe à son état sûr (1 à 3600).",
+        "it": "Ogni quanti secondi si interroga ogni nodo; tenerlo ben sotto il tempo dopo il quale il nodo passa allo stato sicuro (da 1 a 3600).",
+        "ja": "各ノードに問い合わせる間隔 (秒)。ノードが安全状態に入るまでの時間より十分短くしてください (1〜3600)。",
+        "zh": "每个节点每隔多少秒查询一次；应远小于节点进入安全状态所需的时间（1 至 3600）。",
+        "pt": "De quantos em quantos segundos se pergunta a cada nó; mantenha-o bem abaixo do tempo ao fim do qual o nó passa ao estado seguro (1 a 3600)."
+      },
+      "warning": {
+        "en": "Set in server.cfg; it takes effect after the server restarts.",
+        "es": "Se fija en server.cfg; se aplica tras reiniciar el servidor.",
+        "de": "Wird in server.cfg gesetzt und wirkt nach einem Neustart des Servers.",
+        "fr": "Défini dans server.cfg ; effectif après le redémarrage du serveur.",
+        "it": "Si imposta in server.cfg; ha effetto dopo il riavvio del server.",
+        "ja": "server.cfg で設定し、サーバーの再起動後に反映されます。",
+        "zh": "在 server.cfg 中设置；服务器重启后生效。",
+        "pt": "Define-se em server.cfg; aplica-se após reiniciar o servidor."
+      }
+    },
+    {
+      "key": "pnp_node_silence_s",
+      "group": "pnp_nodes",
+      "type": "integer",
+      "min": 2,
+      "max": 3600,
+      "default": 20,
+      "unit": "seconds",
+      "apply": "restart",
+      "write": {
+        "via": "file",
+        "method": null,
+        "path": null,
+        "file": "server.cfg"
+      },
+      "role": null,
+      "scope": null,
+      "confirm_when_looser": false,
+      "secret": false,
+      "risk": "none",
+      "label": {
+        "en": "Silence before a node is not ready",
+        "es": "Silencio antes de que un nodo no esté listo",
+        "de": "Stille, bevor ein Knoten nicht bereit ist",
+        "fr": "Silence avant qu'un nœud ne soit pas prêt",
+        "it": "Silenzio prima che un nodo non sia pronto",
+        "ja": "ノードが未準備とみなされるまでの無応答時間",
+        "zh": "节点未就绪前的静默时间",
+        "pt": "Silêncio antes de um nó deixar de estar pronto"
+      },
+      "help": {
+        "en": "Seconds a node may be quiet before it counts as silent and a job of its machine does not start; never less than two polls (2 to 3600).",
+        "es": "Segundos que un nodo puede callar antes de contar como silencioso y de que no arranque un trabajo de su máquina; nunca menos de dos consultas (2 a 3600).",
+        "de": "Sekunden, die ein Knoten stumm sein darf, bevor er als still gilt und kein Auftrag seiner Maschine startet; nie weniger als zwei Abfragen (2 bis 3600).",
+        "fr": "Secondes pendant lesquelles un nœud peut se taire avant d'être jugé silencieux et qu'un travail de sa machine ne démarre pas ; jamais moins de deux interrogations (2 à 3600).",
+        "it": "Secondi in cui un nodo può tacere prima di essere considerato silenzioso e di non avviare un lavoro della sua macchina; mai meno di due interrogazioni (da 2 a 3600).",
+        "ja": "ノードが無応答のままでいられる秒数。超えると無音とみなされ、その機械のジョブは開始されません。問い合わせ 2 回分未満にはなりません (2〜3600)。",
+        "zh": "节点可保持静默的秒数，超过后视为静默，其机器的作业不会启动；不少于两次查询（2 至 3600）。",
+        "pt": "Segundos que um nó pode ficar calado antes de contar como silencioso e de um trabalho da sua máquina não arrancar; nunca menos de duas consultas (2 a 3600)."
+      },
+      "warning": {
+        "en": "Set in server.cfg; it takes effect after the server restarts.",
+        "es": "Se fija en server.cfg; se aplica tras reiniciar el servidor.",
+        "de": "Wird in server.cfg gesetzt und wirkt nach einem Neustart des Servers.",
+        "fr": "Défini dans server.cfg ; effectif après le redémarrage du serveur.",
+        "it": "Si imposta in server.cfg; ha effetto dopo il riavvio del server.",
+        "ja": "server.cfg で設定し、サーバーの再起動後に反映されます。",
+        "zh": "在 server.cfg 中设置；服务器重启后生效。",
+        "pt": "Define-se em server.cfg; aplica-se após reiniciar o servidor."
+      }
+    },
+    {
+      "key": "pnp_node_timeout_s",
+      "group": "pnp_nodes",
+      "type": "integer",
+      "min": 1,
+      "max": 30,
+      "default": 3,
+      "unit": "seconds",
+      "apply": "restart",
+      "write": {
+        "via": "file",
+        "method": null,
+        "path": null,
+        "file": "server.cfg"
+      },
+      "role": null,
+      "scope": null,
+      "confirm_when_looser": false,
+      "secret": false,
+      "risk": "none",
+      "label": {
+        "en": "Node request time limit",
+        "es": "Tiempo límite de una petición a un nodo",
+        "de": "Zeitlimit einer Anfrage an einen Knoten",
+        "fr": "Délai d'une requête à un nœud",
+        "it": "Tempo limite di una richiesta a un nodo",
+        "ja": "ノードへのリクエストのタイムアウト",
+        "zh": "节点请求超时",
+        "pt": "Tempo limite de um pedido a um nó"
+      },
+      "help": {
+        "en": "Seconds a request to a node may take (1 to 30).",
+        "es": "Segundos que puede tardar una petición a un nodo (1 a 30).",
+        "de": "Sekunden, die eine Anfrage an einen Knoten dauern darf (1 bis 30).",
+        "fr": "Secondes accordées à une requête à un nœud (1 à 30).",
+        "it": "Secondi consentiti a una richiesta a un nodo (da 1 a 30).",
+        "ja": "ノードへのリクエストにかけられる秒数 (1〜30)。",
+        "zh": "对节点的一次请求允许的秒数（1 至 30）。",
+        "pt": "Segundos que um pedido a um nó pode demorar (1 a 30)."
+      },
+      "warning": {
+        "en": "Set in server.cfg; it takes effect after the server restarts.",
+        "es": "Se fija en server.cfg; se aplica tras reiniciar el servidor.",
+        "de": "Wird in server.cfg gesetzt und wirkt nach einem Neustart des Servers.",
+        "fr": "Défini dans server.cfg ; effectif après le redémarrage du serveur.",
+        "it": "Si imposta in server.cfg; ha effetto dopo il riavvio del server.",
+        "ja": "server.cfg で設定し、サーバーの再起動後に反映されます。",
+        "zh": "在 server.cfg 中设置；服务器重启后生效。",
+        "pt": "Define-se em server.cfg; aplica-se após reiniciar o servidor."
+      }
+    },
+    {
+      "key": "work_require_authorization",
+      "group": "machines",
+      "type": "boolean",
+      "default": false,
+      "apply": "restart",
+      "write": {
+        "via": "file",
+        "method": null,
+        "path": null,
+        "file": "server.cfg"
+      },
+      "role": null,
+      "scope": null,
+      "confirm_when_looser": false,
+      "secret": false,
+      "risk": "security",
+      "label": {
+        "en": "Authorize a job before it starts",
+        "es": "Autorizar un trabajo antes de que arranque",
+        "de": "Auftrag vor dem Start freigeben",
+        "fr": "Autoriser un travail avant son démarrage",
+        "it": "Autorizzare un lavoro prima dell'avvio",
+        "ja": "ジョブの開始前に承認する",
+        "zh": "作业启动前需授权",
+        "pt": "Autorizar um trabalho antes de arrancar"
+      },
+      "help": {
+        "en": "A job of a laser, a pick-and-place machine or a CNC machine starts only after a person authorised its hash and the start names the same hash; off: it starts as before.",
+        "es": "Un trabajo de láser, de pick and place o de CNC solo arranca si una persona autorizó su hash y el arranque nombra el mismo hash; apagado: arranca como antes.",
+        "de": "Ein Auftrag für Laser, Pick-and-place oder CNC startet nur, wenn eine Person seinen Hash freigegeben hat und der Start denselben Hash nennt; aus: er startet wie bisher.",
+        "fr": "Un travail de laser, de pick and place ou de CNC ne démarre que si une personne a autorisé son hachage et que le démarrage nomme le même ; désactivé : il démarre comme avant.",
+        "it": "Un lavoro di laser, pick and place o CNC parte solo se una persona ne ha autorizzato l'hash e l'avvio indica lo stesso hash; spento: parte come prima.",
+        "ja": "レーザー、ピックアンドプレース、CNC のジョブは、担当者がそのハッシュを承認し、開始時に同じハッシュを指定した場合のみ開始します。オフなら従来どおり開始します。",
+        "zh": "激光、贴片机或数控机床的作业，只有在有人授权其哈希且启动时指明相同哈希后才会启动；关闭则照旧启动。",
+        "pt": "Um trabalho de laser, de pick and place ou de CNC só arranca depois de uma pessoa autorizar o seu hash e de o arranque indicar o mesmo hash; desligado: arranca como antes."
+      },
+      "warning": {
+        "en": "Set in server.cfg; it takes effect after the server restarts. A looser value weakens the protection of the server.",
+        "es": "Se fija en server.cfg; se aplica tras reiniciar el servidor. Un valor más laxo debilita la protección del servidor.",
+        "de": "Wird in server.cfg gesetzt und wirkt nach einem Neustart des Servers. Ein lockererer Wert schwächt den Schutz des Servers.",
+        "fr": "Défini dans server.cfg ; effectif après le redémarrage du serveur. Une valeur plus souple affaiblit la protection du serveur.",
+        "it": "Si imposta in server.cfg; ha effetto dopo il riavvio del server. Un valore meno rigido indebolisce la protezione del server.",
+        "ja": "server.cfg で設定し、サーバーの再起動後に反映されます。緩い値にするとサーバーの保護が弱まります。",
+        "zh": "在 server.cfg 中设置；服务器重启后生效。较宽松的值会削弱服务器的保护。",
+        "pt": "Define-se em server.cfg; aplica-se após reiniciar o servidor. Um valor mais permissivo enfraquece a proteção do servidor."
       }
     },
     {

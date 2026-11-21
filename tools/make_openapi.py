@@ -114,6 +114,8 @@ SCHEMAS: dict[str, dict] = {
             "state": {"type": "string", "enum": ["idle", "busy", "waiting"]}, "job": nullable(ref("FleetJob")), "ready": I,
         }, ["id", "state"], extra=True)),
         "summary": {"type": "object", "additionalProperties": True},
+        "pnp_nodes": {"type": "object", "additionalProperties": True,
+                      "description": "Present only while the switch `pnp_nodes_enabled` is on: how many nodes of the pick-and-place machines there are (`registered`), how many are ready (`ready`, `not_ready`) and the count of each health (`by_health`)."},
     }, ["stations", "machines", "summary"]),
     "DrillTool": obj({"number": I, "extra_stroke_mm": N, "feed_mm_min": N, "spindle_rpm": N}, ["number"], extra=True),
     "RouteTool": obj({"number": I, "depth_mm": N, "iterations": I, "feed_xy_mm_min": N, "feed_z_mm_min": N, "spindle_rpm": N}, ["number"], extra=True),
@@ -258,6 +260,7 @@ TAGS = [
     ("jobs", "Jobs that move a machine: planned, started and confirmed by a person."),
     ("head", "The node of the drill head: status, camera, light ring and quality check."),
     ("tasks", "Work for the computer that never moves a machine."),
+    ("pnp", "The feeder and head nodes of the pick-and-place machines: registered, asked with their token and shown with their health (off until the switch pnp_nodes_enabled is on)."),
     ("artifacts", "Files kept by identity: artifacts, blobs and uploads."),
     ("projects", "Projects with revisions and explicit sharing."),
     ("store", "The project store of every application: projects, files with versions, editing locks and the .eh3dproj container."),
@@ -406,6 +409,43 @@ op("PUT", "/machines/{id}/head/inspect/profile", "head", "operator", "Change the
    errors=MACHINE_ERR + ["bad_profile", "storage", "store"], desc="What cannot be used is listed in `rejected` and changes nothing.")
 op("POST", "/machines/{id}/head/inspect/calibrate", "head", "operator", "Set the scale of the picture from the first hole found", scope="jobs:prepare", ok=(200, "InspectCalibration", "application/json"),
    errors=MACHINE_ERR + ["no_inspection", "no_hole", "store"])
+
+# -- the nodes of the pick-and-place machines (docs/MACHINE_PLUGINS.md)
+SCHEMAS.update({
+    "PnpNode": obj({
+        "id": s(), "kind": {"type": "string", "enum": ["feeder", "head"]}, "name": s(), "address": s("`host:port` of the node."),
+        "token": s("`********` when the node has a token, empty when it has none; the token itself is never shown."),
+        "machine": s("The machine of the plugin `pnp` the node belongs to; empty when it is not linked."), "enabled": B,
+        "health": {"type": "string", "enum": ["unknown", "disabled", "ok", "warn", "fail", "safe", "unreachable", "refused", "silent"],
+                   "description": "`ok` and `warn` are ready; every other health is not ready (the safe way)."},
+        "ready": B, "silent_for_s": nullable(I), "polls": obj({"ok": I, "failed": I}, ["ok", "failed"]),
+        "last_error": s("`unreachable`, `bad_answer`, `too_big`, `token_rejected` or `http_<status>`; empty when the last poll was good."),
+        "status": nullable({"type": "object", "additionalProperties": True, "description": "What the node said last, with only the keys of its contract (`safe`, `selfcheck`, the feeders or the nozzles, `low`, `empty`, `faulted`)."}),
+        "evidence": s("Always `simulator`: nothing has run on a real feeder or head."), "simulator_only": B,
+    }, ["id", "kind", "name", "address", "token", "machine", "enabled", "health", "ready", "polls", "last_error", "status", "evidence"]),
+    "PnpNodeList": obj({
+        "nodes": arr(ref("PnpNode")), "summary": {"type": "object", "additionalProperties": True},
+        "limits": obj({"max": I, "poll_s": I, "silence_s": I, "timeout_s": I, "kinds": arr(S)}, ["max", "poll_s", "silence_s", "timeout_s", "kinds"]),
+    }, ["nodes", "summary", "limits"]),
+    "NewPnpNode": obj({
+        "id": s("Lowercase letters, digits and hyphens (up to 32); empty: the server gives `<kind>-<n>`."), "kind": {"type": "string", "enum": ["feeder", "head"]},
+        "name": s(), "address": s("`host:port` of the node."), "token": s("The token of the node (no spaces); it is kept and never shown."),
+        "machine": s("A machine of the plugin `pnp`."), "enabled": B,
+    }, ["kind", "name", "address"]),
+    "PnpNodeChange": obj({"name": s(), "address": s(), "token": s("`********` keeps the token."), "machine": s(), "enabled": B}),
+})
+PNP_OFF = ["pnp_nodes_off"]
+op("GET", "/pnp/nodes", "pnp", "viewer", "List the nodes of the pick-and-place machines", scope="machines:view", ok=(200, "PnpNodeList", "application/json"), errors=PNP_OFF,
+   desc="What the poller found last; no connection is opened by this request.")
+op("POST", "/pnp/nodes", "pnp", "admin", "Register a feeder or head node", scope="machines:manage", body="NewPnpNode", ok=(201, "PnpNode", "application/json"),
+   errors=PNP_OFF + ["bad_pnp_node", "pnp_node_exists", "pnp_nodes_full"],
+   example={"kind": "feeder", "name": "Feeders left", "address": "192.168.0.60:80", "token": "the-token-of-the-node", "machine": "pnp-1"})
+op("GET", "/pnp/nodes/{id}", "pnp", "viewer", "Read a node with what it said last", scope="machines:view", ok=(200, "PnpNode", "application/json"), errors=PNP_OFF + ["unknown_pnp_node"])
+op("PUT", "/pnp/nodes/{id}", "pnp", "admin", "Change a node", scope="machines:manage", body="PnpNodeChange", ok=(200, "PnpNode", "application/json"),
+   errors=PNP_OFF + ["unknown_pnp_node", "bad_pnp_node", "pnp_node_exists"], desc="What is left out stays. A node whose address, token or switch changes starts again from `unknown`.")
+op("DELETE", "/pnp/nodes/{id}", "pnp", "admin", "Remove a node", scope="machines:manage", errors=PNP_OFF + ["unknown_pnp_node"])
+op("POST", "/pnp/nodes/{id}/poll", "pnp", "operator", "Ask a node now", scope="jobs:prepare", ok=(200, "PnpNode", "application/json"), errors=PNP_OFF + ["unknown_pnp_node", "pnp_node_disabled"],
+   desc="Asks the node for its status and then for a read that needs its token, and gives the node as the server sees it. This is the only request that opens a connection to a node (the poller does the same on a timer).")
 
 # -- tasks
 TASK_OFF = ["tasks_off"]
@@ -609,11 +649,15 @@ SCHEMAS.update({
         "name": s(maxLength=80), "app": s("The application that asks; the default is the one of the login."),
     }, ["machine", "request"]),
     "WorkState": WORK_STATE,
+    "WorkJobHash": obj({"toolpath_sha256": s("64 hexadecimal digits: the hash the person was shown.")}, ["toolpath_sha256"],
+                       description="Naming a hash makes the request refuse (`409 stale_authorization`) when the job is no longer the one that was shown. A start may leave the body out; while `work_require_authorization` is on a job of `laser`, `pnp` or `cnc` also needs its authorization."),
     "WorkHistoryEntry": obj({"at": I, "state": ref("WorkState"), "by": s("A person, or `machine`/`server` when the change came from them."), "note": s()}, ["at", "state", "by"]),
     "WorkJobSummary": obj({
         "id": s("w-<uuid v7>"), "machine": s(), "plugin": s(), "app": s(), "name": s(), "owner": s(), "by": s(), "state": ref("WorkState"),
         "created": I, "started": nullable(I), "finished": nullable(I), "done": I, "total": I, "percent": {"type": "integer", "minimum": 0, "maximum": 100},
         "message": s(), "position": {"type": "integer", "minimum": 0, "description": "The place among the queued jobs of its machine (1 is the next); 0 when it is not queued."},
+        "toolpath_sha256": s("The hash of what the job will do, made when it was prepared: the one a person authorises and a start may name. Empty for a job prepared before the hash existed."),
+        "authorization": nullable(obj({"by": s(), "at": I, "toolpath_sha256": s()}, ["by", "at", "toolpath_sha256"])),
     }, ["id", "machine", "plugin", "state"], extra=True),
     "GerberLayers": obj({"job": s(), "kind": {"type": "string", "enum": ["load", "drc", "report"]}, "layers": arr({"type": "object", "additionalProperties": True}),
                          "board": nullable({"type": "object", "additionalProperties": True})}, ["job", "kind", "layers"], description="The layers a gerber job read."),
@@ -715,8 +759,12 @@ op("GET", "/work/jobs/{id}/findings", "work", "viewer", "The findings a gerber j
           q("offset", {"type": "integer", "minimum": 0}, "Findings to skip.")],
    desc="Only for a job of a `gerber` machine that checked the board (`drc` or `report`); a `load` job is `409 not_in_state`. A page at a time, in the order the checks found them.")
 op("DELETE", "/work/jobs/{id}", "work", "operator", "Remove a finished job", scope="jobs:cancel", errors=["unknown_job", "job_active"])
-op("POST", "/work/jobs/{id}/start", "work", "operator", "Start a queued job", scope="jobs:start", ok=(200, "WorkJob", "application/json"),
-   errors=WJOB_ERR + ["not_ready", "machine_busy", "unknown_machine", "bad_plugin_request", "laser_estop_latched", "pnp_feeder_short", "machine_alarm", "printer_latched",
+op("POST", "/work/jobs/{id}/authorize", "work", "operator", "Authorize the hash of a queued job", scope="jobs:authorize", body="WorkJobHash", ok=(200, "WorkJob", "application/json"),
+   errors=WJOB_ERR + ["not_ready", "stale_authorization", "storage", "bad_request"],
+   desc="A person says that what the job will do is what they were shown: the body is the `toolpath_sha256` of the job. The server records who authorised which hash. A hash that is not the job's is `409 stale_authorization`. A token of the `phoenix` or `cam` template can never hold the scope `jobs:authorize`.",
+   example={"toolpath_sha256": "3b1f0000000000000000000000000000000000000000000000000000000000aa"})
+op("POST", "/work/jobs/{id}/start", "work", "operator", "Start a queued job", scope="jobs:start", body="WorkJobHash", body_required=False, ok=(200, "WorkJob", "application/json"),
+   errors=WJOB_ERR + ["not_ready", "stale_authorization", "authorization_required", "pnp_node_not_ready", "bad_request", "machine_busy", "unknown_machine", "bad_plugin_request", "laser_estop_latched", "pnp_feeder_short", "machine_alarm", "printer_latched",
                                                     "printer_disconnected", "printer_untrusted", "bambu_lan_off", "enclosure_open", "air_assist_off", "focus_not_checked"],
    desc="One job at a time on a machine. A queue does not start by itself unless the machine is set to (`auto_start_queue` of a `printer3d` machine, off by default).")
 op("POST", "/work/jobs/{id}/pause", "work", "operator", "Hold a running job", scope="jobs:start", ok=(200, "WorkJob", "application/json"),

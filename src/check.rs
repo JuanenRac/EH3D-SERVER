@@ -87,6 +87,16 @@ pub fn verify(path: Option<&Path>) -> Report {
                 passed = false;
             }
         }
+        // the list of the nodes of the pick-and-place machines must read (a damaged one is never taken for an empty one)
+        match crate::pnp_nodes::PnpNodes::file_reads(&cfg.data_dir) {
+            Ok(n) => lines.push(format!(
+                "ok: the list of the pick-and-place nodes is read ({n} node(s))"
+            )),
+            Err(e) => {
+                lines.push(format!("FAILED: the list of the pick-and-place nodes: {e}"));
+                passed = false;
+            }
+        }
     }
     Report { lines, passed }
 }

@@ -10,6 +10,11 @@
     "status": 409
   },
   {
+    "code": "authorization_required",
+    "description": "The server asks for the authorization of a job of this plugin before it starts (work_require_authorization) and the job has none for its present hash.",
+    "status": 409
+  },
+  {
     "code": "bad_address",
     "description": "The address of a machine or of its drill head node is missing or is not host:port.",
     "status": 422
@@ -157,6 +162,11 @@
   {
     "code": "bad_plugin_request",
     "description": "The request does not fit what the plugin of the machine takes, or the settings of a machine of a plugin are not valid.",
+    "status": 422
+  },
+  {
+    "code": "bad_pnp_node",
+    "description": "A node of a pick-and-place machine does not fit: its kind (feeder or head), its id, its name, its address (host:port), its token (no spaces or control characters) or its machine (a machine of the plugin pnp).",
     "status": 422
   },
   {
@@ -500,6 +510,31 @@
     "status": 409
   },
   {
+    "code": "pnp_node_disabled",
+    "description": "The node of the pick-and-place machine is switched off, so it is not asked.",
+    "status": 409
+  },
+  {
+    "code": "pnp_node_exists",
+    "description": "A node with this id or this address is already registered.",
+    "status": 409
+  },
+  {
+    "code": "pnp_node_not_ready",
+    "description": "A node of this pick-and-place machine is silent, refuses the token, says it is safe or fails its own check, so the job does not start.",
+    "status": 409
+  },
+  {
+    "code": "pnp_nodes_full",
+    "description": "The list of the nodes of the pick-and-place machines is full (pnp_nodes_max).",
+    "status": 409
+  },
+  {
+    "code": "pnp_nodes_off",
+    "description": "The nodes of the pick-and-place machines are switched off on this server (pnp_nodes_enabled).",
+    "status": 501
+  },
+  {
     "code": "precondition_failed",
     "description": "The If-Match tag is not the one of the current version: read the file again before writing.",
     "status": 412
@@ -573,6 +608,11 @@
     "code": "spindle_limit",
     "description": "The job asks for more than the spindle of the machine gives (the machine's switch is on reject).",
     "status": 422
+  },
+  {
+    "code": "stale_authorization",
+    "description": "The hash a person authorised, or the one a start names, is not the hash of the job as it is now, so nothing starts.",
+    "status": 409
   },
   {
     "code": "stale_parent",
@@ -688,6 +728,11 @@
     "code": "unknown_plugin",
     "description": "There is no plugin of this kind.",
     "status": 422
+  },
+  {
+    "code": "unknown_pnp_node",
+    "description": "There is no node of a pick-and-place machine with this id.",
+    "status": 404
   },
   {
     "code": "unknown_project",

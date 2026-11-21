@@ -107,7 +107,21 @@ impl MachinePlugin for PnpPlugin {
 
     fn detail(&self, st: &Arc<AppState>, machine: &str) -> Value {
         match Self::config(st, machine) {
-            Ok(cfg) => self.engine.detail(machine, &cfg),
+            Ok(cfg) => {
+                let mut detail = self.engine.detail(machine, &cfg);
+                // the feeder and head nodes registered for this machine, with their health (only while the nodes are on)
+                if st.pnp_nodes.limits.enabled {
+                    if let Some(obj) = detail.as_object_mut() {
+                        obj.insert(
+                            "nodes".into(),
+                            Value::Array(
+                                st.pnp_nodes.views_for(machine, std::time::Instant::now()),
+                            ),
+                        );
+                    }
+                }
+                detail
+            }
             Err(_) => Value::Null,
         }
     }
@@ -125,11 +139,21 @@ impl MachinePlugin for PnpPlugin {
 
     fn start(
         &self,
-        _st: &Arc<AppState>,
+        st: &Arc<AppState>,
         machine: &str,
         native_id: &str,
         _by: &str,
     ) -> PluginResult<()> {
+        // a node of this machine that is silent, refuses the token, says it is safe or fails its own check holds the job: degrade towards what is safer
+        let held = st
+            .pnp_nodes
+            .not_ready_for(machine, std::time::Instant::now());
+        if let Some((node, health)) = held.first() {
+            return Err(PluginError::Coded(
+                "pnp_node_not_ready",
+                format!("the node {node} is {health}"),
+            ));
+        }
         self.engine.start(machine, native_id)
     }
 

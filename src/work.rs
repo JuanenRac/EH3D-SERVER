@@ -35,6 +35,10 @@ const MAX_HISTORY: usize = 200;
 
 #[derive(Debug, PartialEq)]
 pub enum WError {
+    /// A job of a plugin that asks for the authorization of its hash has none (`work_require_authorization`).
+    AuthorizationRequired,
+    /// The hash a person authorised, or the start names, is not the hash of the job as it is.
+    StaleAuthorization,
     BadId,
     BadName,
     BadSettings,
@@ -54,6 +58,8 @@ pub enum WError {
 impl WError {
     pub fn code(&self) -> &'static str {
         match self {
+            WError::AuthorizationRequired => "authorization_required",
+            WError::StaleAuthorization => "stale_authorization",
             WError::BadId => "bad_id",
             WError::BadName => "bad_name",
             WError::BadSettings => "bad_plugin_request",
@@ -228,6 +234,49 @@ pub struct HistoryEntry {
     pub note: String,
 }
 
+/// The authorization of a job: who authorised it, when, and the hash they authorised.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct WorkAuthorization {
+    pub by: String,
+    pub at: u64,
+    pub toolpath_sha256: String,
+}
+
+/// The plugins whose jobs start only with an authorization while `work_require_authorization` is on: the ones that move or burn something.
+pub const AUTHORIZED_PLUGINS: [&str; 3] = ["laser", "pnp", "cnc"];
+
+/// The hash of what a job will do: SHA-256 of the plugin, the machine and the request as the server resolved it (a named artifact is already its text), with the keys of
+/// every object in order, so that the same job always gives the same hash.
+pub fn toolpath_hash(plugin: &str, machine: &str, request: &Value) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(plugin.as_bytes());
+    h.update([0]);
+    h.update(machine.as_bytes());
+    h.update([0]);
+    h.update(canonical(request).as_bytes());
+    hex::encode(h.finalize())
+}
+
+fn canonical(v: &Value) -> String {
+    match v {
+        Value::Object(m) => {
+            let mut keys: Vec<&String> = m.keys().collect();
+            keys.sort();
+            let parts: Vec<String> = keys
+                .into_iter()
+                .map(|k| format!("{}:{}", Value::String(k.clone()), canonical(&m[k])))
+                .collect();
+            format!("{{{}}}", parts.join(","))
+        }
+        Value::Array(a) => format!(
+            "[{}]",
+            a.iter().map(canonical).collect::<Vec<_>>().join(",")
+        ),
+        other => other.to_string(),
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct WorkJob {
     pub id: String,
@@ -249,6 +298,13 @@ pub struct WorkJob {
     pub total: u64,
     pub message: String,
     pub history: Vec<HistoryEntry>,
+    /// The hash of what the job will do (the plugin, the machine and the request as the server resolved it), made when the job is prepared; what a person is shown and
+    /// authorises. Empty for a job that was prepared before the hash existed.
+    #[serde(default)]
+    pub toolpath_sha256: String,
+    /// Who authorised which hash, when somebody did.
+    #[serde(default)]
+    pub authorization: Option<WorkAuthorization>,
     /// What the plugin drew of the job when it prepared it; kept in memory only.
     #[serde(skip)]
     pub view: Value,
@@ -270,6 +326,8 @@ impl WorkJob {
             "name": self.name, "owner": self.owner, "by": self.by, "state": self.state,
             "created": self.created, "started": self.started, "finished": self.finished,
             "done": self.done, "total": self.total, "percent": self.percent(), "message": self.message,
+            "toolpath_sha256": self.toolpath_sha256,
+            "authorization": self.authorization,
         })
     }
 
@@ -429,6 +487,36 @@ impl WorkBook {
         let out = job.clone();
         let _ = self.save();
         Some((out, true))
+    }
+
+    /// Records that `by` authorised `hash` for a queued job. The hash must be the one of the job as it is: anything else is `StaleAuthorization`.
+    pub fn authorize(
+        &mut self,
+        id: &str,
+        hash: &str,
+        by: &str,
+        at: u64,
+    ) -> Result<WorkJob, WError> {
+        let job = self
+            .list
+            .iter_mut()
+            .find(|j| j.id == id)
+            .ok_or(WError::UnknownJob)?;
+        if job.state != WorkState::Queued {
+            return Err(WError::NotReady);
+        }
+        if job.toolpath_sha256.is_empty() || job.toolpath_sha256 != hash {
+            return Err(WError::StaleAuthorization);
+        }
+        job.authorization = Some(WorkAuthorization {
+            by: by.to_string(),
+            at,
+            toolpath_sha256: hash.to_string(),
+        });
+        job.push(at, WorkState::Queued, by, "authorized");
+        let out = job.clone();
+        self.save().map_err(|_| WError::Storage)?;
+        Ok(out)
     }
 
     /// Takes a reading of the plugin into the job.
@@ -708,6 +796,8 @@ impl AppState {
                 by: who.name.clone(),
                 note: "prepared".into(),
             }],
+            toolpath_sha256: toolpath_hash(plugin.kind(), machine, &request),
+            authorization: None,
             view: prepared.view,
             decile: 0,
         };
@@ -971,9 +1061,54 @@ impl AppState {
     }
 
     pub fn work_start(self: &Arc<Self>, id: &str, who: &Identity) -> Result<WorkJob, Fail> {
+        self.work_start_checked(id, who, None)
+    }
+
+    /// A person authorises the hash of a queued job (what the job will do, as it was shown to them).
+    pub fn work_authorize(
+        self: &Arc<Self>,
+        id: &str,
+        who: &Identity,
+        hash: &str,
+    ) -> Result<WorkJob, Fail> {
+        let job = self
+            .work
+            .jobs
+            .locked()
+            .authorize(id, hash, &who.name, now())?;
+        self.announce_job("job.authorized", &job);
+        Ok(job)
+    }
+
+    /// Starts a queued job. With `hash` the start names what it expects to run: another hash than the job's (or than the authorized one) is `StaleAuthorization` and nothing
+    /// starts. While `work_require_authorization` is on, a job of `laser`, `pnp` or `cnc` starts only with an authorization of its present hash.
+    pub fn work_start_checked(
+        self: &Arc<Self>,
+        id: &str,
+        who: &Identity,
+        hash: Option<&str>,
+    ) -> Result<WorkJob, Fail> {
         let job = self.work_job(id)?;
         if job.state != WorkState::Queued {
             return Err(WError::NotReady.into());
+        }
+        if let Some(h) = hash {
+            let authorized_other = job
+                .authorization
+                .as_ref()
+                .is_some_and(|a| a.toolpath_sha256 != h);
+            if job.toolpath_sha256.is_empty() || job.toolpath_sha256 != h || authorized_other {
+                return Err(WError::StaleAuthorization.into());
+            }
+        }
+        if self.cfg.work_require_authorization && AUTHORIZED_PLUGINS.contains(&job.plugin.as_str())
+        {
+            let valid = job.authorization.as_ref().is_some_and(|a| {
+                !job.toolpath_sha256.is_empty() && a.toolpath_sha256 == job.toolpath_sha256
+            });
+            if !valid {
+                return Err(WError::AuthorizationRequired.into());
+            }
         }
         if self.work.jobs.locked().active_on(&job.machine).is_some() {
             return Err(WError::MachineBusy.into());
@@ -1262,6 +1397,8 @@ mod tests {
             total: 0,
             message: String::new(),
             history: Vec::new(),
+            toolpath_sha256: String::new(),
+            authorization: None,
             view: Value::Null,
             decile: 0,
         }
