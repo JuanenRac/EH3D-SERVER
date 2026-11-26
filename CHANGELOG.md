@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.2.5] - Stricter token permissions, owners by identifier, version checked on updates and faster node polling
+
 - **The nodes of the pick-and-place machines stay heard (safety):** `pnp_node_poll_s` is 1 by default (it was 5, and a head goes to its safe state after 2 seconds without being asked); each node is asked on its own connection without waiting for the answers still due, of it or of another node; and an interval that is too slow for a node is said on the console and in `GET /api/v1/pnp/nodes` (`warnings`, and `poll_too_slow` of each node). A `server.cfg` that names a slower interval keeps it and gets the warning.
 - **The update helper asks a package which version it is (security):** besides the hash and the signature, the version the package declares inside (the `version.json` of the pages, or the name of the folder of the server) must be the one the release announces. The published releases already do; a component of your own in `--config` must too.
 - **A new user with the name of a deleted one is another person:** every user has an identifier that is never given again, and projects, shares, artifacts, uploads, tasks, jobs, locks and notifications are filed under it (the API still shows the name). Users that exist keep everything, with nothing to move. What a deleted user made is left to the administrators.
