@@ -86,6 +86,7 @@ async fn list_nodes(State(s): State<Shared>, Authed(who, _): Authed) -> ApiResul
         "nodes": s.pnp_nodes.list_views(Instant::now()),
         "summary": s.pnp_nodes.counts(Instant::now()),
         "limits": limits(&s),
+        "warnings": s.pnp_nodes.warnings(),
     })))
 }
 

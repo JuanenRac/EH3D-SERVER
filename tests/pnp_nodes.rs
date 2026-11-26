@@ -29,6 +29,10 @@ struct Model {
     /// How many requests came with the right token, and how many for the status.
     heard: u32,
     status_hits: u32,
+    /// The answer to the first question of the status is held this long, as on a node that takes long to give one.
+    hold_first_ms: u64,
+    /// The time the node says in its status, when it says one.
+    link_lost_ms: Option<u64>,
 }
 
 type Node = Arc<Mutex<Model>>;
@@ -45,6 +49,8 @@ fn model(kind: &'static str, token: &str) -> Node {
         nozzle_faults: vec![false, false],
         heard: 0,
         status_hits: 0,
+        hold_first_ms: 0,
+        link_lost_ms: None,
     }))
 }
 
@@ -78,12 +84,16 @@ fn status_json(m: &Model) -> Value {
                 })
             })
             .collect();
-        json!({
+        let mut status = json!({
             "node": "head-sim", "version": "0.0.1", "nozzle_count": m.nozzle_faults.len(), "safe": m.safe,
             "safe_reason": if m.safe { "server_lost" } else { "none" }, "safe_code": if m.safe { "HEAD-L01" } else { "none" },
             "pump": false, "xy_clear": true, "xy_moving": false, "z_safe_mm": 10.0, "calibrated": false,
             "uptime_s": 7, "selfcheck": m.selfcheck, "selfcheck_codes": "", "nozzles": nozzles,
-        })
+        });
+        if let Some(ms) = m.link_lost_ms {
+            status["link_lost_ms"] = json!(ms);
+        }
+        status
     }
 }
 
@@ -114,6 +124,14 @@ async fn start_node(node: Node) -> String {
                     .unwrap_or("")
                     .trim()
                     .to_string();
+                let hold = {
+                    let m = node.lock().unwrap();
+                    if m.status_hits == 0 && path == "/api/status" {
+                        m.hold_first_ms
+                    } else {
+                        0
+                    }
+                };
                 let (code, body) = {
                     let mut m = node.lock().unwrap();
                     if m.mute {
@@ -140,6 +158,7 @@ async fn start_node(node: Node) -> String {
                         (404, json!({"error": "not_found"}).to_string())
                     }
                 };
+                tokio::time::sleep(Duration::from_millis(hold)).await;
                 let reply = format!(
                     "HTTP/1.0 {code} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
                     body.len()
@@ -754,6 +773,91 @@ async fn the_poller_asks_the_nodes_by_itself_while_the_switch_is_on_and_not_at_a
     }
     handle.abort();
     assert!(node.lock().unwrap().heard >= 1);
+}
+
+#[tokio::test]
+async fn the_nodes_go_on_being_asked_while_an_answer_is_still_awaited() {
+    let slow = model("head", "tok");
+    slow.lock().unwrap().hold_first_ms = 6_000;
+    let other = model("head", "tok");
+    let a = start_node(slow.clone()).await;
+    let b = start_node(other.clone()).await;
+    let s = server_with("pnpn-held", |c| {
+        c.pnp_nodes_enabled = true;
+        c.pnp_node_timeout_s = 10;
+        assert_eq!(c.pnp_node_poll_s, 1, "the interval a head can live with");
+    });
+    let boss = admin(&s).await;
+    for address in [a, b] {
+        register(
+            &s,
+            &boss,
+            json!({"kind": "head", "name": "Head", "address": address, "token": "tok"}),
+        )
+        .await;
+    }
+    let handle = eh3d_server::pnp_nodes::spawn(s.state.clone()).expect("the poller starts");
+    // well before the held answer comes: the same node has been asked again on other connections, and so has the other one
+    tokio::time::sleep(Duration::from_millis(4_500)).await;
+    let (held, free) = (
+        slow.lock().unwrap().status_hits,
+        other.lock().unwrap().status_hits,
+    );
+    handle.abort();
+    assert!(
+        held >= 3,
+        "the node with the held answer was asked {held} times"
+    );
+    assert!(free >= 3, "the other node was asked {free} times");
+}
+
+#[tokio::test]
+async fn an_interval_that_is_too_slow_for_a_node_is_said() {
+    let node = model("head", "tok");
+    let a = start_node(node.clone()).await;
+    let s = nodes_on("pnpn-slow");
+    let boss = admin(&s).await;
+    register(
+        &s,
+        &boss,
+        json!({"kind": "head", "name": "Head", "address": a, "token": "tok"}),
+    )
+    .await;
+    assert!(s.state.pnp_nodes.startup_warnings().is_empty());
+    let v = poll(&s, &boss, "head-1").await;
+    assert_eq!(
+        (
+            &v["link_lost_ms"],
+            &v["link_lost_declared"],
+            &v["poll_too_slow"]
+        ),
+        (&json!(2000), &json!(false), &json!(false))
+    );
+    // the node says a time shorter than the interval
+    node.lock().unwrap().link_lost_ms = Some(1000);
+    let v = poll(&s, &boss, "head-1").await;
+    assert_eq!(
+        (
+            &v["link_lost_ms"],
+            &v["link_lost_declared"],
+            &v["poll_too_slow"]
+        ),
+        (&json!(1000), &json!(true), &json!(true))
+    );
+    let (status, list) = call(&s, Method::GET, "/api/v1/pnp/nodes", Some(&boss), None).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    assert_eq!(list["warnings"][0]["code"], "poll_too_slow");
+    assert_eq!(list["warnings"][0]["node"], "head-1");
+    assert_eq!(s.state.pnp_nodes.startup_warnings().len(), 1);
+
+    // two seconds between questions is already too slow for a head with the usual time
+    let slow = server_with("pnpn-slow-start", |c| {
+        c.pnp_nodes_enabled = true;
+        c.pnp_node_poll_s = 2;
+    });
+    assert!(slow.state.pnp_nodes.startup_warnings()[0].contains("pnp_node_poll_s is 2"));
+    let off = server_with("pnpn-slow-off", |c| c.pnp_node_poll_s = 2);
+    assert!(off.state.pnp_nodes.startup_warnings().is_empty());
 }
 
 #[tokio::test]

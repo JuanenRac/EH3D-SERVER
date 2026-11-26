@@ -36,6 +36,35 @@ const MAX_TEXT: usize = 64;
 const MAX_STATUS_BYTES: usize = 48 * 1024;
 const MAX_NAME: usize = 64;
 const MAX_TOKEN: usize = 200;
+/// How long without hearing the server before a node goes to its safe state, as its contract sets it by default: `link_lost_ms` of the head and `server_lost_ms` of the
+/// feeder. Used while a node does not say its own in its status.
+pub const HEAD_LINK_LOST_MS: u64 = 2_000;
+pub const FEEDER_LINK_LOST_MS: u64 = 15_000;
+/// The most questions to one node that wait for their answer at once: a slow answer does not stop the next question, and a node that never answers is not flooded.
+const MAX_IN_FLIGHT: usize = 3;
+
+/// The key of the status in which a node of this kind says its own time.
+fn link_lost_key(kind: &str) -> &'static str {
+    if kind == "feeder" {
+        "server_lost_ms"
+    } else {
+        "link_lost_ms"
+    }
+}
+
+/// The time a node of this kind is taken to have while it does not say it.
+pub fn assumed_link_lost_ms(kind: &str) -> u64 {
+    if kind == "feeder" {
+        FEEDER_LINK_LOST_MS
+    } else {
+        HEAD_LINK_LOST_MS
+    }
+}
+
+/// Whether asking every `poll_s` seconds is too slow for a node that goes safe after `link_lost_ms` without being asked.
+pub fn poll_too_slow(poll_s: u64, link_lost_ms: u64) -> bool {
+    poll_s.saturating_mul(1_000) >= link_lost_ms
+}
 
 /// The limits and the times, from `server.cfg`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -141,6 +170,10 @@ struct Seen {
     failed: u64,
     error: String,
     summary: Option<Value>,
+    /// When the question whose answer is kept was sent: the answer to an earlier one that comes later is old news.
+    asked: Option<Instant>,
+    /// The time without the server after which the node said it goes safe, when it says it.
+    link_lost_ms: Option<u64>,
 }
 
 struct Inner {
@@ -261,6 +294,12 @@ pub fn parse_status(kind: &str, body: &[u8]) -> Result<Value, &'static str> {
         &mut o,
         "uptime_s",
         uint(&v, "uptime_s", u64::from(u32::MAX)).map(Value::from),
+    );
+    let key = link_lost_key(kind);
+    put(
+        &mut o,
+        key,
+        uint(&v, key, u64::from(u32::MAX)).map(Value::from),
     );
     match kind {
         "feeder" => {
@@ -516,10 +555,38 @@ impl PnpNodes {
         outcome: Outcome,
         now: Instant,
     ) -> Option<(&'static str, &'static str)> {
+        self.record_asked(id, outcome, now, now)
+    }
+
+    /// The same for a question sent at `asked`: several may wait at once, and the answer to one sent before the one already kept changes nothing.
+    pub fn record_asked(
+        &self,
+        id: &str,
+        outcome: Outcome,
+        asked: Instant,
+        now: Instant,
+    ) -> Option<(&'static str, &'static str)> {
         let mut inner = self.inner.locked();
         let rec = inner.records.get(id)?.clone();
         let before = Self::health_of(&rec, inner.seen.get(id), now, self.limits.silence());
+        let poll_s = self.limits.poll_s;
         let seen = inner.seen.entry(id.to_string()).or_default();
+        if seen.asked.is_some_and(|kept| asked < kept) {
+            return Some((before, before));
+        }
+        seen.asked = Some(asked);
+        let said = outcome
+            .summary
+            .as_ref()
+            .and_then(|sum| sum[link_lost_key(&rec.kind)].as_u64());
+        if let Some(ms) = said {
+            if seen.link_lost_ms != Some(ms) && poll_too_slow(poll_s, ms) {
+                eprintln!(
+                    "eh3d-server: warning: the node {id} goes to its safe state after {ms} ms without being asked and it is asked every {poll_s} s (pnp_node_poll_s)"
+                );
+            }
+            seen.link_lost_ms = Some(ms);
+        }
         seen.first_try.get_or_insert(now);
         seen.last_try = Some(now);
         match &outcome.error {
@@ -574,7 +641,13 @@ impl PnpNodes {
         let h = Self::health_of(r, seen, now, self.limits.silence());
         let empty = Seen::default();
         let s = seen.unwrap_or(&empty);
+        let link_lost_ms = s
+            .link_lost_ms
+            .unwrap_or_else(|| assumed_link_lost_ms(&r.kind));
         json!({
+            "link_lost_ms": link_lost_ms,
+            "link_lost_declared": s.link_lost_ms.is_some(),
+            "poll_too_slow": poll_too_slow(self.limits.poll_s, link_lost_ms),
             "id": r.id, "kind": r.kind, "name": r.name, "address": r.address,
             "token": if r.token.is_empty() { "" } else { SECRET_MARK },
             "machine": r.machine, "enabled": r.enabled,
@@ -629,6 +702,50 @@ impl PnpNodes {
             .collect()
     }
 
+    /// What the nodes that are switched on make doubtful about the settings: for now, only that they are asked too slowly to stay out of their safe state.
+    pub fn warnings(&self) -> Vec<Value> {
+        let inner = self.inner.locked();
+        let poll_s = self.limits.poll_s;
+        inner
+            .records
+            .values()
+            .filter(|r| r.enabled)
+            .filter_map(|r| {
+                let declared = inner.seen.get(&r.id).and_then(|s| s.link_lost_ms);
+                let ms = declared.unwrap_or_else(|| assumed_link_lost_ms(&r.kind));
+                poll_too_slow(poll_s, ms).then(|| {
+                    json!({
+                        "code": "poll_too_slow", "node": r.id, "poll_s": poll_s, "link_lost_ms": ms,
+                        "link_lost_declared": declared.is_some(),
+                    })
+                })
+            })
+            .collect()
+    }
+
+    /// What to say on the console when the server starts (nothing while the switch is off): an interval that a head with the usual time cannot live with, and every
+    /// registered node it is too slow for.
+    pub fn startup_warnings(&self) -> Vec<String> {
+        if !self.limits.enabled {
+            return Vec::new();
+        }
+        let poll_s = self.limits.poll_s;
+        let mut lines = Vec::new();
+        if poll_too_slow(poll_s, HEAD_LINK_LOST_MS) {
+            lines.push(format!(
+                "pnp_node_poll_s is {poll_s}: a head node goes to its safe state after link_lost_ms without being asked ({HEAD_LINK_LOST_MS} ms unless it is changed); set it to 1"
+            ));
+        }
+        lines.extend(self.warnings().iter().map(|w| {
+            format!(
+                "the node {} is asked every {poll_s} s and goes to its safe state after {} ms without being asked",
+                w["node"].as_str().unwrap_or_default(),
+                w["link_lost_ms"]
+            )
+        }));
+        lines
+    }
+
     /// The numbers of the fleet: how many nodes there are and in what health.
     pub fn counts(&self, now: Instant) -> Value {
         let inner = self.inner.locked();
@@ -663,6 +780,7 @@ pub async fn poll_node(st: &Arc<AppState>, id: &str) -> Option<(&'static str, &'
             tokio::time::timeout(limit, crate::head::fetch(&address, &token, "GET", path)).await
         }
     };
+    let asked = Instant::now();
     let outcome = match ask("/api/status", rec.token.clone()).await {
         Ok(Ok((200, _, body))) => match parse_status(&rec.kind, &body) {
             Ok(summary) => {
@@ -684,18 +802,8 @@ pub async fn poll_node(st: &Arc<AppState>, id: &str) -> Option<(&'static str, &'
         Ok(Ok((status, _, _))) => Outcome::failed(&format!("http_{status}")),
         _ => Outcome::failed("unreachable"),
     };
-    st.pnp_nodes.record(id, outcome, Instant::now())
-}
-
-/// Asks every node that is switched on, one after the other, and tells the clients which changed.
-pub async fn poll_all(st: &Arc<AppState>) {
-    for r in st.pnp_nodes.targets() {
-        if let Some((before, after)) = poll_node(st, &r.id).await {
-            if before != after {
-                publish_change(st, &r.id, after);
-            }
-        }
-    }
+    st.pnp_nodes
+        .record_asked(id, outcome, asked, Instant::now())
 }
 
 /// Tells the clients that a node changed its health.
@@ -703,16 +811,69 @@ pub fn publish_change(st: &Arc<AppState>, id: &str, health: &str) {
     st.publish(json!({ "type": "pnp_node", "id": id, "health": health, "ready": ready(health) }));
 }
 
-/// The loop that asks the nodes every `pnp_node_poll_s` seconds, while the switch is on. Without a runtime or with the switch off it does nothing.
+/// The questions that wait for their answer, by node.
+type Waiting = Arc<Mutex<HashMap<String, usize>>>;
+
+/// One question that is waiting; dropped (also by a panic) it counts no more.
+struct Question {
+    waiting: Waiting,
+    id: String,
+}
+
+impl Question {
+    /// Counts one more question to the node, unless as many as allowed already wait.
+    fn begin(waiting: &Waiting, id: &str) -> Option<Question> {
+        let mut map = waiting.locked();
+        let n = map.entry(id.to_string()).or_insert(0);
+        if *n >= MAX_IN_FLIGHT {
+            return None;
+        }
+        *n += 1;
+        Some(Question {
+            waiting: waiting.clone(),
+            id: id.to_string(),
+        })
+    }
+}
+
+impl Drop for Question {
+    fn drop(&mut self) {
+        if let Some(n) = self.waiting.locked().get_mut(&self.id) {
+            *n = n.saturating_sub(1);
+        }
+    }
+}
+
+/// The loop that asks every node that is switched on every `pnp_node_poll_s` seconds, while the switch is on. Each question goes on a connection of its own and does not
+/// wait for the answers of the others, of the same node or of another: a head that is in the middle of a long move, a slow answer or a node that is gone never make the
+/// server quiet towards a node that goes safe when it does not hear it. With the switch off it does nothing.
 pub fn spawn(st: Arc<AppState>) -> Option<tokio::task::JoinHandle<()>> {
     if !st.pnp_nodes.limits.enabled {
         return None;
     }
+    for line in st.pnp_nodes.startup_warnings() {
+        eprintln!("eh3d-server: warning: {line}");
+    }
     let every = Duration::from_secs(st.pnp_nodes.limits.poll_s);
     Some(tokio::spawn(async move {
+        let waiting = Waiting::default();
+        let mut tick = tokio::time::interval(every);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
-            poll_all(&st).await;
-            tokio::time::sleep(every).await;
+            tick.tick().await;
+            for r in st.pnp_nodes.targets() {
+                let Some(question) = Question::begin(&waiting, &r.id) else {
+                    continue;
+                };
+                let st = st.clone();
+                tokio::spawn(async move {
+                    if let Some((before, after)) = poll_node(&st, &question.id).await {
+                        if before != after {
+                            publish_change(&st, &question.id, after);
+                        }
+                    }
+                });
+            }
         }
     }))
 }
@@ -1020,6 +1181,22 @@ mod tests {
         // a node that is switched off holds nothing
         n.update(&id, None, None, None, None, Some(false)).unwrap();
         assert!(n.not_ready_for("pnp-1", t0 + secs(100)).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_answer_to_an_earlier_question_that_comes_late_changes_nothing() {
+        let (n, dir) = registry("late", |_| {});
+        let id = n.add(rec("", "feeder", "127.0.0.1:9001")).unwrap().id;
+        let t0 = Instant::now();
+        let ok = Outcome {
+            summary: Some(parse_status("feeder", FEEDER.as_bytes()).unwrap()),
+            error: None,
+        };
+        n.record_asked(&id, ok.clone(), t0 + secs(2), t0 + secs(2));
+        let late = n.record_asked(&id, Outcome::failed("unreachable"), t0, t0 + secs(3));
+        assert_eq!(late, Some(("ok", "ok")));
+        assert_eq!(n.view(&id, t0 + secs(3)).unwrap()["health"], "ok");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

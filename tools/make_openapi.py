@@ -423,11 +423,15 @@ SCHEMAS.update({
         "last_error": s("`unreachable`, `bad_answer`, `too_big`, `token_rejected` or `http_<status>`; empty when the last poll was good."),
         "status": nullable({"type": "object", "additionalProperties": True, "description": "What the node said last, with only the keys of its contract (`safe`, `selfcheck`, the feeders or the nozzles, `low`, `empty`, `faulted`)."}),
         "evidence": s("Always `simulator`: nothing has run on a real feeder or head."), "simulator_only": B,
-    }, ["id", "kind", "name", "address", "token", "machine", "enabled", "health", "ready", "polls", "last_error", "status", "evidence"]),
+        "link_lost_ms": s("Milliseconds without being asked after which the node goes to its safe state: what it says, else the default of its contract.") | {"type": "integer"},
+        "link_lost_declared": B, "poll_too_slow": B,
+    }, ["id", "kind", "name", "address", "token", "machine", "enabled", "health", "ready", "polls", "last_error", "status", "evidence", "link_lost_ms", "link_lost_declared", "poll_too_slow"]),
     "PnpNodeList": obj({
         "nodes": arr(ref("PnpNode")), "summary": {"type": "object", "additionalProperties": True},
         "limits": obj({"max": I, "poll_s": I, "silence_s": I, "timeout_s": I, "kinds": arr(S)}, ["max", "poll_s", "silence_s", "timeout_s", "kinds"]),
-    }, ["nodes", "summary", "limits"]),
+        "warnings": arr(obj({"code": {"type": "string", "enum": ["poll_too_slow"]}, "node": S, "poll_s": I, "link_lost_ms": I, "link_lost_declared": B},
+                            ["code", "node", "poll_s", "link_lost_ms", "link_lost_declared"])),
+    }, ["nodes", "summary", "limits", "warnings"]),
     "NewPnpNode": obj({
         "id": s("Lowercase letters, digits and hyphens (up to 32); empty: the server gives `<kind>-<n>`."), "kind": {"type": "string", "enum": ["feeder", "head"]},
         "name": s(), "address": s("`host:port` of the node."), "token": s("The token of the node (no spaces); it is kept and never shown."),
