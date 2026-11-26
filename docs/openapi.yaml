@@ -13839,6 +13839,13 @@ components:
           description: "Always `simulator`: nothing has run on a real feeder or head."
         simulator_only:
           type: boolean
+        link_lost_ms:
+          type: integer
+          description: "Milliseconds without being asked after which the node goes to its safe state: what it says, else the default of its contract."
+        link_lost_declared:
+          type: boolean
+        poll_too_slow:
+          type: boolean
       required:
         - id
         - kind
@@ -13853,6 +13860,9 @@ components:
         - last_error
         - status
         - evidence
+        - link_lost_ms
+        - link_lost_declared
+        - poll_too_slow
       additionalProperties: false
     PnpNodeList:
       type: object
@@ -13886,10 +13896,35 @@ components:
             - timeout_s
             - kinds
           additionalProperties: false
+        warnings:
+          type: array
+          items:
+            type: object
+            properties:
+              code:
+                type: string
+                enum:
+                  - poll_too_slow
+              node:
+                type: string
+              poll_s:
+                type: integer
+              link_lost_ms:
+                type: integer
+              link_lost_declared:
+                type: boolean
+            required:
+              - code
+              - node
+              - poll_s
+              - link_lost_ms
+              - link_lost_declared
+            additionalProperties: false
       required:
         - nodes
         - summary
         - limits
+        - warnings
       additionalProperties: false
     NewPnpNode:
       type: object

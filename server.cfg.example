@@ -64,7 +64,8 @@ pnp_nodes_enabled = false
 # The most nodes in the list (1 to 200).
 pnp_nodes_max = 32
 # Every how many seconds each node is asked (1 to 3600), how long a node may be quiet before it is silent and not ready (2 to 3600, never less than two polls) and how long a request may take (1 to 30).
-pnp_node_poll_s = 5
+# A head node goes to its safe state when it is not asked for link_lost_ms (2000 ms by default), also while it stands still: leave the 1 unless the node allows more.
+pnp_node_poll_s = 1
 pnp_node_silence_s = 20
 pnp_node_timeout_s = 3
 # The program of the suite that slices (phoenix-3dp), by its full path. Empty: only the small slicer of the server is used. The server runs only this one file, with arguments of its own.

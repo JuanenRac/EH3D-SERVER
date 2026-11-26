@@ -287,7 +287,7 @@ impl Default for ServerConfig {
             printer_timeout_s: 5,
             pnp_nodes_enabled: false,
             pnp_nodes_max: 32,
-            pnp_node_poll_s: 5,
+            pnp_node_poll_s: 1,
             pnp_node_silence_s: 20,
             pnp_node_timeout_s: 3,
             slice_phoenix_bin: None,

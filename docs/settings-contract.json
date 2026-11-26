@@ -3244,7 +3244,7 @@
       "type": "integer",
       "min": 1,
       "max": 3600,
-      "default": 5,
+      "default": 1,
       "unit": "seconds",
       "apply": "restart",
       "write": {
@@ -3269,14 +3269,14 @@
         "pt": "Segundos entre perguntas a um nó"
       },
       "help": {
-        "en": "Every how many seconds each node is asked; keep it well below the time after which the node goes to its safe state (1 to 3600).",
-        "es": "Cada cuántos segundos se pregunta a cada nodo; manténgalo muy por debajo del tiempo tras el cual el nodo pasa a su estado seguro (1 a 3600).",
-        "de": "Alle wie viele Sekunden jeder Knoten abgefragt wird; deutlich unter der Zeit halten, nach der der Knoten in den sicheren Zustand geht (1 bis 3600).",
-        "fr": "Toutes les combien de secondes chaque nœud est interrogé ; à garder bien en dessous du délai après lequel le nœud passe à son état sûr (1 à 3600).",
-        "it": "Ogni quanti secondi si interroga ogni nodo; tenerlo ben sotto il tempo dopo il quale il nodo passa allo stato sicuro (da 1 a 3600).",
-        "ja": "各ノードに問い合わせる間隔 (秒)。ノードが安全状態に入るまでの時間より十分短くしてください (1〜3600)。",
-        "zh": "每个节点每隔多少秒查询一次；应远小于节点进入安全状态所需的时间（1 至 3600）。",
-        "pt": "De quantos em quantos segundos se pergunta a cada nó; mantenha-o bem abaixo do tempo ao fim do qual o nó passa ao estado seguro (1 a 3600)."
+        "en": "Every how many seconds each node is asked; keep it well below the time after which the node goes to its safe state (1 to 3600). A head goes to its safe state after 2 seconds by default: leave 1.",
+        "es": "Cada cuántos segundos se pregunta a cada nodo; manténgalo muy por debajo del tiempo tras el cual el nodo pasa a su estado seguro (1 a 3600). Un cabezal pasa a su estado seguro a los 2 segundos por defecto: deje 1.",
+        "de": "Alle wie viele Sekunden jeder Knoten abgefragt wird; deutlich unter der Zeit halten, nach der der Knoten in den sicheren Zustand geht (1 bis 3600). Ein Kopf geht standardmäßig nach 2 Sekunden in den sicheren Zustand: 1 belassen.",
+        "fr": "Toutes les combien de secondes chaque nœud est interrogé ; à garder bien en dessous du délai après lequel le nœud passe à son état sûr (1 à 3600). Une tête passe à son état sûr au bout de 2 secondes par défaut : laissez 1.",
+        "it": "Ogni quanti secondi si interroga ogni nodo; tenerlo ben sotto il tempo dopo il quale il nodo passa allo stato sicuro (da 1 a 3600). Una testa passa allo stato sicuro dopo 2 secondi in modo predefinito: lasciare 1.",
+        "ja": "各ノードに問い合わせる間隔 (秒)。ノードが安全状態に入るまでの時間より十分短くしてください (1〜3600)。ヘッドは既定で 2 秒後に安全状態に入ります。1 のままにしてください。",
+        "zh": "每个节点每隔多少秒查询一次；应远小于节点进入安全状态所需的时间（1 至 3600）。贴装头默认在 2 秒后进入安全状态：请保持为 1。",
+        "pt": "De quantos em quantos segundos se pergunta a cada nó; mantenha-o bem abaixo do tempo ao fim do qual o nó passa ao estado seguro (1 a 3600). Uma cabeça passa ao estado seguro ao fim de 2 segundos por predefinição: deixe 1."
       },
       "warning": {
         "en": "Set in server.cfg; it takes effect after the server restarts.",
