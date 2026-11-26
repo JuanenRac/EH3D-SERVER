@@ -19,7 +19,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::auth::{Identity, Role, display_owner};
+use crate::auth::{display_owner, Identity, Role};
 use crate::jobs::now;
 use crate::store;
 

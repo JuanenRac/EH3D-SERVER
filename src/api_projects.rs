@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 
 use crate::api::{ApiError, ApiJson, ApiResult, Authed, Shared};
 use crate::artifacts::ArtifactError;
-use crate::auth::{Identity, Role, display_owner};
+use crate::auth::{display_owner, Identity, Role};
 use crate::projects::{Access, ProjectError, ProjectRecord, Share};
 use crate::state::Audience;
 use crate::sync::Locked;
@@ -187,12 +187,11 @@ struct ShareBody {
 /// The owner key of the person named, which has to exist.
 fn target_of(s: &Shared, b: &ShareBody) -> Result<String, ApiError> {
     match (&b.user, &b.token) {
-        (Some(name), None) => {
-            s.auth
-                .locked()
-                .owner_key_of(name)
-                .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "unknown_user", ""))
-        }
+        (Some(name), None) => s
+            .auth
+            .locked()
+            .owner_key_of(name)
+            .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "unknown_user", "")),
         (None, Some(id)) => {
             let known = s.auth.locked().tokens().iter().any(|t| &t.id == id);
             if known {

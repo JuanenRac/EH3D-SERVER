@@ -550,11 +550,7 @@ impl Auth {
     fn adopt_saved(&mut self, saved: Vec<SavedSession>, now: u64) {
         for s in saved {
             // a login saved before the identifiers existed is the one of the user whose identifier is still the name
-            let uid = if s.uid.is_empty() {
-                &s.name
-            } else {
-                &s.uid
-            };
+            let uid = if s.uid.is_empty() { &s.name } else { &s.uid };
             let Some(user) = self
                 .users
                 .iter()

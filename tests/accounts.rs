@@ -104,7 +104,14 @@ async fn a_limited_token_gives_only_roles_it_covers() {
         let (status, body) = change(&s, &limited, name, wanted.clone()).await;
         assert_eq!(status, StatusCode::OK, "{name} {wanted}: {body}");
     }
-    let (status, body) = call(&s, Method::DELETE, "/api/v1/users/oper1", Some(&limited), None).await;
+    let (status, body) = call(
+        &s,
+        Method::DELETE,
+        "/api/v1/users/oper1",
+        Some(&limited),
+        None,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK, "{body}");
 }
 
@@ -171,7 +178,8 @@ async fn what_a_token_that_expires_makes_does_not_outlive_it() {
 async fn the_key_of_a_machine_is_not_made_with_more_than_the_caller_has() {
     let s = server("accounts-compat");
     let boss = admin(&s).await;
-    let machine = json!({"id": "p1", "name": "p1", "plugin": "printer3d", "settings": {"compat": "both"}});
+    let machine =
+        json!({"id": "p1", "name": "p1", "plugin": "printer3d", "settings": {"compat": "both"}});
     let (status, body) = call(
         &s,
         Method::POST,
@@ -191,7 +199,12 @@ async fn the_key_of_a_machine_is_not_made_with_more_than_the_caller_has() {
     assert!(refused(status, &body), "{body}");
     let (status, body) = call(&s, Method::POST, path, Some(&view), None).await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    let (_, short) = make_token(&s, &boss, json!({"name": "short", "role": "admin", "days": 1})).await;
+    let (_, short) = make_token(
+        &s,
+        &boss,
+        json!({"name": "short", "role": "admin", "days": 1}),
+    )
+    .await;
     let (status, body) = call(&s, Method::POST, path, Some(&short), None).await;
     assert!(refused(status, &body), "{body}");
 }
@@ -238,7 +251,11 @@ async fn a_new_user_with_the_name_of_a_deleted_one_inherits_nothing() {
     assert_eq!(status, StatusCode::OK, "{body}");
     let new = user(&s, &boss, "ana", "operator").await;
     for path in &paths {
-        assert_eq!(status_of(&s, &new, path).await, StatusCode::NOT_FOUND, "{path}");
+        assert_eq!(
+            status_of(&s, &new, path).await,
+            StatusCode::NOT_FOUND,
+            "{path}"
+        );
         // what the deleted one made stays for the administrator, under the name it had
         assert_eq!(status_of(&s, &boss, path).await, StatusCode::OK, "{path}");
     }
@@ -365,7 +382,11 @@ async fn the_data_of_a_server_from_before_stays_with_its_people_and_nothing_is_r
     assert_eq!(status, StatusCode::OK, "{answer}");
     let new = user(&s, &boss, "ana", "operator").await;
     for path in &paths {
-        assert_eq!(status_of(&s, &new, path).await, StatusCode::NOT_FOUND, "{path}");
+        assert_eq!(
+            status_of(&s, &new, path).await,
+            StatusCode::NOT_FOUND,
+            "{path}"
+        );
     }
     let mut again = Auth::open(&old_data, 12).unwrap();
     let (token, _, _) = again
