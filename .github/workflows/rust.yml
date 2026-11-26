@@ -54,7 +54,7 @@ jobs:
         with:
           persist-credentials: false
           repository: JuanenRac/EH3D-DRILLPRO
-          ref: 5061f7f4162b4bdf6a8055023797ebe29dddf9fb
+          ref: v0.2.4
           path: EH3D-DRILLPRO
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
