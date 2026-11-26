@@ -3,6 +3,9 @@
 All notable changes to this project are documented here.
 
 ## [Unreleased]
+
+## [0.2.3] - Header injection and temperature reading fixes of the head node and the Marlin simulator, safer G-code files, and many more tests
+
 - Fix the request to the node of the drill head (security): a line break or another control character in the address, the path or the token of the node could begin another header of the request; they are now refused or dropped.
 - Fix the reading of the temperatures of a printer (safety): a reading that is not a finite number (`nan`, `inf`) is no longer taken as a temperature, because every comparison with it is false and a limit would never trip.
 - Fix the printer in memory of the Marlin protocol: a time step that is not a number, or far too long, no longer poisons the heaters or overflows the count of lines done, and asking for a line again after the last possible number no longer overflows.
