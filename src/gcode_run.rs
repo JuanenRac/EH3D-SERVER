@@ -419,7 +419,10 @@ fn drive(
                 return Ok(GState::Done)
             }
             Ok(_) => {}
-            Err(e) => return Err(e.to_string()),
+            // the status that could not be read because the operator stopped the machine is not a failure
+            Err(_) if shared.cancel.load(Ordering::SeqCst) => return cancelled(c.as_mut(), shared),
+            // the machine may still be moving with its spindle on: it is stopped as far as the link allows
+            Err(e) => return Err(stop_after(c.as_mut(), e.to_string())),
         }
         if Instant::now() >= limit {
             return Err(stop_after(
@@ -654,6 +657,63 @@ mod tests {
         moving.store(0, Ordering::SeqCst);
         assert_eq!(handle.join().unwrap(), Ok(GState::Done));
         assert_eq!(told.lock().unwrap().as_slice(), ["pause", "resume"]);
+    }
+
+    /// A controller whose state cannot be read once the lines are in, and which remembers what it was told.
+    struct Deaf {
+        inner: SimController,
+        lines: usize,
+        told: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl Controller for Deaf {
+        fn family(&self) -> eh3d_controller::Family {
+            self.inner.family()
+        }
+        fn capabilities(&self) -> eh3d_controller::Capabilities {
+            self.inner.capabilities()
+        }
+        fn status(&mut self) -> Result<eh3d_controller::Status, eh3d_controller::Error> {
+            if self.lines >= 2 {
+                return Err(eh3d_controller::Error::Timeout);
+            }
+            self.inner.status()
+        }
+        fn command(&mut self, command: Command) -> Result<(), eh3d_controller::Error> {
+            if matches!(command, Command::Stop) {
+                self.told.lock().unwrap().push("stop".to_string());
+            }
+            self.inner.command(command)
+        }
+        fn send_line(&mut self, line: &str) -> Result<(), eh3d_controller::Error> {
+            self.lines += 1;
+            self.told.lock().unwrap().push(line.to_string());
+            self.inner.send_line(line)
+        }
+    }
+
+    #[test]
+    fn a_link_that_fails_during_the_last_moves_stops_the_machine() {
+        let told = Arc::new(Mutex::new(Vec::new()));
+        let deaf = Deaf {
+            inner: SimController::new(),
+            lines: 0,
+            told: told.clone(),
+        };
+        let p = gcode::parse("M3 S9000\nG0 X1\n", 0, false).unwrap();
+        let end = drive(
+            Box::new(deaf),
+            &p.entries,
+            p.preamble,
+            p.resume,
+            Duration::from_secs(5),
+            &Shared::new(),
+        );
+        assert!(end.is_err(), "{end:?}");
+        assert_eq!(
+            told.lock().unwrap().as_slice(),
+            ["M3 S9000", "G0 X1", "stop"]
+        );
     }
 
     #[test]

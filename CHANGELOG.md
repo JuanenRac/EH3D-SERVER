@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **Going on from a stopped G-code job is more careful (safety):** the motion in force (`G0` to `G3`) is given back with the other codes, the margin `resume_margin_lines` counts lines that move, and where the server cannot tell where to go on from (relative distances, offsets the controller loses, a job that ran on the tool changer) it says why and a person names the line.
+- **Stopping a G-code job (safety):** a controller that cannot be read during the last moves is now told to stop, and no line can follow the real-time stop on the port.
 - **Releases have a signed record, and the update helper asks for it (security):** `eh3d-release.json` says the repository, the version and the name, architecture, size and SHA-256 of every file of a release, and is signed like the files. Every version of EH3D-SERVER after 0.2.5 and of EH3D-STUDIO after 0.2.0 is installed only with it, and a record that any release publishes must agree with the download. Earlier releases, which only have the `.sig` of each file, are installed as before (`docs/DEPLOY.md`, "The record of a release").
 - **A token that expires opens no account (security):** it does not make users, set passwords, enable users or raise roles (`403 forbidden_scope`), whatever its role and scopes; a login of a person and a token without expiry do as before. A program that provisions users needs a token without expiry (`docs/API.md`).
 

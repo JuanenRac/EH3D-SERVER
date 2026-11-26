@@ -2802,9 +2802,77 @@ async fn a_stopped_gcode_job_goes_back_by_the_margin_of_the_server() {
     )
     .await;
     let id = job["id"].as_str().unwrap().to_string();
-    stop_job(&s, &id, JobState::Failed, 0, 0, 40);
+    // the job has not taken a line: it goes on where it had started
+    stop_job(&s, &id, JobState::Failed, 0, 0, 0);
     let (_, saved) = get(&s, &token, &format!("/api/v1/jobs/{id}/request")).await;
-    assert_eq!(saved["next_skip"].as_u64(), Some(24), "{saved}");
+    assert_eq!(saved["next_skip"].as_u64(), Some(0), "{saved}");
+
+    // a note after every move: the margin of 16 counts the moves, so it goes back 32 lines of the text and not 16
+    let text = format!("G21 G90\n{}", "G0 X1\n(a note)\n".repeat(30));
+    let (_, job) = post(
+        &s,
+        &token,
+        "/api/v1/machines/m1/jobs",
+        Some(gcode_job(&text)),
+    )
+    .await;
+    let id = job["id"].as_str().unwrap().to_string();
+    stop_job(&s, &id, JobState::Failed, 0, 0, 41);
+    let (_, saved) = get(&s, &token, &format!("/api/v1/jobs/{id}/request")).await;
+    assert_eq!(saved["next_skip"].as_u64(), Some(9), "{saved}");
+}
+
+#[tokio::test]
+async fn a_job_that_cannot_go_on_by_itself_says_why_and_a_person_may_still_name_the_line() {
+    use eh3d_server::jobs::JobState;
+    let s = server("resume-refused");
+    let token = admin(&s).await;
+    demo_machine(&s, &token, "m1").await;
+    let (_, job) = post(
+        &s,
+        &token,
+        "/api/v1/machines/m1/jobs",
+        Some(gcode_job("G21 G91\nG1 X1 F100\nG1 X1\nG1 X1\n")),
+    )
+    .await;
+    let id = job["id"].as_str().unwrap().to_string();
+    stop_job(&s, &id, JobState::Cancelled, 0, 0, 3);
+    let (_, saved) = get(&s, &token, &format!("/api/v1/jobs/{id}/request")).await;
+    assert!(saved["next_skip"].is_null(), "{saved}");
+    let path = format!("/api/v1/jobs/{id}/resume-from");
+    let (status, body) = post(&s, &token, &path, None).await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_request")),
+        "{body}"
+    );
+    assert!(body["detail"].as_str().unwrap().contains("G91"), "{body}");
+    let (status, again) = post(&s, &token, &path, Some(json!({"skip": 2}))).await;
+    assert_eq!(status, StatusCode::OK, "{again}");
+
+    // a job that ran on the tool changer: the chuck may hold any tool
+    let (_, job) = post(&s, &token, "/api/v1/machines/m1/jobs", Some(drill_job())).await;
+    let id = job["id"].as_str().unwrap().to_string();
+    stop_job(&s, &id, JobState::Failed, 1, 5, 0);
+    s.state
+        .jobs
+        .lock()
+        .unwrap()
+        .get_mut(&id)
+        .unwrap()
+        .view
+        .rack_applied = Some(true);
+    let path = format!("/api/v1/jobs/{id}/resume-from");
+    let (status, body) = post(&s, &token, &path, None).await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_request")),
+        "{body}"
+    );
+    assert!(
+        body["detail"].as_str().unwrap().contains("tool changer"),
+        "{body}"
+    );
 }
 
 #[tokio::test]

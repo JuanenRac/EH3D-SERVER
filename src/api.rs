@@ -17,6 +17,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::auth::{AuthError, Identity, Role};
+use crate::gcode;
 use crate::head::{self, HeadError};
 use crate::inspect::{self, InspectError};
 use crate::jobs::{new_id, now, JobRecord, JobState};
@@ -1409,10 +1410,21 @@ async fn skip_of(
     margin: usize,
 ) -> Result<usize, ApiError> {
     let before = job.request.get("skip").and_then(Value::as_u64).unwrap_or(0) as usize;
+    // the body does not name where to go on from and the server cannot tell
+    let cannot = |why: &str| ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "bad_request", why);
+    // a job on the tool changer that ran may have left any tool in the chuck: the plan of a new job takes the test pin to be there
+    if job.view.rack_applied == Some(true) && (job.started.is_some() || job.items_done > 0) {
+        return Err(cannot(
+            "the job ran on the tool changer and the tool in the chuck is not known: put the test pin and the tools back where a new job expects them, then name where to go on from",
+        ));
+    }
     match job.kind.as_str() {
         "drill" => Ok(before + job.holes_done),
-        // the lines the controller had taken but not yet done are sent again: a margin before the line reached
-        "gcode" => Ok(job.line.saturating_sub(margin).max(before)),
+        // the lines the controller had taken but not yet done are sent again: a margin of moves before the line reached
+        "gcode" => {
+            let text = job.request.get("gcode").and_then(Value::as_str);
+            gcode::resume_line(text.unwrap_or(""), job.line, margin, before).map_err(cannot)
+        }
         _ => {
             if job.items_done == 0 {
                 return Ok(before);
