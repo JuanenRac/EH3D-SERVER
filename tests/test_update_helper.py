@@ -34,7 +34,7 @@ class FakeGitHub:
     def __init__(self, tag_server="v0.0.2", tag_studio="v0.0.3"):
         arch = H.arch()
         self.files = {
-            f"https://dl/eh3d-server-{tag_server.lstrip('v')}-linux-{arch}.tar.gz": tarball({"eh3d-server": b"#!/bin/sh\necho new\n"}, "eh3d-server"),
+            f"https://dl/eh3d-server-{tag_server.lstrip('v')}-linux-{arch}.tar.gz": tarball({"eh3d-server": b"#!/bin/sh\necho new\n"}, f"eh3d-server-{tag_server.lstrip('v')}-linux-{arch}"),
             f"https://dl/eh3d-studio-{tag_studio.lstrip('v')}.tar.gz": tarball({"index.html": b"<html>new</html>", "version.json": b'{"version":"%s"}' % tag_studio.lstrip("v").encode()}),
         }
         self.releases = {
@@ -532,6 +532,54 @@ class UpdateHelper(unittest.TestCase):
         self.assertEqual(own.read_text(encoding="utf-8"), "print('new')\n")
         self.assertFalse(H.refresh_helper(self.folder, "server", comp, tree, own))
         self.assertFalse((self.root / "installed-helper.py.new").exists())
+
+    def _replace_package(self, component: str, data: bytes):
+        url = next(u for u in self.gh.files if component in u and u.endswith(".tar.gz"))
+        self.gh.files[url] = data
+        self.gh.files[url + ".sha256"] = (hashlib.sha256(data).hexdigest() + "  " + url.rsplit("/", 1)[1] + "\n").encode()
+        return url
+
+    def test_a_package_of_another_version_published_under_a_newer_one_is_not_installed(self):
+        arch = H.arch()
+        for component, data in (
+            ("studio", tarball({"index.html": b"old", "version.json": b'{"version":"0.0.1"}'})),
+            ("studio", tarball({"index.html": b"old"})),
+            ("studio", tarball({"index.html": b"old", "version.json": b"[]"})),
+            ("server", tarball({"eh3d-server": b"old"}, f"eh3d-server-0.0.1-linux-{arch}")),
+            ("server", tarball({"eh3d-server": b"old"})),
+        ):
+            target = self.root / "opt" / f"eh3d-{component}"
+            shutil.rmtree(target, ignore_errors=True)
+            target.mkdir(parents=True)
+            (target / "kept").write_text("kept", encoding="utf-8")
+            self._replace_package(component, data)
+            self.ask({"action": "apply", "components": [component]})
+            status = self.folder.read("status.json")
+            self.assertEqual(status["state"], "error", status)
+            self.assertIn("nothing was installed", status["message"])
+            self.assertEqual([p.name for p in target.iterdir()], ["kept"])
+        self.assertEqual(self.run.calls, [])
+
+    def test_the_layout_of_the_published_releases_is_accepted(self):
+        # the server: one folder named like the file; the pages: their files and a version.json at the top, written with "./" before each name
+        stage = self.root / "stage-server"
+        (stage / "eh3d-server-0.2.4-linux-aarch64").mkdir(parents=True)
+        H.check_declared_version("server", stage, "eh3d-server-0.2.4-linux-aarch64.tar.gz", "0.2.4")
+        with self.assertRaises(RuntimeError):
+            H.check_declared_version("server", stage, "eh3d-server-0.2.5-linux-aarch64.tar.gz", "0.2.5")
+        pages = self.root / "stage-studio"
+        pages.mkdir()
+        (pages / "version.json").write_text('{"name":"eh3d-studio","version":"0.2.0"}\n', encoding="utf-8")
+        (pages / "assets").mkdir()
+        H.check_declared_version("studio", pages, "eh3d-studio-0.2.0.tar.gz", "0.2.0")
+        with self.assertRaises(RuntimeError):
+            H.check_declared_version("studio", pages, "eh3d-studio-0.3.0.tar.gz", "0.3.0")
+
+    def test_a_release_whose_tag_is_not_a_version_is_not_installed(self):
+        self.gh.releases["EH3D-STUDIO"]["tag_name"] = "latest"
+        self.ask({"action": "apply", "components": ["studio"]})
+        self.assertIn("not named by a version", self.folder.read("status.json")["message"])
+        self.assertFalse((self.root / "opt" / "eh3d-studio").exists())
 
     def test_the_history_is_emptied_on_request_and_that_request_is_not_kept_in_it(self):
         self.ask({"action": "check"})

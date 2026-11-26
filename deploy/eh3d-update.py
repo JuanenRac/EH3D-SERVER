@@ -30,6 +30,10 @@ signature that is published must verify: only a release with no `.sig` falls bac
 A release whose version is lower than the installed one is refused (a signed old release published again as the latest would otherwise be installed): `--allow-downgrade`, or
 `{"settings": {"allow_downgrade": true}}` in the file of `--config`, allows going back on purpose.
 
+A signature covers the bytes of a package, not the release it is published under, so the version a package declares inside must also be the one the release announces: the
+`version` of its `version.json` (the pages), or else the name of the one folder it holds, which is the name of the file without its extension (the server). A package that
+declares another version, or none, is not installed.
+
 The files are written beside the old ones and moved into place, and the old ones are kept as `.previous` so that a bad update can be put back by hand. Only the standard
 library is used.
 """
@@ -277,8 +281,30 @@ def is_older(candidate, installed) -> bool:
     return a + (0,) * (size - len(a)) < b + (0,) * (size - len(b))
 
 
+def check_declared_version(comp_id: str, stage: Path, name: str, version: str) -> None:
+    """Refuses an unpacked package (the file `name`, in `stage`) that does not say inside that it is `version`: its signature says who made the bytes, not which release
+    they are, so a package of an earlier release renamed and published as a newer one would otherwise be installed."""
+    entries = list(stage.iterdir())
+    folder = entries[0] if len(entries) == 1 and entries[0].is_dir() else None
+    declaration = (folder or stage) / "version.json"
+    if declaration.is_file():
+        try:
+            declared = json.loads(declaration.read_text(encoding="utf-8")).get("version")
+        except (OSError, ValueError, AttributeError):
+            declared = None
+        if declared == version:
+            return
+        raise RuntimeError(f"{comp_id}: {name} is published as {version} but its version.json says {str(declared)[:40]!r}; nothing was installed")
+    stem = name.removesuffix(".tar.gz")
+    if folder is not None and folder.name == stem:
+        return
+    raise RuntimeError(f"{comp_id}: {name} does not say inside that it is {version} (no version.json and no folder called {stem}); nothing was installed")
+
+
 def install(folder: Folder, comp_id: str, comp: dict, release: dict, get=http_get, run=subprocess.run, allow_unsigned: bool = False) -> None:
     version = release["latest"]
+    if not re.fullmatch(r"\d+(\.\d+){0,3}", version):
+        raise RuntimeError(f"{comp_id}: the latest release is not named by a version; nothing was installed")
     installed = version_in(Path(comp["install_dir"]))
     if not ALLOW_DOWNGRADE and is_older(version, installed):
         raise RuntimeError(f"{comp_id}: the latest release says {version} but {installed} is installed; nothing was installed (allow_downgrade in the settings of the helper allows going back)")
@@ -323,6 +349,7 @@ def install(folder: Folder, comp_id: str, comp: dict, release: dict, get=http_ge
         stage.mkdir()
         with tarfile.open(archive) as tar:
             tar.extractall(stage, members=list(safe_members(tar, stage)))  # noqa: S202 - the members were checked
+        check_declared_version(comp_id, stage, name, version)
         entries = [p for p in stage.iterdir()]
         # an archive with one folder inside is taken from inside it
         src = entries[0] if len(entries) == 1 and entries[0].is_dir() else stage

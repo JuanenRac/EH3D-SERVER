@@ -4,6 +4,7 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **The update helper asks a package which version it is (security):** besides the hash and the signature, the version the package declares inside (the `version.json` of the pages, or the name of the folder of the server) must be the one the release announces. The published releases already do; a component of your own in `--config` must too.
 - **A new user with the name of a deleted one is another person:** every user has an identifier that is never given again, and projects, shares, artifacts, uploads, tasks, jobs, locks and notifications are filed under it (the API still shows the name). Users that exist keep everything, with nothing to move. What a deleted user made is left to the administrators.
 - **A token with scopes gives no more than it has (security):** it does not make, change or delete administrators; it makes another user, sets a password, enables one or raises a role only when it carries the scopes of that role; and it makes the key of a 3D printer only with the scopes of what the key does. A program that provisions users with an `admin:users` token must be given those scopes too (`docs/API.md`), or answers `403 forbidden_scope`.
 - **A token made by a token that expires ends no later than it (security);** such a token rotates only tokens that end no later, and makes no key of a 3D printer.
