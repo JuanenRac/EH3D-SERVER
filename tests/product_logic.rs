@@ -268,7 +268,7 @@ fn the_numbers_of_the_slicer_and_the_design_program_have_their_ranges() {
     bounds("design_max_parallel", 1, 64);
 }
 
-const SWITCHES: [&str; 26] = [
+const SWITCHES: [&str; 27] = [
     "exit_on_panic",
     "trust_forwarded_for",
     "persist_sessions",
