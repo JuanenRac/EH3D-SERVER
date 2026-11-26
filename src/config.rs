@@ -44,6 +44,17 @@ pub struct ServerConfig {
     pub bambu_lan_port: u16,
     /// How long, in seconds, the connection to a Bambu Lab printer and each of its answers may take (1 to 60).
     pub bambu_lan_timeout_s: u64,
+    /// Whether the server keeps a list of 3D printers, reads their state (never anything else) and shows it (`/api/v1/printers`). Off by default: with it off the routes
+    /// answer 501 and the server opens no connection to any printer. A Bambu Lab printer on the LAN also needs `bambu_lan_enabled`. Read when the server starts.
+    pub printers_enabled: bool,
+    /// The most printers the list takes (1 to 64).
+    pub printers_max: u32,
+    /// Every how many seconds the state of each printer is read (1 to 3600).
+    pub printer_poll_s: u64,
+    /// How old what a printer said may be and still be shown as current, in seconds (5 to 3600); never less than two polls.
+    pub printer_stale_s: u64,
+    /// How many seconds a connection to a Moonraker printer and each of its answers may take (1 to 30); a Bambu printer uses `bambu_lan_timeout_s`.
+    pub printer_timeout_s: u64,
     /// Whether the server keeps a list of the nodes of the pick-and-place machines (feeders and heads), asks them for their status and shows it (`/api/v1/pnp/nodes`, the
     /// fleet). Off by default: with it off the routes answer 501 and the server opens no connection to any node. Read when the server starts.
     pub pnp_nodes_enabled: bool,
@@ -269,6 +280,11 @@ impl Default for ServerConfig {
             bambu_lan_enabled: false,
             bambu_lan_port: 8883,
             bambu_lan_timeout_s: 5,
+            printers_enabled: false,
+            printers_max: 8,
+            printer_poll_s: 5,
+            printer_stale_s: 90,
+            printer_timeout_s: 5,
             pnp_nodes_enabled: false,
             pnp_nodes_max: 32,
             pnp_node_poll_s: 5,
@@ -600,6 +616,11 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
             "bambu_lan_timeout_s" => {
                 c.bambu_lan_timeout_s = number(&key, value, 1, 60).map_err(at)?
             }
+            "printers_enabled" => c.printers_enabled = flag(&key, value).map_err(at)?,
+            "printers_max" => c.printers_max = number(&key, value, 1, 64).map_err(at)? as u32,
+            "printer_poll_s" => c.printer_poll_s = number(&key, value, 1, 3_600).map_err(at)?,
+            "printer_stale_s" => c.printer_stale_s = number(&key, value, 5, 3_600).map_err(at)?,
+            "printer_timeout_s" => c.printer_timeout_s = number(&key, value, 1, 30).map_err(at)?,
             "pnp_nodes_enabled" => c.pnp_nodes_enabled = flag(&key, value).map_err(at)?,
             "pnp_nodes_max" => c.pnp_nodes_max = number(&key, value, 1, 200).map_err(at)? as u32,
             "pnp_node_poll_s" => c.pnp_node_poll_s = number(&key, value, 1, 3_600).map_err(at)?,

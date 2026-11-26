@@ -18,7 +18,7 @@
 
 ---
 
-**诚实性核对 - 今天真正能运行的内容：** 一个带有 REST 和 websocket 接口的 Rust 服务器（axum），保存用户、机床和作业，使用 EH3D-DRILLPRO 和 EH3D-ROUTEPRO 的库规划钻孔或铣削作业（孔和路径，或带刀具表的 Excellon 或 HP-GL 文件），显示预览，并通过 EH3D-NODE-BUNGARD 或模拟器在机床上执行，带有操作员对话框、停止功能，并实时通告每个变化。41 个测试在计算机上运行，作业针对模拟器运行。**还没有通过它在真实机床上运行过任何东西**，它不终止 TLS，除程序之外的客户端中，EH3D-STUDIO 已存在（从未对真实机床试过），Android 应用和机床旁的面板还不存在。 它也是 EH3D 每个应用的服务器，带有四个公共服务（项目存储、共享目录、带作业队列和事件流的机床插件、统一登录）；它们只在测试中运行，目前没有任何应用使用它们。
+**诚实性核对 - 今天真正能运行的内容：** 一个带有 REST 和 websocket 接口的 Rust 服务器（axum），保存用户、机床和作业，使用 EH3D-DRILLPRO 和 EH3D-ROUTEPRO 的库规划钻孔或铣削作业（孔和路径，或带刀具表的 Excellon 或 HP-GL 文件），显示预览，并通过 EH3D-NODE-BUNGARD 或模拟器在机床上执行，带有操作员对话框、停止功能，并实时通告每个变化。1172 个测试在计算机上运行，作业针对模拟器运行。**还没有通过它在真实机床上运行过任何东西**，它不终止 TLS，除程序之外的客户端中，EH3D-STUDIO 已存在（从未对真实机床试过），Android 应用和机床旁的面板还不存在。 它也是 EH3D 每个应用的服务器，带有四个公共服务（项目存储、共享目录、带作业队列和事件流的机床插件、统一登录）；它们只在测试中运行，目前没有任何应用使用它们。
 
 ---
 
@@ -30,7 +30,7 @@
 |---|---|
 | 版本 | `0.2.3` |
 | 成熟度 | 可用 |
-| 测试 | 1137 |
+| 测试 | 1172 |
 | 技术栈 | Rust (axum, tokio) |
 | 真实硬件 | 否：已针对模拟器测试；尚未通过服务器在真实机床上运行过任何东西 |
 
@@ -45,7 +45,7 @@
 | 领域 | 状态 | 在这里的含义 |
 |---|---|---|
 | 软件 | 🟡 | Rust 服务器（axum）保存用户、机床和作业，使用 EH3D-DRILLPRO 和 EH3D-ROUTEPRO 的库规划钻孔和铣削作业，显示预览，并带有操作员对话框和停止功能地运行作业。 |
-| 测试 | 🟡 | 1137 个测试通过（`cargo test`）：模块内 500 个，接口端到端 637 个，作业在模拟器上运行（`tests/api.rs` 41 个，使用真实程序的 `tests/programs.rs` 7 个）。 |
+| 测试 | 🟡 | 1172 个测试通过（`cargo test`）：模块内 530 个，接口端到端 642 个，作业在模拟器上运行（`tests/api.rs` 43 个，使用真实程序的 `tests/programs.rs` 7 个）。 |
 | 面向客户端的接口（API） | 🟡 | REST 请求和 websocket 事件已写在 `docs/API.md` 和路由的 OpenAPI 契约 `docs/openapi.yaml` 中并被测试覆盖；目前只有程序自带的服务器连接在使用。 |
 | 公共服务 | 🟠 | 项目存储、共享目录、带队列和事件的机床插件以及统一登录，都在计算机上的测试中运行；目前没有任何应用使用它们，没有任何东西通过队列在真实机床上运行过，目录也没有载入各程序的真实数据。 |
 | 客户端 | 🔴 | EH3D-STUDIO 在使用它（从未对真实机床试过）；Android 应用和机床旁的触摸面板尚不存在。 |
@@ -98,6 +98,7 @@ EH3D-SERVER 是 EH3D 家族的中心：程序把作业发给它，它通过节�
 * **机床的主轴：** `GET` 和 `PUT /api/v1/machines/:id/spindle` 说明机床装的是哪个主轴（`original` 或 `vfd`）及其限值（转速、切削进给、下刀进给、最粗的钻头）；要求超出的作业会被 `spindle_limit` 拒绝（安全开关 `guard` 默认为 `reject`；设为 `warn` 时作业通过，转速被削减到主轴最大值，每项超出列在 `spindle_warnings` 中）。
 * **带版本的项目存储：** 文件从不被覆盖，每次写入都是带 SHA-256 的新版本；对已有文件的写入必须说明它基于哪个版本（`If-Match`）；每次读取都用哈希校验字节；可能跳出文件夹或属于 Windows 的名称会被拒绝。
 * **插件背后的机床：** Bungard 机床就是 `bungard` 插件（同样的机床、同样的作业、同样的旧路由），无硬件的 `demo` 插件供测试使用，模拟器 `laser`（功率和进给上限、会锁定的急停）、`pnp`（供料器和贴装作业）和 `pcb`（检查和报告）供激光、贴片和电路板程序使用；`cnc`（受行程限制的程序、有限制的点动、需管理员解除的急停锁定）、`gerber` 和 `cam`（Gerber 检查，用于钻孔、轮廓和隔离的 G 代码）以及 `printer3d`（按型号的温度上限、受监视的加热器、Moonraker 与 OctoPrint 驱动）同样供 CNC、电路板工具和 3D 打印程序使用；通用队列保存每个作业的历史，事件流（`GET /api/v1/events/stream`）让客户端凭 `Last-Event-ID` 重新连接而不丢失任何内容。这些插件全部**仅限模拟器**：其能力中写有 `evidence: simulator`，每台机器的详情中写有 `simulator_only`，尚未通过服务器在真实的激光机、雕刻机、贴片机、电路板工作站或打印机上运行过。服务器可以在本地网络中发布自己（`_eh3d._tcp`，默认关闭），通过 `GET /api/v1/openapi.json` 提供自己的接口契约，并在默认关闭的开关和每台机器一把密钥之后，为 Moonraker 和 OctoPrint 客户端提供只读路由。 同样是模拟的：`vision`（相机程序的结果，保存为 `vision-<kind>.json` 制品）和 `cad`（PHOENIX-CAD 项目文件的检查与报告）、模拟串口线路上的 Marlin 打印机，以及作为实验的局域网模式 Bambu Lab 打印机（绝不接受不是已固定的证书）；农场路由把一次打印分给空闲的打印机，并让每份副本等待人工启动；在另外两个默认关闭的开关之后，兼容路由也可以写入（上传到队列、暂停、取消），服务器还可以在打印机配置文件的限制内把网格切片为 G-code。 切片路由还可以把程序作为二进制 G-code 文件（`.bgcode`）给出并读回，也能读取模型经 deflate 压缩的 3MF 文件；在默认关闭的开关 `bambu_lan_enabled` 之后，服务器可以通过 TLS 连接真实的 Bambu Lab 打印机，并用指纹固定其证书，这是一个仅在内存中的打印机上运行过的实验。 贴片机的供料器节点与贴装头节点（EH3D-NODE-PNP-FEEDER 和 EH3D-NODE-PNP-HEAD）可以登记（`/api/v1/pnp/nodes`，默认由 `pnp_nodes_enabled` 关闭）：服务器携带令牌查询它们，在 API 和机队中显示其状态，并把静默、令牌被拒或自称处于安全状态的节点视为未就绪，因此期间该机器的作业不会启动（仅限模拟器：测试查询的是内存中的节点）。激光、贴片机或数控机床的作业带有哈希，可由人授权（`/api/v1/work/jobs/{id}/authorize`）；开启 `work_require_authorization` 后，只有经此授权才会启动。
+* **受监视的打印机（只读）：** 服务器读取一组 3D 打印机（固定证书的 TLS 局域网模式 Bambu Lab、通过 Moonraker 的 Klipper，或模拟打印机）的状态，并在 `/api/v1/printers` 显示：温度、进度、剩余时间、层数、警报以及是否有摄像头。服务器从不向打印机发送指令、G 代码或文件，也没有任何路由可以这样做。在启用 `printers_enabled` 之前处于关闭状态；打印机的访问码或密钥单独保存，显示为 `***`。仅用内存中的打印机试验过：从未在真实打印机上运行。
 * **每个应用共用的登录：** 登录会说明它属于哪个应用，每个人可以查看并关闭自己已打开的会话，管理员可以处理任何人的会话；密码与锁定遵循设置，审计记录登录、拒绝和关闭，绝不记录秘密；`GET /api/v1/auth/policy` 向 Studio 展示安全开关。
 
 ## 🔒 安全与防护
@@ -177,7 +178,7 @@ python -I tools/ci_validate.py
 
 ## 🧪 测试
 
-测试共 589 个（`cargo test`，CI 中在 Windows 和 Linux 上运行，COMMON, DRILLPRO 和 ROUTEPRO 检出在服务器旁）：模块内 380 个（设置及其范围、用户、角色、令牌、对错误密码的减速、文件和作业簿、规划），通过真实路由器的接口端到端 41 个（`tests/api.rs`），维护客户端所读响应示例的 2 个（`tests/examples.rs`），以及真实程序通过真实端口把作业发给真实服务器、机床使用模拟器的 7 个（`tests/programs.rs`）。`tests/` 中的其他文件另有 142 个（四个公共服务及其文档、产物、计算任务、共享、事件、错误目录、API 文档中的路由、信号停止与一次 panic）。CI 还运行 `cargo fmt --all --check`、将警告视为错误的 `cargo clippy` 和 `python -I tools/ci_validate.py`。这里没有任何东西针对真实节点或机床测试过。 负责更新的辅助程序另有 33 项自己的测试（`python -I tests/test_update_helper.py`，用替身替代 GitHub 和 systemd）。另有两个测试文件检查：使锁中毒的 panic 不会使服务器停止（`tests/poison.rs`），以及真实的二进制文件在收到 SIGTERM 时停止（`tests/sigterm.rs`，在 Linux 上）；备份和部署文件各有 7 个和 8 个自己的测试（`tests/test_backup.py`、`tests/test_deploy_files.py`）。 另有两个测试文件分别在真实套接字上检查事件 websocket（`tests/events.rs`，3 个测试），并对照服务器源码检查错误代码目录（`tests/errors.rs`，3 个测试）。 路由契约通过 `tests/openapi.rs`（6 个测试）和 `python -I tools/check_openapi.py` 对照路由器检查，后者也在 CI 中运行。
+测试共 1172 个（`cargo test`，CI 中在 Windows 和 Linux 上运行，COMMON, DRILLPRO 和 ROUTEPRO 检出在服务器旁）：模块内 530 个（设置及其范围、用户、角色、令牌、对错误密码的减速、文件和作业簿、规划），通过真实路由器的接口端到端 43 个（`tests/api.rs`），维护客户端所读响应示例的 2 个（`tests/examples.rs`），以及真实程序通过真实端口把作业发给真实服务器、机床使用模拟器的 7 个（`tests/programs.rs`）。`tests/` 中的其他文件另有 590 个（四个公共服务及其文档、产物、计算任务、共享、事件、错误目录、API 文档中的路由、信号停止与一次 panic）。CI 还运行 `cargo fmt --all --check`、将警告视为错误的 `cargo clippy` 和 `python -I tools/ci_validate.py`。这里没有任何东西针对真实节点或机床测试过。 负责更新的辅助程序另有 33 项自己的测试（`python -I tests/test_update_helper.py`，用替身替代 GitHub 和 systemd）。另有两个测试文件检查：使锁中毒的 panic 不会使服务器停止（`tests/poison.rs`），以及真实的二进制文件在收到 SIGTERM 时停止（`tests/sigterm.rs`，在 Linux 上）；备份和部署文件各有 7 个和 8 个自己的测试（`tests/test_backup.py`、`tests/test_deploy_files.py`）。 另有两个测试文件分别在真实套接字上检查事件 websocket（`tests/events.rs`，3 个测试），并对照服务器源码检查错误代码目录（`tests/errors.rs`，3 个测试）。 路由契约通过 `tests/openapi.rs`（6 个测试）和 `python -I tools/check_openapi.py` 对照路由器检查，后者也在 CI 中运行。
 
 ## 🏗️ 构建与发布
 
@@ -211,6 +212,7 @@ EH3D-SERVER/
 │   ├── catalogs.rs api_catalogs.rs                                                                      共享目录：材料、刀具、库
 │   ├── plugins.rs work.rs feed.rs api_work.rs                                                           机床插件、作业队列、事件、通知
 │   ├── laser.rs pnp.rs pcb.rs plugin_*.rs                                                               模拟的激光、贴片和电路板机床
+│   ├── printers.rs api_printers.rs printer_readers.rs printer_status.rs                                 监视的 3D 打印机（只读）
 │   ├── pnp_nodes.rs api_pnp_nodes.rs                                                                    贴片机的节点
 │   ├── cnc.rs gerber.rs cam.rs                                                                          模拟的 CNC 机床以及 Gerber 和 CAM 工作进程
 │   ├── mdns.rs compat.rs                                                                                mDNS 发布与兼容密钥

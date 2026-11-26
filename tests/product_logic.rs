@@ -246,6 +246,10 @@ fn the_numbers_of_the_logins_and_the_passwords_have_their_ranges() {
 fn the_numbers_of_the_printer_and_the_nodes_have_their_ranges() {
     bounds("bambu_lan_port", 1, 65_535);
     bounds("bambu_lan_timeout_s", 1, 60);
+    bounds("printers_max", 1, 64);
+    bounds("printer_poll_s", 1, 3_600);
+    bounds("printer_stale_s", 5, 3_600);
+    bounds("printer_timeout_s", 1, 30);
     bounds("pnp_nodes_max", 1, 200);
     bounds("pnp_node_poll_s", 1, 3_600);
     bounds("pnp_node_silence_s", 2, 3_600);
@@ -264,7 +268,7 @@ fn the_numbers_of_the_slicer_and_the_design_program_have_their_ranges() {
     bounds("design_max_parallel", 1, 64);
 }
 
-const SWITCHES: [&str; 26] = [
+const SWITCHES: [&str; 27] = [
     "exit_on_panic",
     "trust_forwarded_for",
     "persist_sessions",
@@ -287,6 +291,7 @@ const SWITCHES: [&str; 26] = [
     "compat_write",
     "slice_enabled",
     "bambu_lan_enabled",
+    "printers_enabled",
     "pnp_nodes_enabled",
     "design_run",
     "url_token",

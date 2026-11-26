@@ -48,6 +48,16 @@ bambu_lan_enabled = false
 # The port of the MQTT broker of the printer and how long, in seconds, a connection and each answer may take (1 to 60).
 bambu_lan_port = 8883
 bambu_lan_timeout_s = 5
+# ---- the 3D printers the server watches, READ ONLY (docs/API.md)
+# Let the server keep a list of printers (Bambu Lab on the LAN, Klipper through Moonraker, or simulated ones) and read their state: temperatures, progress, layers, alerts. The server never
+# sends them an order, G-code or a file. Off: the routes of /api/v1/printers answer 501 and no connection to a printer is opened. A Bambu Lab printer on the LAN also needs bambu_lan_enabled.
+printers_enabled = false
+# The most printers in the list (1 to 64).
+printers_max = 8
+# Every how many seconds each printer is read (1 to 3600), how old what it said may be and still count as current (5 to 3600, never less than two polls) and how long a request to Moonraker may take (1 to 30)
+printer_poll_s = 5
+printer_stale_s = 90
+printer_timeout_s = 5
 # ---- the nodes of the pick-and-place machines (feeders and heads), docs/MACHINE_PLUGINS.md
 # Let the server keep a list of the nodes, ask them for their status and show it in /api/v1/pnp/nodes and in the fleet. Off: the routes answer 501 and no connection to a node is opened.
 pnp_nodes_enabled = false

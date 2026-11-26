@@ -243,6 +243,20 @@
           "tree_name": "laser.rs pnp.rs pcb.rs plugin_*.rs"
         },
         {
+          "name": "printers.rs",
+          "tree_name": "printers.rs api_printers.rs printer_readers.rs printer_status.rs",
+          "desc": {
+            "en": "the 3D printers the server watches, read only",
+            "es": "las impresoras 3D vigiladas, solo lectura",
+            "de": "die beobachteten 3D-Drucker, nur lesend",
+            "fr": "les imprimantes 3D surveillées, en lecture seule",
+            "it": "le stampanti 3D sorvegliate, in sola lettura",
+            "ja": "監視する 3D プリンター (読み取り専用)",
+            "zh": "监视的 3D 打印机（只读）",
+            "pt": "as impressoras 3D vigiadas, só leitura"
+          }
+        },
+        {
           "name": "pnp_nodes.rs",
           "tree_name": "pnp_nodes.rs api_pnp_nodes.rs",
           "desc": {

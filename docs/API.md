@@ -166,6 +166,25 @@ A node is `id`, `kind`, `name`, `address`, `token` (`********` or empty; the tok
 
 **Settings** (`server.cfg`, read when the server starts): `pnp_nodes_enabled`, `pnp_nodes_max` (1 to 200), `pnp_node_poll_s` (1 to 3600; well below the time after which a node goes safe for not hearing the server), `pnp_node_silence_s` (2 to 3600) and `pnp_node_timeout_s` (1 to 30). All five are in `docs/settings-contract.json` with their texts in the eight languages.
 
+## The printers the server watches
+
+**Read only.** The server reads the state of 3D printers and shows it; it never sends a printer an order, a temperature, G-code or a file, and there is no route that could. The list is off until `printers_enabled = true` (`501 printers_off` before), and holds up to `printers_max` printers of two families of protocol, each simulated (`link: "sim"`, in memory, no connection) or on the local network (`link: "lan"`):
+
+| Family | How it is read |
+|---|---|
+| `bambu_lan` | MQTT over TLS to the printer (port `bambu_lan_port`), only while `bambu_lan_enabled` is on too. The certificate is pinned by its SHA-256 (`fingerprint`): with none, or another, nothing is sent and `certificate_seen` says what the printer showed, to compare it with the printer and pin it. The only message published is the request for the whole state, at most every five minutes while the printer talks. |
+| `moonraker` | Klipper through Moonraker, plain HTTP (port 7125 unless the address names one): only `GET /printer/objects/query` and `GET /server/webcams/list`. |
+
+| Method and path | Role | What |
+|---|---|---|
+| `GET /printers` | viewer | the contract `eh3d.printers.status/1`: the printers, how many are in each health and the limits |
+| `GET /printers/:id` | viewer | one printer |
+| `POST /printers` | admin | register a printer (`name`, `family`, `link`, `address`, `serial`, `fingerprint`, `secret`) |
+| `PUT /printers/:id` | admin | change what the server keeps of it |
+| `DELETE /printers/:id` | admin | remove it from the list |
+
+The access code or key (`secret`) is kept apart from the list, in `printer-secrets.json` of the data folder, is shown as `***` and is never logged or audited; sent back as `***` it is kept. The serial is shown shortened. A body that does not read is refused without quoting it. A printer has a `health`: `online`, `stale` (what it said is older than `printer_stale_s`), `offline`, `refused` (the access code), `untrusted` (the certificate), `bad_report`, `off` (`bambu_lan_enabled`), `disabled` or `unknown`; only `online` and `stale` carry a `status`, and `current` is true only for `online`. In the `status`, what the printer did not say, or a number that cannot be right, is `null`, never zero: `state`, `temperatures` (`nozzle`, `bed`, `chamber`), `progress_pct`, `remaining_s` (`remaining_estimated` says the server worked it out, as for Klipper), `layer` and `layers`, `job_name`, `alerts` (the health codes of a Bambu printer, a failed print, a stopped firmware) and `camera.present` (never an address or a picture). A change of health, state or alerts is told on the websocket as `{"type":"printer","id","health","state","alerts"}`. Everything here has been tried against printers in memory only (`evidence` is `simulator` or `unvalidated`): nothing has run against a real printer.
+
 ## The spindle of the machine
 
 A machine carries one of two spindles, `original` (the one it leaves the factory with) or `vfd` (with a variable-frequency drive that the node of the machine drives), or none is said (empty: no job is judged against a spindle). The limits of each are the starting ones (`original`: 5000 to 63000 turns, 3000 mm/min along the cut, 4000 mm/min of plunge, bits up to 3.2 mm; `vfd`: 6000 to 24000 turns, 1500 and 1200 mm/min, bits up to 6 mm) with what the machine changed on top. They are also members of the machine (`spindle`, `spindle_guard`, `spindle_original`, `spindle_vfd`); a `PUT /machines/:id` that does not send them leaves them as they were.
@@ -335,6 +354,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `bad_plugin_request` | 422 | The request does not fit what the plugin of the machine takes, or the settings of a machine of a plugin are not valid. |
 | `bad_pnp_node` | 422 | A node of a pick-and-place machine does not fit: its kind (feeder or head), its id, its name, its address (host:port), its token (no spaces or control characters) or its machine (a machine of the plugin pnp). |
 | `bad_policy` | 422 | The switch of security is not one that can change while the server runs, or its value is not of the right type or is out of range. |
+| `bad_printer` | 422 | A printer of the list does not fit: its family (bambu_lan or moonraker), its link (sim or lan), its id, its name, its address (host or host:port), its serial, its fingerprint or its access code. |
 | `bad_profile` | 422 | The inspection profile is not valid. |
 | `bad_rack` | 422 | The rack of a job request of the second version does not fit: places that repeat, the test pin as a place, more places than rack_max_slots, a carry_slot without carry_in, or a place the machine does not define or reach. |
 | `bad_request` | 400 | The body of the request does not read as the request needs. |
@@ -410,8 +430,11 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `precondition_failed` | 412 | The If-Match tag is not the one of the current version: read the file again before writing. |
 | `precondition_required` | 428 | A write over an existing file needs If-Match with the tag (SHA-256) of the version it was made from. |
 | `printer_disconnected` | 502 | The printer does not answer. |
+| `printer_exists` | 409 | A printer with this id, this address or this serial is already registered. |
 | `printer_latched` | 409 | An emergency stop or a fault of a heater latched the printer: nothing is prepared, started or heated on it until an administrator releases it. |
 | `printer_untrusted` | 502 | The certificate of the printer is not the pinned one, or none is pinned: the connection is refused. |
+| `printers_full` | 409 | The list of the printers is full (printers_max). |
+| `printers_off` | 501 | The list of the printers is switched off on this server (printers_enabled). |
 | `program_over_limit` | 422 | A program for a 3D printer asks for a temperature or a feed over a limit of the machine, so the whole program is refused. |
 | `project_quota` | 507 | The project, the application or the store would pass its limit (project_max_mb, project_max_files, project_max_projects). |
 | `queue_full` | 429 | As many tasks are waiting or running as the server accepts (max_tasks). |
@@ -447,6 +470,7 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `unknown_machine` | 404 | There is no machine with this id. |
 | `unknown_plugin` | 422 | There is no plugin of this kind. |
 | `unknown_pnp_node` | 404 | There is no node of a pick-and-place machine with this id. |
+| `unknown_printer` | 404 | There is no printer with this id in the list. |
 | `unknown_project` | 404 | There is no project with this id, or it belongs to somebody else. |
 | `unknown_session` | 404 | There is no open login with this id, or it is not the caller's, or the login cannot be renewed any more. |
 | `unknown_task` | 404 | There is no task with this id, or it belongs to somebody else. |

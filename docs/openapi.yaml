@@ -27,6 +27,8 @@ tags:
     description: "The node of the drill head: status, camera, light ring and quality check."
   - name: tasks
     description: Work for the computer that never moves a machine.
+  - name: printers
+    description: "The 3D printers the server watches: their state is read with GET and nothing is ever asked of them (off until the switch printers_enabled is on). The other methods change the list of the server only."
   - name: pnp
     description: "The feeder and head nodes of the pick-and-place machines: registered, asked with their token and shown with their health (off until the switch pnp_nodes_enabled is on)."
   - name: artifacts
@@ -4054,6 +4056,371 @@ paths:
                 "$ref": "#/components/schemas/ErrorBody"
               example:
                 error: pnp_nodes_off
+                detail: ""
+  "/printers":
+    get:
+      operationId: get_printers
+      tags:
+        - printers
+      summary: List the printers and their state
+      description: "What the poller read last; no connection is opened by this request. Role viewer or higher. Scope `machines:view` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "machines:view"
+      x-error-codes:
+        - forbidden_scope
+        - printers_off
+        - unauthorized
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/PrinterList"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
+        "501":
+          description: "Refused with `printers_off`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: printers_off
+                detail: ""
+    post:
+      operationId: post_printers
+      tags:
+        - printers
+      summary: Register a printer in the list of the server
+      description: "Role admin. Scope `machines:manage` if the token is limited by scopes."
+      x-role: admin
+      x-scope: "machines:manage"
+      x-error-codes:
+        - bad_printer
+        - bad_request
+        - forbidden
+        - forbidden_scope
+        - printer_exists
+        - printers_full
+        - printers_off
+        - unauthorized
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/NewPrinter"
+            example:
+              name: Printer by the window
+              family: bambu_lan
+              link: sim
+      responses:
+        "201":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Printer"
+        "400":
+          description: "Refused with `bad_request`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_request
+                detail: ""
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "409":
+          description: "Refused with `printer_exists`, `printers_full`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: printer_exists
+                detail: ""
+        "422":
+          description: "Refused with `bad_printer`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_printer
+                detail: ""
+        "501":
+          description: "Refused with `printers_off`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: printers_off
+                detail: ""
+  "/printers/{id}":
+    get:
+      operationId: get_printers_id
+      tags:
+        - printers
+      summary: Read the state of a printer
+      description: "Role viewer or higher. Scope `machines:view` if the token is limited by scopes."
+      x-role: viewer
+      x-scope: "machines:view"
+      x-error-codes:
+        - forbidden_scope
+        - printers_off
+        - unauthorized
+        - unknown_printer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Printer"
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden_scope
+                detail: ""
+        "404":
+          description: "Refused with `unknown_printer`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_printer
+                detail: ""
+        "501":
+          description: "Refused with `printers_off`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: printers_off
+                detail: ""
+    put:
+      operationId: put_printers_id
+      tags:
+        - printers
+      summary: Change a printer of the list
+      description: "Changes what the server keeps; nothing is sent to the printer. What is left out stays. Role admin. Scope `machines:manage` if the token is limited by scopes."
+      x-role: admin
+      x-scope: "machines:manage"
+      x-error-codes:
+        - bad_printer
+        - bad_request
+        - forbidden
+        - forbidden_scope
+        - printer_exists
+        - printers_off
+        - unauthorized
+        - unknown_printer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/PrinterChange"
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Printer"
+        "400":
+          description: "Refused with `bad_request`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_request
+                detail: ""
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_printer`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_printer
+                detail: ""
+        "409":
+          description: "Refused with `printer_exists`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: printer_exists
+                detail: ""
+        "422":
+          description: "Refused with `bad_printer`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_printer
+                detail: ""
+        "501":
+          description: "Refused with `printers_off`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: printers_off
+                detail: ""
+    delete:
+      operationId: delete_printers_id
+      tags:
+        - printers
+      summary: Remove a printer from the list
+      description: "Role admin. Scope `machines:manage` if the token is limited by scopes."
+      x-role: admin
+      x-scope: "machines:manage"
+      x-error-codes:
+        - forbidden
+        - forbidden_scope
+        - printers_off
+        - unauthorized
+        - unknown_printer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: "The id of the item in the path (a machine, job, token, task, artifact, upload or project, as the route says)."
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Done.
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Ok"
+              example:
+                ok: true
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`, `forbidden_scope`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+        "404":
+          description: "Refused with `unknown_printer`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unknown_printer
+                detail: ""
+        "501":
+          description: "Refused with `printers_off`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: printers_off
                 detail: ""
   "/tasks/kinds":
     get:
@@ -13555,6 +13922,323 @@ components:
           description: "`********` keeps the token."
         machine:
           type: string
+        enabled:
+          type: boolean
+      additionalProperties: false
+    PrinterStatus:
+      type: object
+      properties:
+        state:
+          type: string
+          enum:
+            - unknown
+            - idle
+            - preparing
+            - printing
+            - paused
+            - finished
+            - failed
+            - cancelled
+            - error
+            - emergency
+        raw:
+          type: string
+          description: The word the printer used.
+        temperatures:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                enum:
+                  - nozzle
+                  - bed
+                  - chamber
+              current_c:
+                oneOf:
+                  - type: number
+                  - type: "null"
+              target_c:
+                oneOf:
+                  - type: number
+                  - type: "null"
+            required:
+              - name
+              - current_c
+              - target_c
+            additionalProperties: false
+        progress_pct:
+          oneOf:
+            - type: number
+            - type: "null"
+        remaining_s:
+          oneOf:
+            - type: integer
+            - type: "null"
+        remaining_estimated:
+          type: boolean
+        layer:
+          oneOf:
+            - type: integer
+            - type: "null"
+        layers:
+          oneOf:
+            - type: integer
+            - type: "null"
+        job_name:
+          type: string
+        alerts:
+          type: array
+          items:
+            type: object
+            properties:
+              source:
+                type: string
+                enum:
+                  - hms
+                  - print
+                  - firmware
+              severity:
+                type: string
+                enum:
+                  - error
+                  - warning
+                  - info
+              code:
+                type: string
+              message:
+                type: string
+            required:
+              - source
+              - severity
+              - code
+              - message
+            additionalProperties: false
+        camera:
+          oneOf:
+            - type: object
+              properties:
+                present:
+                  type: boolean
+              required:
+                - present
+              additionalProperties: false
+            - type: "null"
+      required:
+        - state
+        - raw
+        - temperatures
+        - progress_pct
+        - remaining_s
+        - remaining_estimated
+        - layer
+        - layers
+        - job_name
+        - alerts
+        - camera
+      additionalProperties: false
+      description: "What a printer said last. A value the printer did not say, or one that cannot be right, is null: never zero."
+    Printer:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        family:
+          type: string
+          enum:
+            - bambu_lan
+            - moonraker
+        link:
+          type: string
+          enum:
+            - sim
+            - lan
+        address:
+          type: string
+        serial:
+          type: string
+          description: Shortened to its last four characters.
+        fingerprint:
+          type: string
+        secret:
+          type: string
+          description: "`***` when the printer has an access code or key, empty when it has none; it is never shown."
+        enabled:
+          type: boolean
+        health:
+          type: string
+          enum:
+            - disabled
+            - "off"
+            - unknown
+            - online
+            - stale
+            - offline
+            - refused
+            - untrusted
+            - bad_report
+        current:
+          type: boolean
+        status:
+          oneOf:
+            - "$ref": "#/components/schemas/PrinterStatus"
+            - type: "null"
+        capabilities:
+          type: array
+          items:
+            type: string
+        control:
+          type: boolean
+          description: "Always false: the server cannot ask a printer to do anything."
+        age_s:
+          oneOf:
+            - type: integer
+            - type: "null"
+        polls:
+          type: object
+          properties:
+            ok:
+              type: integer
+            failed:
+              type: integer
+          required:
+            - ok
+            - failed
+          additionalProperties: false
+        last_error:
+          type: string
+        certificate_seen:
+          type: string
+          description: "The fingerprint of the certificate a printer showed, when it was refused for it."
+        evidence:
+          type: string
+          enum:
+            - simulator
+            - unvalidated
+        simulator_only:
+          type: boolean
+      required:
+        - id
+        - name
+        - family
+        - link
+        - address
+        - serial
+        - secret
+        - enabled
+        - health
+        - current
+        - status
+        - capabilities
+        - control
+        - polls
+        - last_error
+        - evidence
+      additionalProperties: false
+    PrinterList:
+      type: object
+      properties:
+        schema:
+          type: string
+          description: "`eh3d.printers.status/1`."
+        read_only:
+          type: boolean
+        printers:
+          type: array
+          items:
+            "$ref": "#/components/schemas/Printer"
+        summary:
+          type: object
+          additionalProperties: true
+        limits:
+          type: object
+          properties:
+            max:
+              type: integer
+            poll_s:
+              type: integer
+            stale_s:
+              type: integer
+            timeout_s:
+              type: integer
+            families:
+              type: array
+              items:
+                type: string
+            links:
+              type: array
+              items:
+                type: string
+          required:
+            - max
+            - poll_s
+            - stale_s
+            - timeout_s
+            - families
+            - links
+          additionalProperties: false
+      required:
+        - schema
+        - read_only
+        - printers
+        - summary
+        - limits
+      additionalProperties: false
+    NewPrinter:
+      type: object
+      properties:
+        id:
+          type: string
+          description: "Lowercase letters, digits and hyphens (up to 32); empty: the server gives `printer-<n>`."
+        name:
+          type: string
+        family:
+          type: string
+          enum:
+            - bambu_lan
+            - moonraker
+        link:
+          type: string
+          enum:
+            - sim
+            - lan
+        address:
+          type: string
+          description: "`host` or `host:port`; empty for a simulated printer."
+        serial:
+          type: string
+          description: The serial of a Bambu printer.
+        fingerprint:
+          type: string
+          description: "The SHA-256 of the certificate of a Bambu printer; empty until a person pins it."
+        secret:
+          type: string
+          description: "The access code (Bambu) or API key (Moonraker); it is kept apart and never shown."
+        enabled:
+          type: boolean
+      required:
+        - name
+        - family
+        - link
+      additionalProperties: false
+    PrinterChange:
+      type: object
+      properties:
+        name:
+          type: string
+        address:
+          type: string
+        serial:
+          type: string
+          description: "A value that starts with `***` keeps the serial."
+        fingerprint:
+          type: string
+        secret:
+          type: string
+          description: "`***` keeps the secret."
         enabled:
           type: boolean
       additionalProperties: false

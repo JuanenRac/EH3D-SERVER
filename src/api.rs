@@ -318,6 +318,7 @@ pub fn router(state: Shared) -> Router {
         .route("/api/v1/events", get(events))
         .merge(crate::api_tasks::routes())
         .merge(crate::api_pnp_nodes::routes())
+        .merge(crate::api_printers::routes())
         .merge(crate::api_artifacts::routes())
         .merge(crate::api_projects::routes())
         .merge(crate::api_pstore::routes(&state.cfg))
