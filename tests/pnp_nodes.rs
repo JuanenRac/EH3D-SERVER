@@ -804,7 +804,10 @@ async fn the_nodes_go_on_being_asked_while_an_answer_is_still_awaited() {
         other.lock().unwrap().status_hits,
     );
     handle.abort();
-    assert!(held >= 3, "the node with the held answer was asked {held} times");
+    assert!(
+        held >= 3,
+        "the node with the held answer was asked {held} times"
+    );
     assert!(free >= 3, "the other node was asked {free} times");
 }
 
@@ -823,14 +826,22 @@ async fn an_interval_that_is_too_slow_for_a_node_is_said() {
     assert!(s.state.pnp_nodes.startup_warnings().is_empty());
     let v = poll(&s, &boss, "head-1").await;
     assert_eq!(
-        (&v["link_lost_ms"], &v["link_lost_declared"], &v["poll_too_slow"]),
+        (
+            &v["link_lost_ms"],
+            &v["link_lost_declared"],
+            &v["poll_too_slow"]
+        ),
         (&json!(2000), &json!(false), &json!(false))
     );
     // the node says a time shorter than the interval
     node.lock().unwrap().link_lost_ms = Some(1000);
     let v = poll(&s, &boss, "head-1").await;
     assert_eq!(
-        (&v["link_lost_ms"], &v["link_lost_declared"], &v["poll_too_slow"]),
+        (
+            &v["link_lost_ms"],
+            &v["link_lost_declared"],
+            &v["poll_too_slow"]
+        ),
         (&json!(1000), &json!(true), &json!(true))
     );
     let (status, list) = call(&s, Method::GET, "/api/v1/pnp/nodes", Some(&boss), None).await;
