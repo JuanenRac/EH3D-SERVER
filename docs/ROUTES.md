@@ -98,6 +98,11 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/pnp/nodes/:id` | PUT | admin + `machines:manage` | Change a node |
 | `/api/v1/pnp/nodes/:id` | DELETE | admin + `machines:manage` | Remove a node |
 | `/api/v1/pnp/nodes/:id/poll` | POST | operator + `jobs:prepare` | Ask a node now |
+| `/api/v1/printers` | GET | viewer + `machines:view` | List the printers and their state |
+| `/api/v1/printers` | POST | admin + `machines:manage` | Register a printer in the list of the server |
+| `/api/v1/printers/:id` | GET | viewer + `machines:view` | Read the state of a printer |
+| `/api/v1/printers/:id` | PUT | admin + `machines:manage` | Change a printer of the list |
+| `/api/v1/printers/:id` | DELETE | admin + `machines:manage` | Remove a printer from the list |
 | `/api/v1/projects` | GET | viewer + `projects:read` | List the projects the caller sees |
 | `/api/v1/projects` | POST | operator + `projects:write` | Make a project |
 | `/api/v1/projects/:id` | GET | viewer + `projects:read` | Read a project with its revisions |

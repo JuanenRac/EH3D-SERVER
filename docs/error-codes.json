@@ -175,6 +175,11 @@
     "status": 422
   },
   {
+    "code": "bad_printer",
+    "description": "A printer of the list does not fit: its family (bambu_lan or moonraker), its link (sim or lan), its id, its name, its address (host or host:port), its serial, its fingerprint or its access code.",
+    "status": 422
+  },
+  {
     "code": "bad_profile",
     "description": "The inspection profile is not valid.",
     "status": 422
@@ -550,6 +555,11 @@
     "status": 502
   },
   {
+    "code": "printer_exists",
+    "description": "A printer with this id, this address or this serial is already registered.",
+    "status": 409
+  },
+  {
     "code": "printer_latched",
     "description": "An emergency stop or a fault of a heater latched the printer: nothing is prepared, started or heated on it until an administrator releases it.",
     "status": 409
@@ -558,6 +568,16 @@
     "code": "printer_untrusted",
     "description": "The certificate of the printer is not the pinned one, or none is pinned: the connection is refused.",
     "status": 502
+  },
+  {
+    "code": "printers_full",
+    "description": "The list of the printers is full (printers_max).",
+    "status": 409
+  },
+  {
+    "code": "printers_off",
+    "description": "The list of the printers is switched off on this server (printers_enabled).",
+    "status": 501
   },
   {
     "code": "program_over_limit",
@@ -732,6 +752,11 @@
   {
     "code": "unknown_pnp_node",
     "description": "There is no node of a pick-and-place machine with this id.",
+    "status": 404
+  },
+  {
+    "code": "unknown_printer",
+    "description": "There is no printer with this id in the list.",
     "status": 404
   },
   {

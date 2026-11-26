@@ -99,6 +99,8 @@ pub struct AppState {
     pub compat_keys: crate::compat::CompatKeys,
     /// The nodes of the pick-and-place machines (feeders and heads) and what they said last.
     pub pnp_nodes: crate::pnp_nodes::PnpNodes,
+    /// The 3D printers the server watches (read only) and what they said last.
+    pub printers: crate::printers::Printers,
 }
 
 #[derive(Debug, PartialEq)]
@@ -172,6 +174,7 @@ impl AppState {
         );
         let compat_keys = crate::compat::CompatKeys::open(&cfg.data_dir)?;
         let pnp_nodes = crate::pnp_nodes::PnpNodes::open(&cfg)?;
+        let printers = crate::printers::Printers::open(&cfg)?;
         let updates = cfg.updates_dir.clone().map(|d| {
             crate::updates::Updates::new(d, env!("CARGO_PKG_VERSION"), cfg.studio_dir.clone())
         });
@@ -201,6 +204,7 @@ impl AppState {
             policy,
             compat_keys,
             pnp_nodes,
+            printers,
         });
         // the tasks that were queued when the server stopped go on, and what waited long enough is cleaned
         state.tasks_pump();

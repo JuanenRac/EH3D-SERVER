@@ -188,6 +188,19 @@
       }
     },
     {
+      "id": "printer_status",
+      "label": {
+        "en": "Printer status (read only)",
+        "es": "Estado de impresoras (solo lectura)",
+        "de": "Druckerstatus (nur Lesen)",
+        "fr": "État des imprimantes (lecture seule)",
+        "it": "Stato delle stampanti (sola lettura)",
+        "ja": "プリンターの状態 (読み取り専用)",
+        "zh": "打印机状态（只读）",
+        "pt": "Estado das impressoras (só leitura)"
+      }
+    },
+    {
       "id": "pnp_nodes",
       "label": {
         "en": "Pick-and-place nodes",
@@ -2864,6 +2877,257 @@
         "ja": "接続と各応答にかけられる秒数 (1〜60)。",
         "zh": "一次连接和每次应答允许的秒数（1 至 60）。",
         "pt": "Segundos que uma ligação e cada resposta podem demorar (1 a 60)."
+      },
+      "warning": {
+        "en": "Set in server.cfg; it takes effect after the server restarts.",
+        "es": "Se fija en server.cfg; se aplica tras reiniciar el servidor.",
+        "de": "Wird in server.cfg gesetzt und wirkt nach einem Neustart des Servers.",
+        "fr": "Défini dans server.cfg ; effectif après le redémarrage du serveur.",
+        "it": "Si imposta in server.cfg; ha effetto dopo il riavvio del server.",
+        "ja": "server.cfg で設定し、サーバーの再起動後に反映されます。",
+        "zh": "在 server.cfg 中设置；服务器重启后生效。",
+        "pt": "Define-se em server.cfg; aplica-se após reiniciar o servidor."
+      }
+    },
+    {
+      "key": "printers_enabled",
+      "group": "printer_status",
+      "type": "boolean",
+      "default": false,
+      "apply": "restart",
+      "write": {
+        "via": "file",
+        "method": null,
+        "path": null,
+        "file": "server.cfg"
+      },
+      "role": null,
+      "scope": null,
+      "confirm_when_looser": false,
+      "secret": false,
+      "risk": "exposure",
+      "label": {
+        "en": "Watch 3D printers",
+        "es": "Vigilar impresoras 3D",
+        "de": "3D-Drucker beobachten",
+        "fr": "Surveiller les imprimantes 3D",
+        "it": "Sorvegliare le stampanti 3D",
+        "ja": "3D プリンターの監視",
+        "zh": "监视 3D 打印机",
+        "pt": "Vigiar impressoras 3D"
+      },
+      "help": {
+        "en": "Keep a list of printers and read their state, never send them an order; off: the routes answer 501 and no connection to a printer is opened.",
+        "es": "Mantiene una lista de impresoras y lee su estado, sin enviarles nunca una orden; apagado: las rutas responden 501 y no se abre ninguna conexión a una impresora.",
+        "de": "Führt eine Liste von Druckern und liest ihren Zustand, ohne ihnen je einen Befehl zu senden; aus: die Routen antworten mit 501 und es wird keine Verbindung zu einem Drucker geöffnet.",
+        "fr": "Tient une liste d'imprimantes et lit leur état, sans jamais leur envoyer d'ordre ; désactivé : les routes répondent 501 et aucune connexion à une imprimante n'est ouverte.",
+        "it": "Tiene un elenco di stampanti e ne legge lo stato, senza inviare loro mai un ordine; spento: le route rispondono 501 e non si apre alcuna connessione a una stampante.",
+        "ja": "プリンターの一覧を保持して状態を読み取るだけで、命令は送りません。オフならルートは 501 を返し、プリンターへの接続は開きません。",
+        "zh": "保存打印机列表并读取其状态，从不向其发送指令；关闭则路由返回 501，且不会连接任何打印机。",
+        "pt": "Mantém uma lista de impressoras e lê o seu estado, sem nunca lhes enviar uma ordem; desligado: as rotas respondem 501 e não se abre nenhuma ligação a uma impressora."
+      },
+      "warning": {
+        "en": "Set in server.cfg; it takes effect after the server restarts. Turning it on makes the server, or a feature of it, reachable from outside or lets it run a program.",
+        "es": "Se fija en server.cfg; se aplica tras reiniciar el servidor. Activarlo hace accesible el servidor, o una función suya, desde fuera o le permite ejecutar un programa.",
+        "de": "Wird in server.cfg gesetzt und wirkt nach einem Neustart des Servers. Aktiviert, ist der Server oder eine Funktion von außen erreichbar oder führt ein Programm aus.",
+        "fr": "Défini dans server.cfg ; effectif après le redémarrage du serveur. Activé, il rend le serveur, ou une fonction, joignable de l'extérieur ou lui fait exécuter un programme.",
+        "it": "Si imposta in server.cfg; ha effetto dopo il riavvio del server. Attivandolo il server, o una sua funzione, diventa raggiungibile dall'esterno o può eseguire un programma.",
+        "ja": "server.cfg で設定し、サーバーの再起動後に反映されます。有効にすると、サーバーまたはその機能が外部から到達可能になるか、プログラムを実行します。",
+        "zh": "在 server.cfg 中设置；服务器重启后生效。开启后，服务器或其某项功能可从外部访问，或会运行外部程序。",
+        "pt": "Define-se em server.cfg; aplica-se após reiniciar o servidor. Ativado, torna o servidor, ou uma função dele, acessível a partir do exterior ou deixa-o executar um programa."
+      }
+    },
+    {
+      "key": "printers_max",
+      "group": "printer_status",
+      "type": "integer",
+      "min": 1,
+      "max": 64,
+      "default": 8,
+      "apply": "restart",
+      "write": {
+        "via": "file",
+        "method": null,
+        "path": null,
+        "file": "server.cfg"
+      },
+      "role": null,
+      "scope": null,
+      "confirm_when_looser": false,
+      "secret": false,
+      "risk": "capacity",
+      "label": {
+        "en": "Most printers",
+        "es": "Máximo de impresoras",
+        "de": "Höchstzahl Drucker",
+        "fr": "Maximum d'imprimantes",
+        "it": "Massimo di stampanti",
+        "ja": "プリンターの最大数",
+        "zh": "打印机数量上限",
+        "pt": "Máximo de impressoras"
+      },
+      "help": {
+        "en": "How many printers the list takes (1 to 64).",
+        "es": "Cuántas impresoras admite la lista (1 a 64).",
+        "de": "Wie viele Drucker die Liste aufnimmt (1 bis 64).",
+        "fr": "Combien d'imprimantes la liste accepte (1 à 64).",
+        "it": "Quante stampanti accetta l'elenco (da 1 a 64).",
+        "ja": "一覧に登録できるプリンター数 (1〜64)。",
+        "zh": "列表可容纳的打印机数（1 至 64）。",
+        "pt": "Quantas impressoras a lista aceita (1 a 64)."
+      },
+      "warning": {
+        "en": "Set in server.cfg; it takes effect after the server restarts. A value too low refuses honest work; one too high spends memory or disk.",
+        "es": "Se fija en server.cfg; se aplica tras reiniciar el servidor. Un valor demasiado bajo rechaza trabajo legítimo; uno demasiado alto consume memoria o disco.",
+        "de": "Wird in server.cfg gesetzt und wirkt nach einem Neustart des Servers. Ein zu niedriger Wert weist rechtmäßige Arbeit ab, ein zu hoher verbraucht Speicher oder Platte.",
+        "fr": "Défini dans server.cfg ; effectif après le redémarrage du serveur. Une valeur trop basse refuse du travail légitime ; trop haute, elle consomme mémoire ou disque.",
+        "it": "Si imposta in server.cfg; ha effetto dopo il riavvio del server. Un valore troppo basso rifiuta lavoro legittimo; troppo alto consuma memoria o disco.",
+        "ja": "server.cfg で設定し、サーバーの再起動後に反映されます。低すぎると正当な作業が拒否され、高すぎるとメモリやディスクを消費します。",
+        "zh": "在 server.cfg 中设置；服务器重启后生效。过低会拒绝正常工作，过高会占用内存或磁盘。",
+        "pt": "Define-se em server.cfg; aplica-se após reiniciar o servidor. Um valor demasiado baixo recusa trabalho legítimo; demasiado alto gasta memória ou disco."
+      }
+    },
+    {
+      "key": "printer_poll_s",
+      "group": "printer_status",
+      "type": "integer",
+      "min": 1,
+      "max": 3600,
+      "default": 5,
+      "unit": "seconds",
+      "apply": "restart",
+      "write": {
+        "via": "file",
+        "method": null,
+        "path": null,
+        "file": "server.cfg"
+      },
+      "role": null,
+      "scope": null,
+      "confirm_when_looser": false,
+      "secret": false,
+      "risk": "none",
+      "label": {
+        "en": "Seconds between readings",
+        "es": "Segundos entre lecturas",
+        "de": "Sekunden zwischen Abfragen",
+        "fr": "Secondes entre deux lectures",
+        "it": "Secondi tra una lettura e l'altra",
+        "ja": "読み取り間隔 (秒)",
+        "zh": "读取间隔秒数",
+        "pt": "Segundos entre leituras"
+      },
+      "help": {
+        "en": "Every how many seconds the state of each printer is read (1 to 3600).",
+        "es": "Cada cuántos segundos se lee el estado de cada impresora (1 a 3600).",
+        "de": "Alle wie viele Sekunden der Zustand jedes Druckers gelesen wird (1 bis 3600).",
+        "fr": "Toutes les combien de secondes l'état de chaque imprimante est lu (1 à 3600).",
+        "it": "Ogni quanti secondi si legge lo stato di ogni stampante (da 1 a 3600).",
+        "ja": "各プリンターの状態を読み取る間隔 (秒、1〜3600)。",
+        "zh": "每隔多少秒读取一次每台打印机的状态（1 至 3600）。",
+        "pt": "De quantos em quantos segundos se lê o estado de cada impressora (1 a 3600)."
+      },
+      "warning": {
+        "en": "Set in server.cfg; it takes effect after the server restarts.",
+        "es": "Se fija en server.cfg; se aplica tras reiniciar el servidor.",
+        "de": "Wird in server.cfg gesetzt und wirkt nach einem Neustart des Servers.",
+        "fr": "Défini dans server.cfg ; effectif après le redémarrage du serveur.",
+        "it": "Si imposta in server.cfg; ha effetto dopo il riavvio del server.",
+        "ja": "server.cfg で設定し、サーバーの再起動後に反映されます。",
+        "zh": "在 server.cfg 中设置；服务器重启后生效。",
+        "pt": "Define-se em server.cfg; aplica-se após reiniciar o servidor."
+      }
+    },
+    {
+      "key": "printer_stale_s",
+      "group": "printer_status",
+      "type": "integer",
+      "min": 5,
+      "max": 3600,
+      "default": 90,
+      "unit": "seconds",
+      "apply": "restart",
+      "write": {
+        "via": "file",
+        "method": null,
+        "path": null,
+        "file": "server.cfg"
+      },
+      "role": null,
+      "scope": null,
+      "confirm_when_looser": false,
+      "secret": false,
+      "risk": "none",
+      "label": {
+        "en": "Age before a state is old",
+        "es": "Antigüedad a partir de la cual un estado es viejo",
+        "de": "Alter, ab dem ein Zustand veraltet ist",
+        "fr": "Âge à partir duquel un état est ancien",
+        "it": "Età oltre la quale uno stato è vecchio",
+        "ja": "状態が古いとみなされる経過時間",
+        "zh": "状态视为过期的时间",
+        "pt": "Idade a partir da qual um estado é antigo"
+      },
+      "help": {
+        "en": "Seconds after which what a printer said is no longer shown as current; never less than two readings (5 to 3600).",
+        "es": "Segundos tras los cuales lo que dijo una impresora ya no se muestra como actual; nunca menos de dos lecturas (5 a 3600).",
+        "de": "Sekunden, nach denen die Angaben eines Druckers nicht mehr als aktuell gelten; nie weniger als zwei Abfragen (5 bis 3600).",
+        "fr": "Secondes après lesquelles ce qu'a dit une imprimante n'est plus présenté comme actuel ; jamais moins de deux lectures (5 à 3600).",
+        "it": "Secondi dopo i quali quanto detto da una stampante non è più mostrato come attuale; mai meno di due letture (da 5 a 3600).",
+        "ja": "この秒数を過ぎると、プリンターの報告は現在の状態として表示されません。読み取り 2 回分未満にはなりません (5〜3600)。",
+        "zh": "超过该秒数后，打印机报告的内容不再显示为当前状态；不少于两次读取（5 至 3600）。",
+        "pt": "Segundos ao fim dos quais o que uma impressora disse deixa de ser mostrado como atual; nunca menos de duas leituras (5 a 3600)."
+      },
+      "warning": {
+        "en": "Set in server.cfg; it takes effect after the server restarts.",
+        "es": "Se fija en server.cfg; se aplica tras reiniciar el servidor.",
+        "de": "Wird in server.cfg gesetzt und wirkt nach einem Neustart des Servers.",
+        "fr": "Défini dans server.cfg ; effectif après le redémarrage du serveur.",
+        "it": "Si imposta in server.cfg; ha effetto dopo il riavvio del server.",
+        "ja": "server.cfg で設定し、サーバーの再起動後に反映されます。",
+        "zh": "在 server.cfg 中设置；服务器重启后生效。",
+        "pt": "Define-se em server.cfg; aplica-se após reiniciar o servidor."
+      }
+    },
+    {
+      "key": "printer_timeout_s",
+      "group": "printer_status",
+      "type": "integer",
+      "min": 1,
+      "max": 30,
+      "default": 5,
+      "unit": "seconds",
+      "apply": "restart",
+      "write": {
+        "via": "file",
+        "method": null,
+        "path": null,
+        "file": "server.cfg"
+      },
+      "role": null,
+      "scope": null,
+      "confirm_when_looser": false,
+      "secret": false,
+      "risk": "none",
+      "label": {
+        "en": "Moonraker request time limit",
+        "es": "Tiempo límite de una petición a Moonraker",
+        "de": "Zeitlimit einer Anfrage an Moonraker",
+        "fr": "Délai d'une requête à Moonraker",
+        "it": "Tempo limite di una richiesta a Moonraker",
+        "ja": "Moonraker へのリクエストのタイムアウト",
+        "zh": "Moonraker 请求超时",
+        "pt": "Tempo limite de um pedido ao Moonraker"
+      },
+      "help": {
+        "en": "Seconds a connection to a Moonraker printer and each answer may take (1 to 30).",
+        "es": "Segundos que pueden tardar una conexión a una impresora Moonraker y cada respuesta (1 a 30).",
+        "de": "Sekunden für eine Verbindung zu einem Moonraker-Drucker und jede Antwort (1 bis 30).",
+        "fr": "Secondes accordées à une connexion à une imprimante Moonraker et à chaque réponse (1 à 30).",
+        "it": "Secondi consentiti a una connessione a una stampante Moonraker e a ogni risposta (da 1 a 30).",
+        "ja": "Moonraker プリンターへの接続と各応答にかけられる秒数 (1〜30)。",
+        "zh": "连接 Moonraker 打印机及每次应答允许的秒数（1 至 30）。",
+        "pt": "Segundos que uma ligação a uma impressora Moonraker e cada resposta podem demorar (1 a 30)."
       },
       "warning": {
         "en": "Set in server.cfg; it takes effect after the server restarts.",

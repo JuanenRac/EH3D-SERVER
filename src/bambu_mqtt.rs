@@ -439,7 +439,9 @@ impl BambuTlsLink {
     fn take_in(&self, session: &mut Session, limit: Duration) -> Result<bool, MqttError> {
         let mut got = false;
         session.wait(limit);
-        loop {
+        // a printer that never stops talking must not keep the question from ending
+        let deadline = Instant::now() + self.timeout;
+        while Instant::now() <= deadline {
             match read_packet(&mut session.stream.stream) {
                 Ok(p) if p.kind == 3 => {
                     let m = parse_publish(&p)?;
@@ -462,6 +464,7 @@ impl BambuTlsLink {
             // after the first packet only what is already waiting is taken
             session.wait(Duration::from_millis(30));
         }
+        Ok(got)
     }
 }
 
@@ -805,6 +808,34 @@ mod tests {
             malformed.fingerprint(),
             Err(LinkError::Refused(_))
         ));
+    }
+
+    #[test]
+    fn a_printer_that_never_stops_talking_does_not_keep_the_question_from_ending() {
+        let server = TestServer::start_with(1, |tls| {
+            let _ = read_packet(tls);
+            let _ = tls.write_all(&[0x20, 0x02, 0x00, 0x00]);
+            let _ = tls.flush();
+            let Ok(sub) = read_packet(tls) else { return };
+            let _ = tls.write_all(&[0x90, 0x03, sub.body[0], sub.body[1], 0x00]);
+            let _ = tls.flush();
+            let said = publish_packet(
+                "device/01P00A111111111/report",
+                br#"{"print":{"mc_percent":1}}"#,
+            );
+            while tls.write_all(&said).and_then(|()| tls.flush()).is_ok() {}
+        });
+        let link = BambuTlsLink::new(
+            "127.0.0.1",
+            server.port,
+            "01P00A111111111",
+            Some("12345678"),
+            Some(&server.fingerprint),
+            Duration::from_millis(800),
+        );
+        let began = Instant::now();
+        assert_eq!(link.report().unwrap().percent, 1);
+        assert!(began.elapsed() < Duration::from_secs(20));
     }
 
     #[test]

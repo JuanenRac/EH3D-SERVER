@@ -60,6 +60,7 @@ fn every_route_of_the_new_families_is_in_the_api_document() {
         "api_artifacts.rs",
         "api_projects.rs",
         "api_pnp_nodes.rs",
+        "api_printers.rs",
     ] {
         let found = registered(file);
         assert!(
@@ -75,6 +76,7 @@ fn every_route_of_the_new_families_is_in_the_api_document() {
         "/uploads",
         "/projects",
         "/pnp",
+        "/printers",
     ]);
     let missing: Vec<_> = routes.difference(&documented).collect();
     assert!(

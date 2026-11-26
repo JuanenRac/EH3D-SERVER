@@ -12,6 +12,7 @@ const ROUTER_FILES: [&str; 11] = [
     "api.rs",
     "api_tasks.rs",
     "api_pnp_nodes.rs",
+    "api_printers.rs",
     "api_artifacts.rs",
     "api_projects.rs",
     "api_pstore.rs",

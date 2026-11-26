@@ -98,6 +98,7 @@ EH3D-SERVER 是 EH3D 家族的中心：程序把作业发给它，它通过节�
 * **机床的主轴：** `GET` 和 `PUT /api/v1/machines/:id/spindle` 说明机床装的是哪个主轴（`original` 或 `vfd`）及其限值（转速、切削进给、下刀进给、最粗的钻头）；要求超出的作业会被 `spindle_limit` 拒绝（安全开关 `guard` 默认为 `reject`；设为 `warn` 时作业通过，转速被削减到主轴最大值，每项超出列在 `spindle_warnings` 中）。
 * **带版本的项目存储：** 文件从不被覆盖，每次写入都是带 SHA-256 的新版本；对已有文件的写入必须说明它基于哪个版本（`If-Match`）；每次读取都用哈希校验字节；可能跳出文件夹或属于 Windows 的名称会被拒绝。
 * **插件背后的机床：** Bungard 机床就是 `bungard` 插件（同样的机床、同样的作业、同样的旧路由），无硬件的 `demo` 插件供测试使用，模拟器 `laser`（功率和进给上限、会锁定的急停）、`pnp`（供料器和贴装作业）和 `pcb`（检查和报告）供激光、贴片和电路板程序使用；`cnc`（受行程限制的程序、有限制的点动、需管理员解除的急停锁定）、`gerber` 和 `cam`（Gerber 检查，用于钻孔、轮廓和隔离的 G 代码）以及 `printer3d`（按型号的温度上限、受监视的加热器、Moonraker 与 OctoPrint 驱动）同样供 CNC、电路板工具和 3D 打印程序使用；通用队列保存每个作业的历史，事件流（`GET /api/v1/events/stream`）让客户端凭 `Last-Event-ID` 重新连接而不丢失任何内容。这些插件全部**仅限模拟器**：其能力中写有 `evidence: simulator`，每台机器的详情中写有 `simulator_only`，尚未通过服务器在真实的激光机、雕刻机、贴片机、电路板工作站或打印机上运行过。服务器可以在本地网络中发布自己（`_eh3d._tcp`，默认关闭），通过 `GET /api/v1/openapi.json` 提供自己的接口契约，并在默认关闭的开关和每台机器一把密钥之后，为 Moonraker 和 OctoPrint 客户端提供只读路由。 同样是模拟的：`vision`（相机程序的结果，保存为 `vision-<kind>.json` 制品）和 `cad`（PHOENIX-CAD 项目文件的检查与报告）、模拟串口线路上的 Marlin 打印机，以及作为实验的局域网模式 Bambu Lab 打印机（绝不接受不是已固定的证书）；农场路由把一次打印分给空闲的打印机，并让每份副本等待人工启动；在另外两个默认关闭的开关之后，兼容路由也可以写入（上传到队列、暂停、取消），服务器还可以在打印机配置文件的限制内把网格切片为 G-code。 切片路由还可以把程序作为二进制 G-code 文件（`.bgcode`）给出并读回，也能读取模型经 deflate 压缩的 3MF 文件；在默认关闭的开关 `bambu_lan_enabled` 之后，服务器可以通过 TLS 连接真实的 Bambu Lab 打印机，并用指纹固定其证书，这是一个仅在内存中的打印机上运行过的实验。 贴片机的供料器节点与贴装头节点（EH3D-NODE-PNP-FEEDER 和 EH3D-NODE-PNP-HEAD）可以登记（`/api/v1/pnp/nodes`，默认由 `pnp_nodes_enabled` 关闭）：服务器携带令牌查询它们，在 API 和机队中显示其状态，并把静默、令牌被拒或自称处于安全状态的节点视为未就绪，因此期间该机器的作业不会启动（仅限模拟器：测试查询的是内存中的节点）。激光、贴片机或数控机床的作业带有哈希，可由人授权（`/api/v1/work/jobs/{id}/authorize`）；开启 `work_require_authorization` 后，只有经此授权才会启动。
+* **受监视的打印机（只读）：** 服务器读取一组 3D 打印机（固定证书的 TLS 局域网模式 Bambu Lab、通过 Moonraker 的 Klipper，或模拟打印机）的状态，并在 `/api/v1/printers` 显示：温度、进度、剩余时间、层数、警报以及是否有摄像头。服务器从不向打印机发送指令、G 代码或文件，也没有任何路由可以这样做。在启用 `printers_enabled` 之前处于关闭状态；打印机的访问码或密钥单独保存，显示为 `***`。仅用内存中的打印机试验过：从未在真实打印机上运行。
 * **每个应用共用的登录：** 登录会说明它属于哪个应用，每个人可以查看并关闭自己已打开的会话，管理员可以处理任何人的会话；密码与锁定遵循设置，审计记录登录、拒绝和关闭，绝不记录秘密；`GET /api/v1/auth/policy` 向 Studio 展示安全开关。
 
 ## 🔒 安全与防护
@@ -211,6 +212,7 @@ EH3D-SERVER/
 │   ├── catalogs.rs api_catalogs.rs                                                                      共享目录：材料、刀具、库
 │   ├── plugins.rs work.rs feed.rs api_work.rs                                                           机床插件、作业队列、事件、通知
 │   ├── laser.rs pnp.rs pcb.rs plugin_*.rs                                                               模拟的激光、贴片和电路板机床
+│   ├── printers.rs api_printers.rs printer_readers.rs printer_status.rs                                 监视的 3D 打印机（只读）
 │   ├── pnp_nodes.rs api_pnp_nodes.rs                                                                    贴片机的节点
 │   ├── cnc.rs gerber.rs cam.rs                                                                          模拟的 CNC 机床以及 Gerber 和 CAM 工作进程
 │   ├── mdns.rs compat.rs                                                                                mDNS 发布与兼容密钥

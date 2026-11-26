@@ -260,6 +260,7 @@ TAGS = [
     ("jobs", "Jobs that move a machine: planned, started and confirmed by a person."),
     ("head", "The node of the drill head: status, camera, light ring and quality check."),
     ("tasks", "Work for the computer that never moves a machine."),
+    ("printers", "The 3D printers the server watches: their state is read with GET and nothing is ever asked of them (off until the switch printers_enabled is on). The other methods change the list of the server only."),
     ("pnp", "The feeder and head nodes of the pick-and-place machines: registered, asked with their token and shown with their health (off until the switch pnp_nodes_enabled is on)."),
     ("artifacts", "Files kept by identity: artifacts, blobs and uploads."),
     ("projects", "Projects with revisions and explicit sharing."),
@@ -446,6 +447,49 @@ op("PUT", "/pnp/nodes/{id}", "pnp", "admin", "Change a node", scope="machines:ma
 op("DELETE", "/pnp/nodes/{id}", "pnp", "admin", "Remove a node", scope="machines:manage", errors=PNP_OFF + ["unknown_pnp_node"])
 op("POST", "/pnp/nodes/{id}/poll", "pnp", "operator", "Ask a node now", scope="jobs:prepare", ok=(200, "PnpNode", "application/json"), errors=PNP_OFF + ["unknown_pnp_node", "pnp_node_disabled"],
    desc="Asks the node for its status and then for a read that needs its token, and gives the node as the server sees it. This is the only request that opens a connection to a node (the poller does the same on a timer).")
+
+SCHEMAS.update({
+    "PrinterStatus": obj({
+        "state": {"type": "string", "enum": ["unknown", "idle", "preparing", "printing", "paused", "finished", "failed", "cancelled", "error", "emergency"]},
+        "raw": s("The word the printer used."),
+        "temperatures": arr(obj({"name": {"type": "string", "enum": ["nozzle", "bed", "chamber"]}, "current_c": nullable(N), "target_c": nullable(N)}, ["name", "current_c", "target_c"])),
+        "progress_pct": nullable(N), "remaining_s": nullable(I), "remaining_estimated": B, "layer": nullable(I), "layers": nullable(I), "job_name": S,
+        "alerts": arr(obj({"source": {"type": "string", "enum": ["hms", "print", "firmware"]}, "severity": {"type": "string", "enum": ["error", "warning", "info"]}, "code": S, "message": S}, ["source", "severity", "code", "message"])),
+        "camera": nullable(obj({"present": B}, ["present"])),
+    }, ["state", "raw", "temperatures", "progress_pct", "remaining_s", "remaining_estimated", "layer", "layers", "job_name", "alerts", "camera"],
+        description="What a printer said last. A value the printer did not say, or one that cannot be right, is null: never zero."),
+    "Printer": obj({
+        "id": S, "name": S, "family": {"type": "string", "enum": ["bambu_lan", "moonraker"]}, "link": {"type": "string", "enum": ["sim", "lan"]}, "address": S,
+        "serial": s("Shortened to its last four characters."), "fingerprint": S, "secret": s("`***` when the printer has an access code or key, empty when it has none; it is never shown."),
+        "enabled": B, "health": {"type": "string", "enum": ["disabled", "off", "unknown", "online", "stale", "offline", "refused", "untrusted", "bad_report"]},
+        "current": B, "status": nullable(ref("PrinterStatus")), "capabilities": arr(S), "control": {"type": "boolean", "description": "Always false: the server cannot ask a printer to do anything."},
+        "age_s": nullable(I), "polls": obj({"ok": I, "failed": I}, ["ok", "failed"]), "last_error": S,
+        "certificate_seen": s("The fingerprint of the certificate a printer showed, when it was refused for it."),
+        "evidence": {"type": "string", "enum": ["simulator", "unvalidated"]}, "simulator_only": B,
+    }, ["id", "name", "family", "link", "address", "serial", "secret", "enabled", "health", "current", "status", "capabilities", "control", "polls", "last_error", "evidence"]),
+    "PrinterList": obj({
+        "schema": s("`eh3d.printers.status/1`."), "read_only": B, "printers": arr(ref("Printer")), "summary": {"type": "object", "additionalProperties": True},
+        "limits": obj({"max": I, "poll_s": I, "stale_s": I, "timeout_s": I, "families": arr(S), "links": arr(S)}, ["max", "poll_s", "stale_s", "timeout_s", "families", "links"]),
+    }, ["schema", "read_only", "printers", "summary", "limits"]),
+    "NewPrinter": obj({
+        "id": s("Lowercase letters, digits and hyphens (up to 32); empty: the server gives `printer-<n>`."), "name": s(),
+        "family": {"type": "string", "enum": ["bambu_lan", "moonraker"]}, "link": {"type": "string", "enum": ["sim", "lan"]},
+        "address": s("`host` or `host:port`; empty for a simulated printer."), "serial": s("The serial of a Bambu printer."),
+        "fingerprint": s("The SHA-256 of the certificate of a Bambu printer; empty until a person pins it."),
+        "secret": s("The access code (Bambu) or API key (Moonraker); it is kept apart and never shown."), "enabled": B,
+    }, ["name", "family", "link"]),
+    "PrinterChange": obj({"name": s(), "address": s(), "serial": s("A value that starts with `***` keeps the serial."), "fingerprint": s(), "secret": s("`***` keeps the secret."), "enabled": B}),
+})
+PRINTERS_OFF = ["printers_off"]
+op("GET", "/printers", "printers", "viewer", "List the printers and their state", scope="machines:view", ok=(200, "PrinterList", "application/json"), errors=PRINTERS_OFF,
+   desc="What the poller read last; no connection is opened by this request.")
+op("POST", "/printers", "printers", "admin", "Register a printer in the list of the server", scope="machines:manage", body="NewPrinter", ok=(201, "Printer", "application/json"),
+   errors=PRINTERS_OFF + ["bad_request", "bad_printer", "printer_exists", "printers_full"],
+   example={"name": "Printer by the window", "family": "bambu_lan", "link": "sim"})
+op("GET", "/printers/{id}", "printers", "viewer", "Read the state of a printer", scope="machines:view", ok=(200, "Printer", "application/json"), errors=PRINTERS_OFF + ["unknown_printer"])
+op("PUT", "/printers/{id}", "printers", "admin", "Change a printer of the list", scope="machines:manage", body="PrinterChange", ok=(200, "Printer", "application/json"),
+   errors=PRINTERS_OFF + ["bad_request", "unknown_printer", "bad_printer", "printer_exists"], desc="Changes what the server keeps; nothing is sent to the printer. What is left out stays.")
+op("DELETE", "/printers/{id}", "printers", "admin", "Remove a printer from the list", scope="machines:manage", errors=PRINTERS_OFF + ["unknown_printer"])
 
 # -- tasks
 TASK_OFF = ["tasks_off"]

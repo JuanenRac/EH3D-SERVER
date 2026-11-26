@@ -12,7 +12,7 @@ the server; it does not keep a list of its own.
 
 ## The contract of the settings
 
-`docs/settings-contract.json` lists every key of `server.cfg` (95 today): its group, type (`boolean`, `integer`, `string`, `list`), range, default and unit, whether a change is in
+`docs/settings-contract.json` lists every key of `server.cfg` (100 today): its group, type (`boolean`, `integer`, `string`, `list`), range, default and unit, whether a change is in
 force at once (`apply: "now"`) or read when the server starts (`apply: "restart"`), the route that writes it, the role and scope it needs, whether it is a secret, the kind of
 risk (`none`, `security`, `exposure`, `capacity`, `machine`, `data`) and three texts in each of the eight languages (en, es, de, fr, it, ja, zh and pt of Portugal): the `label`,
 a short `help` and the `warning` (how a change is applied and what it risks). The same document, with the value in force of every key that is not a secret in `values` and the

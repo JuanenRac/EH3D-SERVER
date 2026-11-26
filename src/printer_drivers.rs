@@ -147,6 +147,8 @@ pub trait Http: Send + Sync {
 
 /// The biggest answer a printer is read for, in bytes.
 const MAX_ANSWER: usize = 2 * 1024 * 1024;
+/// How many times the time limit of one read the whole answer may take.
+const ANSWER_LIMITS: u32 = 4;
 
 /// Plain HTTP over TCP, with a time limit on connecting, writing and reading.
 #[derive(Debug)]
@@ -251,7 +253,8 @@ fn unchunk(mut data: &[u8]) -> Option<Vec<u8>> {
         if size == 0 {
             return Some(out);
         }
-        if data.len() < size + 2 {
+        // the size is what the other side wrote: it may be bigger than anything, so nothing is added to it
+        if size > data.len() || data.len() - size < 2 {
             return None;
         }
         out.extend_from_slice(&data[..size]);
@@ -317,7 +320,12 @@ impl Http for TcpHttp {
             .map_err(|e| format!("cannot send: {e}"))?;
         let mut raw = Vec::new();
         let mut chunk = [0u8; 8192];
+        // each read has its limit, and so has the whole answer: a printer that gives a byte now and then must not hold the request for ever
+        let deadline = std::time::Instant::now() + self.timeout.saturating_mul(ANSWER_LIMITS);
         loop {
+            if std::time::Instant::now() > deadline {
+                return Err("the answer took too long".into());
+            }
             match stream.read(&mut chunk) {
                 Ok(0) => break,
                 Ok(n) => {
@@ -1275,6 +1283,59 @@ mod tests {
         ] {
             assert!(TcpHttp::new(bad, t).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_chunk_that_says_it_is_bigger_than_anything_is_refused_and_not_a_panic() {
+        for size in [
+            "ffffffffffffffff",
+            "fffffffffffffffe",
+            "7fffffffffffffff",
+            "100",
+            "4",
+            "3",
+        ] {
+            let raw = format!(
+                "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n{size}\r\nab\r\n0\r\n\r\n"
+            );
+            assert!(parse_answer(raw.as_bytes()).is_err(), "{size}");
+        }
+        assert!(parse_answer(
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nab\r\n0\r\n\r\n"
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn an_answer_given_a_byte_at_a_time_does_not_hold_the_request_for_ever() {
+        use std::io::{Read, Write};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let Ok((mut socket, _)) = listener.accept() else {
+                return;
+            };
+            let mut buffer = [0u8; 1024];
+            let _ = socket.read(&mut buffer);
+            let _ = socket.write_all(b"HTTP/1.1 200 OK\r\n\r\n{");
+            // a byte every little while, always inside the limit of one read
+            for _ in 0..600 {
+                std::thread::sleep(Duration::from_millis(50));
+                if socket.write_all(b" ").is_err() {
+                    return;
+                }
+            }
+        });
+        let http = TcpHttp::new(&format!("127.0.0.1:{port}"), Duration::from_millis(300)).unwrap();
+        let began = std::time::Instant::now();
+        let answer = http.send(&HttpRequest {
+            method: "GET",
+            path: "/".into(),
+            headers: Vec::new(),
+            body: HttpBody::None,
+        });
+        assert_eq!(answer.unwrap_err(), "the answer took too long");
+        assert!(began.elapsed() < Duration::from_secs(15));
     }
 
     #[test]
