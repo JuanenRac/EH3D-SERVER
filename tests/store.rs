@@ -634,5 +634,7 @@ fn identity_admin() -> eh3d_server::auth::Identity {
         token_id: None,
         scopes: None,
         template: None,
+        uid: None,
+        expires: None,
     }
 }

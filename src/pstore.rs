@@ -166,7 +166,7 @@ impl ProjectMeta {
 
     pub fn view(&self, at: u64) -> Value {
         json!({
-            "id": self.id, "app": self.app, "name": self.name, "owner": self.owner,
+            "id": self.id, "app": self.app, "name": self.name, "owner": crate::auth::display_owner(&self.owner),
             "created": self.created, "updated": self.updated, "etag": self.etag(),
             "deleted": self.deleted, "bytes": self.bytes(),
             "lock": self.live_lock(at).map(Lock::view),
@@ -176,7 +176,7 @@ impl ProjectMeta {
 
     pub fn summary(&self, at: u64) -> Value {
         json!({
-            "id": self.id, "app": self.app, "name": self.name, "owner": self.owner,
+            "id": self.id, "app": self.app, "name": self.name, "owner": crate::auth::display_owner(&self.owner),
             "created": self.created, "updated": self.updated, "etag": self.etag(),
             "deleted": self.deleted, "files": self.file_list().len(),
             "locked": self.live_lock(at).is_some(),
@@ -975,6 +975,8 @@ mod tests {
             token_id: None,
             scopes: None,
             template: None,
+            uid: None,
+            expires: None,
         }
     }
 

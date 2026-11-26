@@ -4,6 +4,9 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **A new user with the name of a deleted one is another person:** every user has an identifier that is never given again, and projects, shares, artifacts, uploads, tasks, jobs, locks and notifications are filed under it (the API still shows the name). Users that exist keep everything, with nothing to move. What a deleted user made is left to the administrators.
+- **A token with scopes gives no more than it has (security):** it does not make, change or delete administrators; it makes another user, sets a password, enables one or raises a role only when it carries the scopes of that role; and it makes the key of a 3D printer only with the scopes of what the key does. A program that provisions users with an `admin:users` token must be given those scopes too (`docs/API.md`), or answers `403 forbidden_scope`.
+- **A token made by a token that expires ends no later than it (security);** such a token rotates only tokens that end no later, and makes no key of a 3D printer.
 - Fix the rotation of a token (security): a token limited to some scopes, with `admin:tokens`, could rotate any token, an administrator's without limits among them, and read its new secret. It may now rotate only a token limited to some of the same scopes (`403 forbidden_scope`).
 - Fix the change of the own password (security): wrong old passwords were not counted, so somebody holding an open session could guess the password without end. They now count like wrong passwords of a login (`429 throttled`).
 - Fix the optional body of `POST /jobs/:id/resume-from` and of the quality check of the head (safety): a body that did not read was ignored whole, so a job could be made without the tools that had to be left out. It is now refused (`400 bad_request`).

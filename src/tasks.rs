@@ -159,7 +159,7 @@ impl TaskRecord {
     /// The task as the API shows it.
     pub fn view(&self) -> Value {
         json!({
-            "id": self.id, "kind": self.kind, "name": self.name, "owner": self.owner, "state": self.state,
+            "id": self.id, "kind": self.kind, "name": self.name, "owner": crate::auth::display_owner(&self.owner), "state": self.state,
             "created": self.created, "started": self.started, "finished": self.finished,
             "progress": self.progress, "message": self.message, "result": self.result,
             "engine": { "version": self.engine_version },
@@ -1188,6 +1188,8 @@ mod tests {
             token_id: None,
             scopes: None,
             template: None,
+            uid: None,
+            expires: None,
         };
         assert!(t.visible_to(&person("ana", Role::Viewer)));
         assert!(!t.visible_to(&person("bob", Role::Operator)));
@@ -1200,6 +1202,8 @@ mod tests {
             token_id: Some("ab12".into()),
             scopes: None,
             template: None,
+            uid: None,
+            expires: None,
         };
         assert!(!t.visible_to(&token));
         assert_eq!(token.owner(), "token:ab12");

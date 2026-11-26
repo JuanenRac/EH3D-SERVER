@@ -15,7 +15,7 @@ The older `/api/v1/projects` (a name and a line of revisions that point to artif
 | hide a project | operator, and the owner or an administrator | `projects:write` |
 | purge a hidden project, take a lock away from somebody (`force`) | administrator | `projects:write` |
 
-A token with scopes does what the intersection of its role and its scopes allows (`docs/API.md`). A project is seen by its **owner** (the user who made it, or `token:<id>` for a program's token) and by the administrators; for anybody else it does not exist (`404 unknown_project`). With `project_shared = true` the store works as a team: everybody who has access to the store sees and writes the projects of the application. The application is part of the address: a project of `studio` does not exist under `android`.
+A token with scopes does what the intersection of its role and its scopes allows (`docs/API.md`). The owner is an identifier that is never given again, shown as the name: a new user with the name of a deleted one does not get the projects of the deleted one (`docs/AUTH.md`). A project is seen by its **owner** (the user who made it, or `token:<id>` for a program's token) and by the administrators; for anybody else it does not exist (`404 unknown_project`). With `project_shared = true` the store works as a team: everybody who has access to the store sees and writes the projects of the application. The application is part of the address: a project of `studio` does not exist under `android`.
 
 The application has to be a name the server accepts (`422 bad_app`): lower case letters, digits and hyphens, and one of the known applications or one of `auth_extra_apps` (see `docs/AUTH.md`).
 

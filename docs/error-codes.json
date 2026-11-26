@@ -321,7 +321,7 @@
   },
   {
     "code": "forbidden_scope",
-    "description": "The token is limited to scopes that do not include this one, or a token of a design program was asked for a scope of the machines.",
+    "description": "The token is limited to scopes that do not include this one, the request would give more than the token has (or outlive it), or a token of a design program was asked for a scope of the machines.",
     "status": 403
   },
   {

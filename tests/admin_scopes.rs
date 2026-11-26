@@ -128,8 +128,19 @@ async fn a_token_with_scopes_needs_the_scope_of_each_request_of_administration()
             refused_for_scope(status, &answer),
             "{method} {path} with {other}: {status} {answer}"
         );
-        // with its scope the request goes through to its own answer (whatever it is, it is not a refusal of the scope or of the role)
-        let right = scoped_token(&s, &boss, "admin", &[scope]).await;
+        // with its scope the request goes through to its own answer (whatever it is, it is not a refusal of the scope or of the role); to make a user the token also
+        // needs what the role of that user can use
+        let mut needed = vec![scope];
+        if method == Method::POST && path == "/api/v1/users" {
+            needed.extend([
+                "projects:read",
+                "catalog:read",
+                "artifacts:read",
+                "tasks:read",
+                "machines:view",
+            ]);
+        }
+        let right = scoped_token(&s, &boss, "admin", &needed).await;
         let (status, answer) = call(&s, method.clone(), path, Some(&right), body.clone()).await;
         assert!(
             status != StatusCode::FORBIDDEN && status != StatusCode::UNAUTHORIZED,
