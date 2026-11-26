@@ -1823,6 +1823,21 @@ async fn the_work_is_checked_through_the_camera_of_the_head_and_the_ring_says_ho
         .iter()
         .any(|l| l.contains("tone=white")));
 
+    // a body that does not read is refused: it is not checked against no holes at all
+    let (status, body) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines/cam/head/inspect",
+        Some(&token),
+        Some(json!({"holes": [{"x_mm": "0", "y_mm": 0.0, "dia_mm": 0.8}]})),
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::BAD_REQUEST, Some("bad_request")),
+        "{body}"
+    );
+
     // too many holes, and a viewer may look but not check
     let many: Vec<Value> = (0..501)
         .map(|_| json!({"x_mm": 0.0, "y_mm": 0.0, "dia_mm": 0.8}))
@@ -2634,6 +2649,20 @@ async fn a_stopped_drilling_job_goes_on_from_the_saved_request_and_the_holes_don
         (status, body["error"].as_str()),
         (StatusCode::UNPROCESSABLE_ENTITY, Some("no_work"))
     );
+    // a body that does not read makes no job: the tools to leave out are never dropped without a word
+    let (status, body) = post(
+        &s,
+        &operator,
+        &path2,
+        Some(json!({"skip": 0, "skip_tools": [300]})),
+    )
+    .await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::BAD_REQUEST, Some("bad_request")),
+        "{body}"
+    );
+
     // the person may name where to go on from instead
     let (status, third) = post(
         &s,

@@ -53,8 +53,30 @@ impl IntoResponse for ApiError {
     }
 }
 
-/// The body of a request as JSON; a body that does not read comes back as `{error, detail}` like every other refusal.
+/// The body of a request as JSON; a body that does not read comes back as `{error, detail}` like every other refusal. A list at the top is refused: the
+/// reader would take its items for the members of an object by their position.
 pub struct ApiJson<T>(pub T);
+
+/// The first byte of a body that is not a blank.
+fn first_byte(body: &[u8]) -> Option<u8> {
+    body.iter().copied().find(|b| !b.is_ascii_whitespace())
+}
+
+/// The body of a route that may be called without one: nothing (or `null`) is the default; anything else has to be a JSON object that reads. A body that does not
+/// read is refused, never ignored: what a person asked for must not be left out without a word.
+pub(crate) fn optional_object<T: serde::de::DeserializeOwned + Default>(
+    body: &[u8],
+) -> Result<T, ApiError> {
+    let refused = |why: String| ApiError::new(StatusCode::BAD_REQUEST, "bad_request", why);
+    match first_byte(body) {
+        None => Ok(T::default()),
+        Some(b'{') => serde_json::from_slice(body).map_err(|e| refused(e.to_string())),
+        Some(b'n') if matches!(serde_json::from_slice::<Value>(body), Ok(Value::Null)) => {
+            Ok(T::default())
+        }
+        Some(_) => Err(refused("the body is a JSON object, or empty".into())),
+    }
+}
 
 #[async_trait]
 impl<S, T> axum::extract::FromRequest<S> for ApiJson<T>
@@ -65,7 +87,31 @@ where
     type Rejection = ApiError;
 
     async fn from_request(req: axum::extract::Request, state: &S) -> Result<Self, Self::Rejection> {
+        // the bytes are read first (inside the limit of the router) to see what is at the top of the body
+        let (parts, body) = req.into_parts();
+        let mut reading = axum::extract::Request::new(body);
+        *reading.headers_mut() = parts.headers.clone();
+        *reading.extensions_mut() = parts.extensions.clone();
+        let bytes =
+            <axum::body::Bytes as axum::extract::FromRequest<S>>::from_request(reading, state)
+                .await
+                .map_err(|rejection| {
+                    let status = rejection.status();
+                    let code = if status == StatusCode::PAYLOAD_TOO_LARGE {
+                        "too_big"
+                    } else {
+                        "bad_request"
+                    };
+                    ApiError::new(status, code, rejection.body_text())
+                })?;
+        let list = first_byte(&bytes) == Some(b'[');
+        let req = axum::extract::Request::from_parts(parts, axum::body::Body::from(bytes));
         match Json::<T>::from_request(req, state).await {
+            Ok(_) if list => Err(ApiError::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "bad_request",
+                "the body is a JSON object, not a list",
+            )),
             Ok(Json(v)) => Ok(ApiJson(v)),
             Err(rejection) => {
                 let status = rejection.status();
@@ -883,7 +929,28 @@ async fn rotate_token(
 ) -> ApiResult {
     need(&who, Role::Admin)?;
     need_scope(&who, "admin:tokens")?;
-    let secret = s.auth.locked().rotate_token(&id)?;
+    let secret = {
+        let mut auth = s.auth.locked();
+        // whoever rotates a token gets its secret: a token limited to some scopes may only rotate one limited to some of the same ones
+        if let Some(mine) = &who.scopes {
+            let target = auth
+                .tokens()
+                .iter()
+                .find(|t| t.id == id)
+                .ok_or(AuthError::UnknownToken)?;
+            let inside =
+                crate::auth::effective_scopes(target.template.as_deref(), target.scopes.as_deref())
+                    .is_some_and(|list| list.iter().all(|s| mine.contains(s)));
+            if !inside {
+                return Err(ApiError::new(
+                    StatusCode::FORBIDDEN,
+                    "forbidden_scope",
+                    "a token limited to some scopes can only rotate tokens limited to some of the same scopes",
+                ));
+            }
+        }
+        auth.rotate_token(&id)?
+    };
     note(&s, "token_rotate", &who, &[("token", &id)]);
     Ok(Json(json!({ "id": id, "token": secret })))
 }
@@ -1400,11 +1467,11 @@ async fn resume_from(
     State(s): State<Shared>,
     Authed(who, _): Authed,
     Path(id): Path<String>,
-    body: Option<Json<ResumeFromBody>>,
+    body: axum::body::Bytes,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
     need_scope(&who, "jobs:prepare")?;
-    let b = body.map(|Json(b)| b).unwrap_or_default();
+    let b: ResumeFromBody = optional_object(&body)?;
     let (job, machine) = stopped_job(&s, &id)?;
     let skip = match b.skip {
         Some(n) => n,
@@ -1903,12 +1970,12 @@ async fn inspect_run(
     State(s): State<Shared>,
     Authed(who, _): Authed,
     Path(id): Path<String>,
-    body: Option<Json<InspectBody>>,
+    body: axum::body::Bytes,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
     need_scope(&who, "jobs:prepare")?;
     let (address, token) = head_of(&s, &id)?;
-    let b = body.map(|Json(b)| b).unwrap_or_default();
+    let b: InspectBody = optional_object(&body)?;
     let mut profile = inspect::load_profile(&s.cfg.data_dir, &id);
     if let Some(over) = &b.profile {
         let (p, _) = eh3d_inspect::Profile::from_json_over(&profile, &over.to_string())

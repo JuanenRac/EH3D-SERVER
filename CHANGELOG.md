@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- Fix the rotation of a token (security): a token limited to some scopes, with `admin:tokens`, could rotate any token, an administrator's without limits among them, and read its new secret. It may now rotate only a token limited to some of the same scopes (`403 forbidden_scope`).
+- Fix the change of the own password (security): wrong old passwords were not counted, so somebody holding an open session could guess the password without end. They now count like wrong passwords of a login (`429 throttled`).
+- Fix the optional body of `POST /jobs/:id/resume-from` and of the quality check of the head (safety): a body that did not read was ignored whole, so a job could be made without the tools that had to be left out. It is now refused (`400 bad_request`).
+- Fix the reading of bodies: a list where an object is expected was taken by the position of its items. It is now refused (`422 bad_request`).
+- Fix the writing of the files of the server on Windows: the old file was removed before the new one took its place, so a power cut or a refused rename in between left no file, which read as a server with nothing yet (no users among it). The new file now replaces the old one in one step.
+- Fix a record of the artifact store whose hash is not a hash (a damaged file): checking the store stopped with a panic; it now says the file is missing.
+
 ## [0.2.4] - Live status of printers, read only, with a Bambu LAN and a Moonraker adapter and a simulator
 
 - **The 3D printers the server watches, read only:** `GET /api/v1/printers` and `GET /api/v1/printers/:id` give, for several printers at once, one contract (`eh3d.printers.status/1`): state, temperatures with their targets, progress, time left, layers, alerts (the health codes of a Bambu printer, a failed print, a stopped firmware), whether there is a camera, capabilities and health. One adapter for each family of protocol: Bambu Lab in LAN mode (MQTT over TLS with the certificate pinned, only while `bambu_lan_enabled` is on; the only message published asks for the whole state) and Klipper through Moonraker (two `GET` requests). Each can be simulated. There is no route and no code path that sends a printer an order, a temperature, G-code or a file. `POST`, `PUT` and `DELETE` (administrator) change the list of the server only. What a printer did not say, or a number that cannot be right, is `null`, never zero. Tried against printers in memory only.

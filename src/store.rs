@@ -74,11 +74,9 @@ pub fn write_durable(path: &Path, bytes: &[u8], keep_backup: bool) -> io::Result
     if keep_backup && path.exists() {
         let _ = std::fs::copy(path, backup_path(path));
     }
-    // a file that is replaced is replaced whole; on Windows the target must go first
-    if cfg!(windows) && path.exists() {
-        std::fs::remove_file(path)?;
-    }
-    std::fs::rename(&tmp, path)?;
+    // a file that is replaced is replaced whole: the rename takes its place, also on Windows. The old file is never removed first, or a power cut (or a rename that
+    // fails) would leave no file at all, which reads as "there is none yet" and starts over
+    rename_over(&tmp, path)?;
     // the rename itself is flushed with the folder (not possible on Windows)
     #[cfg(unix)]
     {
@@ -89,6 +87,24 @@ pub fn write_durable(path: &Path, bytes: &[u8], keep_backup: bool) -> io::Result
         std::fs::File::open(dir)?.sync_all()?;
     }
     Ok(())
+}
+
+/// Renames `from` over `to`. On Windows another program (an antivirus, a backup) may hold one of the two for a moment: it is tried a few times before giving up,
+/// and giving up leaves `to` as it was.
+fn rename_over(from: &Path, to: &Path) -> io::Result<()> {
+    let mut tries = if cfg!(windows) { 10 } else { 1 };
+    loop {
+        match std::fs::rename(from, to) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                tries -= 1;
+                if tries == 0 {
+                    return Err(e);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(30));
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -202,6 +218,34 @@ mod tests {
         // a missing main file is still "no file yet", whatever the copy holds
         std::fs::remove_file(&p).unwrap();
         assert_eq!(read_json::<Doc>(&p).unwrap(), None);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A file held open by another program without letting it be moved: the write fails and the old file stays, whole.
+    #[cfg(windows)]
+    #[test]
+    fn a_write_that_cannot_take_the_place_of_the_old_file_leaves_it_there() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let d = dir("store-held");
+        let p = d.join("doc.json");
+        let doc = |n| Doc {
+            name: "w".into(),
+            n,
+        };
+        write_json(&p, &doc(1)).unwrap();
+        // shared for reading and writing, not for renaming or deleting
+        let held = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .share_mode(1 | 2)
+            .open(p.with_extension("tmp"))
+            .unwrap();
+        assert!(write_json(&p, &doc(2)).is_err());
+        assert_eq!(read_json::<Doc>(&p).unwrap(), Some(doc(1)));
+        drop(held);
+        write_json(&p, &doc(2)).unwrap();
+        assert_eq!(read_json::<Doc>(&p).unwrap(), Some(doc(2)));
         let _ = std::fs::remove_dir_all(&d);
     }
 
