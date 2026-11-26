@@ -66,10 +66,12 @@ impl<T: LineTransport> StopHandle<T> {
 
 impl<T: LineTransport> LineTransport for SharedLink<T> {
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
+        // asked with the port in hand: a stop that comes between the question and the write must not be followed by a line
+        let mut port = self.inner.locked();
         if self.stopped.load(Ordering::SeqCst) {
             return Err(io::Error::new(io::ErrorKind::Interrupted, "stopped"));
         }
-        self.inner.locked().write_all(bytes)
+        port.write_all(bytes)
     }
 
     fn read_line(&mut self, timeout: Duration) -> io::Result<Option<String>> {
@@ -148,6 +150,24 @@ mod tests {
         // the link still works: a hold is not a stop
         link.write_all(b"~").unwrap();
         assert!(link.read_line(Duration::from_millis(30)).unwrap().is_none());
+    }
+
+    #[test]
+    fn a_line_that_was_waiting_for_the_port_when_the_stop_came_is_not_written_after_it() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let (mut link, handle) = share(Silent {
+            written: written.clone(),
+        });
+        let (stopped, port) = (handle.stopped.clone(), handle.inner.clone());
+        // the port is in the hands of the stop while the thread of the job asks to write
+        let mut held = port.lock().unwrap();
+        let writer = std::thread::spawn(move || link.write_all(b"G1 Z-5\n").is_err());
+        std::thread::sleep(Duration::from_millis(200));
+        stopped.store(true, Ordering::SeqCst);
+        held.write_all(&REAL_TIME_STOP).unwrap();
+        drop(held);
+        assert!(writer.join().unwrap(), "the line is refused");
+        assert_eq!(written.lock().unwrap().as_slice(), &REAL_TIME_STOP);
     }
 
     #[test]

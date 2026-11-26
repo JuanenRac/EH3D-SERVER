@@ -134,6 +134,115 @@ fn number(v: f64) -> String {
     text.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
+/// The codes of the `G` words of a line, as ten times the number (`G92.1` is 921).
+fn g_codes(ws: &[(char, f64)]) -> impl Iterator<Item = i32> + '_ {
+    ws.iter()
+        .filter(|(l, _)| *l == 'G')
+        .map(|(_, v)| (v * 10.0).round() as i32)
+}
+
+/// The motion in force after a line that names one: `Some(0..=3)` for `G0` to `G3`; `None` inside for a code that ends it or that must never be given again
+/// by itself (`G80`, a probe).
+fn motion_of(ws: &[(char, f64)]) -> Option<Option<u8>> {
+    g_codes(ws).fold(None, |found, g| match g {
+        0 => Some(Some(0)),
+        10 => Some(Some(1)),
+        20 => Some(Some(2)),
+        30 => Some(Some(3)),
+        800 | 382..=385 => Some(None),
+        _ => found,
+    })
+}
+
+/// Whether a line has a word of an axis (or of the centre of an arc).
+fn has_axis(ws: &[(char, f64)]) -> bool {
+    ws.iter()
+        .any(|(l, _)| matches!(l, 'X' | 'Y' | 'Z' | 'A' | 'B' | 'C' | 'I' | 'J' | 'K'))
+}
+
+/// A controller that was reset by the stop is in `G0` again: the first line that moves without naming how gets the motion that was in force, so that a cut is
+/// never made at the speed of a rapid move.
+fn restore_motion(motion: Option<u8>, entries: &mut [Entry]) {
+    let Some(motion) = motion else { return };
+    for e in entries {
+        if e.text.starts_with('$') {
+            continue;
+        }
+        let ws = words(&e.text);
+        if motion_of(&ws).is_some() {
+            return;
+        }
+        // these codes take the words of the axes for themselves
+        let taken = g_codes(&ws).any(|g| matches!(g, 100 | 280 | 300 | 431 | 920));
+        if has_axis(&ws) && !taken {
+            e.text = format!("G{motion} {}", e.text);
+            return;
+        }
+    }
+}
+
+/// The line a stopped job goes on from by itself: `margin` lines that move before the line `reached` (the controller takes lines ahead of the movement, and the
+/// stop empties what it had taken), and never before `before`, where the stopped job itself had started. Refused, with the reason, when sending those lines again
+/// or giving the codes in force back would not put the machine where the program expects it.
+pub fn resume_line(
+    text: &str,
+    reached: usize,
+    margin: usize,
+    before: usize,
+) -> Result<usize, &'static str> {
+    const RELATIVE: &str = "the program moves in relative distances (G91) where it would go on: the moves would be counted again from where the head now stands";
+    const LOST: &str = "an offset the program set (G92 or G43.1) is lost when the controller is stopped and cannot be given back";
+    const SET_AGAIN: &str =
+        "the lines that would be sent again set an offset (G92 or G10) from where the head stands";
+    let raw: Vec<&str> = text.lines().collect();
+    let end = reached.min(raw.len());
+    // nothing was taken: the job goes on where it had started
+    if end == 0 {
+        return Ok(before);
+    }
+    let words_of = |n: usize| words(&strip(raw[n]));
+    let (mut skip, mut back) = (end, 0);
+    while skip > 0 && back < margin {
+        skip -= 1;
+        let ws = words_of(skip);
+        // a line that only sets an offset moves nothing
+        if has_axis(&ws) && !g_codes(&ws).any(|g| matches!(g, 100 | 431 | 920)) {
+            back += 1;
+        }
+    }
+    let skip = skip.max(before).min(raw.len());
+    let (mut relative, mut shifted, mut tool_length) = (false, false, false);
+    for n in 0..skip {
+        for g in g_codes(&words_of(n)) {
+            match g {
+                900 => relative = false,
+                910 => relative = true,
+                920 => shifted = true,
+                921 | 922 => shifted = false,
+                431 => tool_length = true,
+                490 => tool_length = false,
+                _ => {}
+            }
+        }
+    }
+    if relative {
+        return Err(RELATIVE);
+    }
+    if shifted || tool_length {
+        return Err(LOST);
+    }
+    for n in skip..end {
+        for g in g_codes(&words_of(n)) {
+            match g {
+                910 => return Err(RELATIVE),
+                100 | 920 => return Err(SET_AGAIN),
+                _ => {}
+            }
+        }
+    }
+    Ok(skip)
+}
+
 /// Cleans the text into a program. `skip` is how many lines of the text (counting the blank and comment ones) were already sent: they are not sent
 /// again; the codes they put in force are given again instead and the job waits for the operator before it moves.
 pub fn parse(text: &str, skip: usize, restore_outputs: bool) -> Result<Program, GcodeError> {
@@ -158,6 +267,7 @@ pub fn parse_with(
         return fail("no_work", "skip is beyond the end of the program");
     }
     let mut modal = eh3d_parser_gcode::ModalState::default();
+    let mut motion: Option<u8> = None;
     let mut entries: Vec<Entry> = Vec::new();
     for (n, line) in raw.iter().enumerate() {
         let code = strip(line);
@@ -166,7 +276,11 @@ pub fn parse_with(
         }
         check_line(n, &code, allow_dollar)?;
         if n < skip {
-            modal.apply_words(words(&code));
+            let ws = words(&code);
+            if let Some(named) = motion_of(&ws) {
+                motion = named;
+            }
+            modal.apply_words(ws);
         } else {
             entries.push(Entry { raw: n, text: code });
         }
@@ -174,6 +288,7 @@ pub fn parse_with(
     if entries.is_empty() {
         return fail("no_work", "the program has no line of code to send");
     }
+    restore_motion(motion, &mut entries);
     let mut lead: Vec<Entry> = Vec::new();
     if skip > 0 {
         lead = modal
@@ -371,6 +486,66 @@ mod tests {
         assert_eq!(q.preamble, 4);
         // a program that ends in the middle of nothing has no preamble to give
         assert_eq!(parse("G1 X1\nG1 X2", 0, true).unwrap().preamble, 0);
+    }
+
+    fn texts(p: &Program) -> Vec<&str> {
+        p.entries.iter().map(|e| e.text.as_str()).collect()
+    }
+
+    #[test]
+    fn a_job_that_goes_on_gives_the_motion_in_force_to_the_first_line_that_moves_without_one() {
+        let text = "G21 G90\nM3 S9000\nG1 X1 F300\nX2\nY3\nX4\nM5\n";
+        let p = parse(text, 4, false).unwrap();
+        // a controller that was reset is in G0: without the G1 the cut would go at the speed of a rapid move
+        assert_eq!(texts(&p), ["G21 G90", "F300", "G1 Y3", "X4", "M5"]);
+        assert_eq!((p.preamble, p.entries[2].raw), (2, 4));
+        // the lines that move nothing by this motion are passed over
+        let p = parse("G0 X1\nM8\nG92 X0\nG4 P1\nZ5\n", 1, false).unwrap();
+        assert_eq!(texts(&p), ["M8", "G92 X0", "G4 P1", "G0 Z5"]);
+        // a line that names its own motion needs nothing, and neither does the start of a program
+        let p = parse("G1 X1 F300\nG0 Z5\nX2\n", 1, false).unwrap();
+        assert_eq!(texts(&p), ["F300", "G0 Z5", "X2"]);
+        assert_eq!(texts(&parse("G1 F300\nX2\n", 0, false).unwrap())[1], "X2");
+        // an arc keeps its direction; a probe is never given again by itself
+        let p = parse("G2 X1 I1 F100\nX2 I1\n", 1, false).unwrap();
+        assert_eq!(texts(&p), ["F100", "G2 X2 I1"]);
+        let p = parse("G38.2 Z-5 F50\nZ-6\n", 1, false).unwrap();
+        assert_eq!(texts(&p), ["F50", "Z-6"]);
+    }
+
+    #[test]
+    fn the_line_to_go_on_from_goes_back_by_lines_that_move_and_not_by_lines_of_text() {
+        let text = "G21 G90\nG0 Z5\nG0 X1\n(a note)\n\nG0 X2\n; another\nM8\nG0 X3\nG0 X4\n";
+        // two moves before the line 9 are those of the lines 8 and 5: the notes, the blank line and the M8 do not count
+        assert_eq!(resume_line(text, 9, 2, 0), Ok(5));
+        assert_eq!(resume_line(text, 10, 3, 0), Ok(5));
+        // no margin: the line reached; never before where the job had started; the whole program when there are fewer moves
+        assert_eq!(resume_line(text, 9, 0, 0), Ok(9));
+        assert_eq!(resume_line(text, 9, 2, 8), Ok(8));
+        assert_eq!(resume_line(text, 9, 16, 0), Ok(0));
+        // a line beyond the text counts as its end, and nothing taken changes nothing
+        assert_eq!(resume_line(text, 99, 1, 0), Ok(9));
+        assert_eq!(resume_line(text, 0, 16, 3), Ok(3));
+    }
+
+    #[test]
+    fn a_job_does_not_go_on_by_itself_where_the_codes_cannot_be_given_back() {
+        let why = |text: &str, reached| resume_line(text, reached, 1, 0).unwrap_err();
+        // relative distances at the line to go on from, or among the lines sent again
+        assert!(why("G91\nG1 X1 F100\nG1 X1\nG1 X1\n", 3).contains("G91"));
+        assert!(why("G90\nG0 X1\nG91\nG0 X1\nG90\n", 5).contains("G91"));
+        // relative lines that are over and done with long before do not matter
+        assert_eq!(
+            resume_line("G91\nG0 X1\nG90\nG0 X2\nG0 X3\n", 5, 1, 0),
+            Ok(4)
+        );
+        // an offset in force that the reset takes away
+        assert!(why("G92 X0\nG0 X1\nG0 X2\n", 3).contains("G43.1"));
+        assert!(why("G43.1 Z1.5\nG0 X1\nG0 X2\n", 3).contains("G43.1"));
+        assert_eq!(resume_line("G92 X0\nG92.1\nG0 X1\nG0 X2\n", 4, 1, 0), Ok(3));
+        // an offset set again from wherever the head is now
+        assert!(why("G0 X1\nG0 X2\nG10 L20 P1 X0\n", 3).contains("G10"));
+        assert!(why("G0 X1\nG92 Y0\n", 2).contains("G92"));
     }
 
     #[test]
