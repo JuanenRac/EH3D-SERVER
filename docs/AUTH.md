@@ -46,7 +46,7 @@ A login says which application it is for. The server knows these by name; `auth_
 | `auth_lockout_s` | 30 | the first block, in seconds; it doubles while the wrong passwords go on (up to 64 times) |
 | `login_ip_limit` | 10 | wrong passwords in a row, with any names, that block an address |
 
-The policy holds wherever a password is set: the first administrator, `POST /users`, `PUT /users/{name}` and `PUT /account`. A refused password answers `422 weak_password`. A blocked name or address answers `429 throttled` even to the right password; the time that the hash of a name that does not exist takes is the same as that of one that does, so the answer does not tell which names exist.
+The policy holds wherever a password is set: the first administrator, `POST /users`, `PUT /users/{name}` and `PUT /account`. A refused password answers `422 weak_password`. A blocked name or address answers `429 throttled` even to the right password; the time that the hash of a name that does not exist takes is the same as that of one that does, so the answer does not tell which names exist. A wrong old password in `PUT /account` counts like a wrong password of a login, so an open session cannot be used to guess it.
 
 ## The switches of security
 

@@ -1039,16 +1039,27 @@ impl Auth {
         self.save_users()
     }
 
-    /// A person changes their own password.
+    /// A person changes their own password. Wrong old passwords count like wrong passwords of a login: somebody holding an open session cannot guess the password
+    /// without end.
     pub fn change_password(&mut self, name: &str, old: &str, new: &str) -> Result<(), AuthError> {
+        let now = crate::jobs::now();
+        if matches!(self.failures.get(name), Some(&(_, until)) if until > now) {
+            return Err(AuthError::Throttled);
+        }
         let user = self
             .users
             .iter()
             .find(|u| u.name == name)
             .ok_or(AuthError::UnknownUser)?;
         if !password_ok(&user.hash, old) {
+            let entry = self.failures.entry(name.to_string()).or_insert((0, 0));
+            entry.0 += 1;
+            if entry.0 >= self.max_failures {
+                entry.1 = now + (self.lockout_base << (entry.0 - self.max_failures).min(6));
+            }
             return Err(AuthError::BadCredentials);
         }
+        self.failures.remove(name);
         self.update_user(name, None, Some(new), None)
     }
 
@@ -1237,6 +1248,34 @@ mod tests {
         }
         assert_eq!(a.login("nobody", "x", now), Err(AuthError::Throttled));
         assert!(a.failures.is_empty());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn guessing_the_old_password_in_a_change_is_slowed_down() {
+        let (mut a, d) = set_up("auth-change-guess");
+        for _ in 0..MAX_FAILURES {
+            assert_eq!(
+                a.change_password("juan", "mala", "nueva-clave-larga"),
+                Err(AuthError::BadCredentials)
+            );
+        }
+        // even the right old password waits, and so does the login of that name
+        assert_eq!(
+            a.change_password("juan", "una-clave-larga", "nueva-clave-larga"),
+            Err(AuthError::Throttled)
+        );
+        assert_eq!(
+            a.login("juan", "una-clave-larga", crate::jobs::now()),
+            Err(AuthError::Throttled)
+        );
+        // when the block ends the right password goes through and the count starts again
+        a.failures.insert("juan".into(), (MAX_FAILURES, 0));
+        assert_eq!(
+            a.change_password("juan", "una-clave-larga", "nueva-clave-larga"),
+            Ok(())
+        );
+        assert!(!a.failures.contains_key("juan"));
         let _ = std::fs::remove_dir_all(&d);
     }
 

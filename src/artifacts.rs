@@ -382,8 +382,14 @@ impl ArtifactStore {
         self.records.iter_mut().find(|r| r.artifact_id == id)
     }
 
+    /// Where the bytes of a hash are kept. A record of a damaged file may carry something that is not a hash: it points to a file that is never there, so it reads as
+    /// missing instead of stopping the server or naming a file outside the store.
     pub fn blob_path(&self, sha: &str) -> PathBuf {
-        self.dir.join("blobs").join(&sha[..2]).join(sha)
+        let blobs = self.dir.join("blobs");
+        match sha.get(..2) {
+            Some(fan) if is_sha256(sha) => blobs.join(fan).join(sha),
+            _ => blobs.join("not-a-hash").join("not-a-hash"),
+        }
     }
 
     pub fn blob_exists(&self, sha: &str) -> bool {
@@ -1019,6 +1025,28 @@ mod tests {
             keep_until: None,
             shares: Vec::new(),
         }
+    }
+
+    #[test]
+    fn a_record_with_a_hash_that_is_not_one_reads_as_missing_and_never_panics() {
+        let d = dir("badsha");
+        let mut st = ArtifactStore::open(&d).unwrap();
+        let outside = "../".repeat(22);
+        let bad = ["", "a", "\u{e9}\u{e9}", "a\u{e9}", outside.as_str()];
+        for (n, sha) in bad.iter().enumerate() {
+            assert!(st
+                .blob_path(sha)
+                .starts_with(d.join("blobs").join("not-a-hash")));
+            assert!(!st.blob_exists(sha));
+            st.add(record(&format!("art-{n}"), sha, 1, "juan")).unwrap();
+        }
+        // the records come back from the file as they are, and checking the store says each one is missing
+        let again = ArtifactStore::open(&d).unwrap();
+        let found = again.verify();
+        assert_eq!(found.len(), bad.len());
+        assert!(found.iter().all(|(_, what)| *what == "missing"));
+        assert!(again.read_blob("").is_err());
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

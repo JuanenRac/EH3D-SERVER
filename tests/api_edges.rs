@@ -156,6 +156,108 @@ async fn a_login_with_a_body_that_is_not_json_or_lacks_fields_is_a_client_error(
 }
 
 #[tokio::test]
+async fn a_list_where_an_object_is_expected_is_refused_and_changes_nothing() {
+    let s = server("edge-list");
+    let token = admin(&s).await;
+    // the reader of an object would take these items by their position: a user, a login, a change of a user
+    for (method, path, body) in [
+        (
+            Method::POST,
+            "/api/v1/users",
+            r#"["eve","admin","una-clave-larga"]"#,
+        ),
+        (
+            Method::POST,
+            "/api/v1/login",
+            r#"["juan","una-clave-larga"]"#,
+        ),
+        (Method::PUT, "/api/v1/users/juan", r#" [null,null,null]"#),
+        (Method::POST, "/api/v1/tokens", r#"["t","admin",1]"#),
+        (Method::POST, "/api/v1/machines", r#"[]"#),
+    ] {
+        let status = raw(&s, method, path, Some(&token), body).await;
+        assert!(status.is_client_error(), "{path} {body}: {status}");
+    }
+    let (_, users) = call(&s, Method::GET, "/api/v1/users", Some(&token), None).await;
+    assert_eq!(users.as_array().unwrap().len(), 1, "{users}");
+    let (_, tokens) = call(&s, Method::GET, "/api/v1/tokens", Some(&token), None).await;
+    assert_eq!(tokens.as_array().unwrap().len(), 0, "{tokens}");
+}
+
+#[tokio::test]
+async fn a_member_that_comes_twice_is_refused() {
+    let s = server("edge-twice");
+    let token = admin(&s).await;
+    let body = r#"{"name":"eve","role":"viewer","role":"admin","password":"una-clave-larga"}"#;
+    let status = raw(&s, Method::POST, "/api/v1/users", Some(&token), body).await;
+    assert!(status.is_client_error(), "{status}");
+    let (_, users) = call(&s, Method::GET, "/api/v1/users", Some(&token), None).await;
+    assert_eq!(users.as_array().unwrap().len(), 1, "{users}");
+}
+
+#[tokio::test]
+async fn an_optional_body_that_does_not_read_is_refused_not_ignored() {
+    let s = server("edge-optional");
+    let token = admin(&s).await;
+    let path = "/api/v1/jobs/none/resume-from";
+    for body in [
+        "{",
+        "[]",
+        "[5]",
+        "5",
+        "nul",
+        "\"skip\"",
+        r#"{"skip":"3"}"#,
+        r#"{"skip":-1}"#,
+        r#"{"skip_tools":[300]}"#,
+        r#"{"skip":1,"skip":2}"#,
+    ] {
+        let status = raw(&s, Method::POST, path, Some(&token), body).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    }
+    // no body, a body of blanks, null and an object that reads go on to look for the job
+    for body in ["", "  \n", "null", "{}", r#"{"skip":1}"#] {
+        let status = raw(&s, Method::POST, path, Some(&token), body).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_token_limited_to_some_scopes_cannot_take_a_wider_one_by_rotating_it() {
+    let s = server("edge-rotate");
+    let token = admin(&s).await;
+    let mut made = Vec::new();
+    for body in [
+        json!({"name": "wide", "role": "admin"}),
+        json!({"name": "other", "role": "admin", "scopes": ["admin:tokens", "admin:users"]}),
+        json!({"name": "narrow", "role": "viewer", "scopes": ["admin:tokens"]}),
+        json!({"name": "keeper", "role": "admin", "scopes": ["admin:tokens"]}),
+    ] {
+        let (status, answer) =
+            call(&s, Method::POST, "/api/v1/tokens", Some(&token), Some(body)).await;
+        assert_eq!(status, StatusCode::OK, "{answer}");
+        made.push(answer);
+    }
+    let keeper = made[3]["token"].as_str().unwrap();
+    let rotate = |n: usize| format!("/api/v1/tokens/{}/rotate", made[n]["id"].as_str().unwrap());
+    for n in [0, 1] {
+        let (status, body) = call(&s, Method::POST, &rotate(n), Some(keeper), None).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert_eq!(body["error"], "forbidden_scope");
+        assert!(body.get("token").is_none());
+    }
+    // the wide token still works: nothing was changed
+    let wide = made[0]["token"].as_str();
+    let (status, _) = call(&s, Method::GET, "/api/v1/users", wide, None).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = call(&s, Method::POST, &rotate(2), Some(keeper), None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let path = "/api/v1/tokens/nobody/rotate";
+    let (status, _) = call(&s, Method::POST, path, Some(keeper), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn a_machine_that_does_not_exist_is_not_found_and_odd_ids_never_make_a_server_error() {
     let s = server("edge-machine");
     let token = admin(&s).await;

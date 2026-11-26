@@ -308,8 +308,8 @@ op("POST", "/login", "auth", "none", "Log in", body="LoginRequest", ok=(200, "Lo
    example={"name": "juan", "password": "a long password"})
 op("POST", "/logout", "auth", "any", "End the login")
 op("GET", "/session", "auth", "any", "Say who is logged in", ok=(200, "Session", "application/json"), example={"name": "juan", "role": "admin", "is_token": False})
-op("PUT", "/account", "auth", "person", "Change the own password", body="PasswordChange", errors=["bad_credentials", "weak_password", "forbidden"],
-   desc="A token of a program has no password and is refused with `403 forbidden`.")
+op("PUT", "/account", "auth", "person", "Change the own password", body="PasswordChange", errors=["bad_credentials", "weak_password", "forbidden", "throttled"],
+   desc="A token of a program has no password and is refused with `403 forbidden`. Wrong old passwords count like wrong passwords of a login.")
 op("POST", "/tickets", "auth", "any", "Make a ticket for the camera or the websocket", ok=(200, "Ticket", "application/json"), errors=["throttled"],
    desc="Good for one use within 30 seconds and made for the session that asked, so the address of the camera or of the websocket never carries the token.")
 op("GET", "/events", "system", "viewer", "Open the websocket of the events", security=SECURITY_OPEN, ok=(101, None, None), ok_desc="Switching protocols: a websocket.",
@@ -331,7 +331,7 @@ op("POST", "/tokens", "admin", "admin", "Make a token for a program", scope="adm
    example={"name": "design-program", "role": "operator", "days": 90, "template": "phoenix"})
 op("DELETE", "/tokens/{id}", "admin", "admin", "Revoke a token", scope="admin:tokens", errors=["unknown_token"])
 op("POST", "/tokens/{id}/rotate", "admin", "admin", "Give a token a new secret", scope="admin:tokens", ok=(200, "TokenSecret", "application/json"), errors=["unknown_token"],
-   desc="The new secret is shown this once and the old one stops working at once; the id, the scopes and the expiry stay.")
+   desc="The new secret is shown this once and the old one stops working at once; the id, the scopes and the expiry stay. A token limited to some scopes may only rotate one limited to some of the same scopes.")
 op("GET", "/updates", "admin", "admin", "See the updates of the services", scope="admin:updates", ok=(200, "Updates", "application/json"),
    desc="Without `updates_dir` in `server.cfg` the answer is `{\"enabled\": false}`.")
 op("POST", "/updates/check", "admin", "admin", "Ask the helper to look for the latest releases", scope="admin:updates", errors=["updates_off", "update_refused"])

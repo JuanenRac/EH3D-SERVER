@@ -295,12 +295,13 @@ paths:
       tags:
         - auth
       summary: Change the own password
-      description: "A token of a program has no password and is refused with `403 forbidden`. A person logged in (not a token)."
+      description: "A token of a program has no password and is refused with `403 forbidden`. Wrong old passwords count like wrong passwords of a login. A person logged in (not a token)."
       x-role: person
       x-error-codes:
         - bad_credentials
         - bad_request
         - forbidden
+        - throttled
         - unauthorized
         - weak_password
       requestBody:
@@ -353,6 +354,15 @@ paths:
                 "$ref": "#/components/schemas/ErrorBody"
               example:
                 error: weak_password
+                detail: ""
+        "429":
+          description: "Refused with `throttled`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: throttled
                 detail: ""
   "/tickets":
     post:
@@ -881,7 +891,7 @@ paths:
       tags:
         - admin
       summary: Give a token a new secret
-      description: "The new secret is shown this once and the old one stops working at once; the id, the scopes and the expiry stay. Role admin. Scope `admin:tokens` if the token is limited by scopes."
+      description: "The new secret is shown this once and the old one stops working at once; the id, the scopes and the expiry stay. A token limited to some scopes may only rotate one limited to some of the same scopes. Role admin. Scope `admin:tokens` if the token is limited by scopes."
       x-role: admin
       x-scope: "admin:tokens"
       x-error-codes:
