@@ -147,6 +147,7 @@ The update helper checks every download against the SHA-256 that the release pub
 1. The owner makes a key pair that is only for releases (`ssh-keygen -t ed25519 -f eh3d-release`) and keeps the private half off the servers.
 2. On the machine, `/etc/eh3d-update.signers` holds one line: `eh3d-release <the contents of eh3d-release.pub>`.
 3. For every file of a release, the owner signs it (`ssh-keygen -Y sign -f eh3d-release -n eh3d-release FILE.tar.gz`) and publishes `FILE.tar.gz.sig` next to it.
+4. The owner also publishes the record of the release, `eh3d-release.json`, and signs it the same way (`eh3d-release.json.sig`).
 
 The helper demands the signature by default. It installs only a release that has the `.sig` and whose signature verifies with `ssh-keygen -Y verify`; a release without it, or signed by another key, is refused and nothing is replaced. **A machine without the signers file installs nothing**: the error says so and names the file.
 
@@ -161,3 +162,22 @@ The restart of an update of the server ends the logins unless `persist_sessions`
 The helper also refuses a release whose version is lower than the installed one (a signed old release published again as the latest would otherwise be installed): the key `{"settings": {"allow_downgrade": true}}` in the file of `--config`, or the option `--allow-downgrade`, allows going back on purpose. The same or a newer version, and an installed version that cannot be read, are installed as before. A signature covers the bytes of a package, not the release it is published under, so the helper also asks the package itself: its `version.json` (the pages), or else the name of the one folder it holds (`eh3d-server-VERSION-linux-ARCH`), must say the version the release announces, and a package that says another one, or none, is not installed. The releases published so far have it. A component of your own in `--config` needs the same in its packages.
 
 Even with the hash alone allowed, a `.sig` that the release does publish must verify: a signature by another key is refused. Only a release that publishes no `.sig` (or a machine with no signers file) falls back to the hash.
+
+## The record of a release
+
+A signature of a file does not say what the file is, and the programs of the suite are signed with the same key. The record says it, and is signed too:
+
+```json
+{"format": "eh3d-release", "format_version": 1, "repository": "JuanenRac/EH3D-SERVER", "version": "X.Y.Z",
+ "files": [{"name": "eh3d-server-X.Y.Z-linux-aarch64.tar.gz", "arch": "linux-aarch64", "size": 0, "sha256": "..."}]}
+```
+
+`arch` is the system and processor of the file, the board of a firmware image, `android`, or `any`. The helper decides by the version whether a release needs it:
+
+| The release | What the helper does |
+|---|---|
+| later than the last one published without a record (EH3D-SERVER 0.2.5, EH3D-STUDIO 0.2.0) | demands `eh3d-release.json` and its `.sig`; taking them away does not help, the version decides |
+| any version that publishes the record or its signature | demands both and checks them |
+| that version or an earlier one, publishing neither | the `.sig` of the file is enough, as before |
+
+A record that is demanded must be signed by an allowed signer and name the repository of the component, the version the release announces and the downloaded file with its SHA-256 and an architecture that fits the machine; otherwise nothing is installed. A component of your own in `--config` is asked for a record only when it publishes one. With the hash alone allowed, a release with no signature at all is installed as before; one that signs its files or publishes a record must still agree with it.

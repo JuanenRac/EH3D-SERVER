@@ -392,6 +392,160 @@ class UpdateHelper(unittest.TestCase):
         finally:
             H.SIGNERS, H.ALLOW_UNSIGNED = before
 
+    # ---- the record of a release
+
+    def _signed_release(self, component: str):
+        """A release later than the last one without a record, its package signed by the owner of the machine; gives the key, the address and the name of the package."""
+        repo = f"EH3D-{component.upper()}"
+        major, minor, patch = (int(part) for part in H.LAST_WITHOUT_RECORD[repo].split("."))
+        tag = f"v{major}.{minor}.{patch + 1}"
+        self.gh = FakeGitHub(tag_server=tag) if component == "server" else FakeGitHub(tag_studio=tag)
+        owner = self._keys("owner")
+        signers = self.root / "signers"
+        signers.write_text("eh3d-release " + (self.root / "owner.pub").read_text(encoding="utf-8"), encoding="utf-8")
+        before = H.SIGNERS
+        H.SIGNERS = str(signers)
+        self.addCleanup(setattr, H, "SIGNERS", before)
+        url = next(u for u in self.gh.files if component in u and u.endswith(".tar.gz"))
+        self._publish(component, url + ".sig", self._sign(owner, self.gh.files[url]))
+        return owner, url, url.rsplit("/", 1)[1], tag.lstrip("v")
+
+    def _publish(self, component: str, url: str, data: bytes):
+        repo = f"EH3D-{component.upper()}"
+        name = url.rsplit("/", 1)[1]
+        self.gh.files[url] = data
+        assets = self.gh.releases[repo]["assets"]
+        assets[:] = [a for a in assets if a["name"] != name] + [{"name": name, "browser_download_url": url}]
+
+    def _record(self, component: str, key, package_url: str, release_version: str, sign=True, **change):
+        """Publishes the record of the release (and its signature), with `change` over what is right."""
+        name = package_url.rsplit("/", 1)[1]
+        entry = {"name": name, "arch": f"linux-{H.arch()}" if component == "server" else "any", "size": len(self.gh.files[package_url]),
+                 "sha256": hashlib.sha256(self.gh.files[package_url]).hexdigest()}
+        entry.update({k: v for k, v in change.items() if k in entry})
+        document = {"format": "eh3d-release", "format_version": 1, "repository": f"JuanenRac/EH3D-{component.upper()}", "version": release_version, "files": [entry]}
+        document.update({k: v for k, v in change.items() if k in document})
+        data = change.get("text", json.dumps(document).encode())
+        url = package_url.rsplit("/", 1)[0] + f"/{component}/eh3d-release.json"
+        self._publish(component, url, data)
+        if sign:
+            self._publish(component, url + ".sig", self._sign(key, data))
+
+    def _drop(self, component: str, name: str):
+        assets = self.gh.releases[f"EH3D-{component.upper()}"]["assets"]
+        assets[:] = [a for a in assets if a["name"] != name]
+
+    def _apply_signed(self, component: str = "studio") -> dict:
+        self.ask({"action": "apply", "components": [component], "allow_unsigned": False})
+        return self.folder.read("status.json")
+
+    @unittest.skipUnless(shutil.which("ssh-keygen"), "ssh-keygen is needed to make the keys of the test")
+    def test_a_later_version_is_installed_only_with_a_signed_record_that_agrees(self):
+        owner, url, name, version = self._signed_release("studio")
+        thief = self._keys("thief")
+        studio = self._studio_with("old")
+
+        def refused(said: str):
+            status = self._apply_signed()
+            self.assertEqual(status["state"], "error", status)
+            self.assertIn(said, status["message"])
+            self.assertIn("nothing was installed", status["message"])
+            self.assertEqual((studio / "index.html").read_text(encoding="utf-8"), "old")
+
+        # the package and its signature are right, and there is no record
+        refused("has no eh3d-release.json")
+        self._record("studio", owner, url, version, sign=False)
+        refused("eh3d-release.json.sig")
+        self._record("studio", thief, url, version)
+        refused("allowed signers")
+        for change, said in (
+            ({"repository": "JuanenRac/EH3D-SERVER"}, "is the record of"),
+            ({"version": "0.0.1"}, "the version"),
+            ({"sha256": "0" * 64}, "is not the file"),
+            ({"name": "another.tar.gz"}, "does not name"),
+            ({"arch": "linux-another"}, "not for this machine"),
+            ({"format": "something"}, "not a record"),
+            ({"format_version": 2}, "not a record"),
+            ({"files": "none"}, "not a record"),
+            ({"text": b"[]"}, "not a record"),
+            ({"text": b"not json"}, "not a record"),
+            ({"text": b" " * (H.MAX_RECORD + 1)}, "bigger than"),
+        ):
+            self._record("studio", owner, url, version, **change)
+            refused(said)
+        # the signature of the record stays, and the record is taken away
+        self._record("studio", owner, url, version)
+        self._drop("studio", "eh3d-release.json")
+        refused("has no eh3d-release.json")
+        self._record("studio", owner, url, version)
+        status = self._apply_signed()
+        self.assertEqual(status["state"], "done", status)
+        self.assertTrue(any("record of the release agrees" in line for line in status["log"]))
+        self.assertEqual((studio / "index.html").read_text(encoding="utf-8"), "<html>new</html>")
+
+    @unittest.skipUnless(shutil.which("ssh-keygen"), "ssh-keygen is needed to make the keys of the test")
+    def test_the_server_takes_the_record_of_its_architecture(self):
+        owner, url, name, version = self._signed_release("server")
+        self.assertEqual(self._apply_signed("server")["state"], "error")
+        self.assertEqual(self.run.calls, [])
+        self._record("server", owner, url, version)
+        self.assertEqual(self._apply_signed("server")["state"], "done", self.folder.read("status.json"))
+        self.assertEqual(self.run.calls, [["systemctl", "restart", "eh3d-server"]])
+
+    @unittest.skipUnless(shutil.which("ssh-keygen"), "ssh-keygen is needed to make the keys of the test")
+    def test_an_earlier_release_needs_no_record_and_one_that_publishes_it_must_agree(self):
+        owner = self._keys("owner")
+        signers = self.root / "signers"
+        signers.write_text("eh3d-release " + (self.root / "owner.pub").read_text(encoding="utf-8"), encoding="utf-8")
+        before = H.SIGNERS
+        H.SIGNERS = str(signers)
+        self.addCleanup(setattr, H, "SIGNERS", before)
+        url = next(u for u in self.gh.files if "studio" in u and u.endswith(".tar.gz"))
+        self._publish("studio", url + ".sig", self._sign(owner, self.gh.files[url]))
+        studio = self._studio_with("old")
+        # 0.0.3 is earlier than the last version without a record, but what it publishes must agree
+        self._record("studio", owner, url, "0.0.3", sha256="0" * 64)
+        self.assertEqual(self._apply_signed()["state"], "error")
+        self.assertEqual((studio / "index.html").read_text(encoding="utf-8"), "old")
+        self._drop("studio", "eh3d-release.json")
+        self.assertIn("has no eh3d-release.json", self._apply_signed()["message"])
+        self._drop("studio", "eh3d-release.json.sig")
+        self.assertEqual(self._apply_signed()["state"], "done", self.folder.read("status.json"))
+
+    def test_which_releases_must_have_a_record(self):
+        def release(version, *names):
+            return {"latest": version, "assets": {n: "u" for n in names}}
+
+        for repo, floor in H.LAST_WITHOUT_RECORD.items():
+            self.assertFalse(H.record_expected(repo, release(floor)))
+            self.assertFalse(H.record_expected(repo, release("0.0.1")))
+            self.assertTrue(H.record_expected(repo, release(floor + ".1")))
+            self.assertTrue(H.record_expected(repo, release("1.0.0")))
+            self.assertTrue(H.record_expected(repo, release("0.0.1", "eh3d-release.json")))
+            self.assertTrue(H.record_expected(repo, release("0.0.1", "eh3d-release.json.sig")))
+        # a component of your own, whose releases this helper does not know: only what it publishes
+        self.assertFalse(H.record_expected("MY-OWN", release("9.0.0")))
+        self.assertTrue(H.record_expected("MY-OWN", release("9.0.0", "eh3d-release.json")))
+
+    @unittest.skipUnless(shutil.which("ssh-keygen"), "ssh-keygen is needed to make the keys of the test")
+    def test_the_hash_alone_does_not_skip_a_record_of_a_signed_release(self):
+        owner, url, name, version = self._signed_release("studio")
+        studio = self._studio_with("old")
+        # the file is signed and the record is missing: refused although the hash alone is allowed
+        self.ask({"action": "apply", "components": ["studio"], "allow_unsigned": True})
+        self.assertIn("has no eh3d-release.json", self.folder.read("status.json")["message"])
+        # a record that is published must agree, also without signatures
+        self._drop("studio", name + ".sig")
+        self._record("studio", owner, url, version, sign=False, sha256="0" * 64)
+        self.ask({"action": "apply", "components": ["studio"], "allow_unsigned": True})
+        self.assertEqual(self.folder.read("status.json")["state"], "error")
+        self.assertEqual((studio / "index.html").read_text(encoding="utf-8"), "old")
+        # a release with no signature at all is installed by the hash alone, as before
+        self._drop("studio", "eh3d-release.json")
+        self.ask({"action": "apply", "components": ["studio"], "allow_unsigned": True})
+        self.assertEqual(self.folder.read("status.json")["state"], "done", self.folder.read("status.json"))
+        self.assertEqual((studio / "index.html").read_text(encoding="utf-8"), "<html>new</html>")
+
     def test_a_name_that_only_starts_like_the_folder_is_outside_it(self):
         with tempfile.TemporaryDirectory() as tmp:
             stage = Path(tmp) / "stage"

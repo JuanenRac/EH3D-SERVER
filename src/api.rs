@@ -773,6 +773,11 @@ async fn add_user(
 ) -> ApiResult {
     need(&who, Role::Admin)?;
     need_scope(&who, "admin:users")?;
+    if !who.may_open_accounts() {
+        return Err(beyond_the_token(
+            "a token that expires cannot make users: use a login or a token that does not expire",
+        ));
+    }
     if !who.may_hand_out(b.role) {
         return Err(beyond_the_token(
             "a token limited to some scopes cannot make an administrator, nor a user whose role can use more than the token",

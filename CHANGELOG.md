@@ -4,6 +4,9 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **Releases have a signed record, and the update helper asks for it (security):** `eh3d-release.json` says the repository, the version and the name, architecture, size and SHA-256 of every file of a release, and is signed like the files. Every version of EH3D-SERVER after 0.2.5 and of EH3D-STUDIO after 0.2.0 is installed only with it, and a record that any release publishes must agree with the download. Earlier releases, which only have the `.sig` of each file, are installed as before (`docs/DEPLOY.md`, "The record of a release").
+- **A token that expires opens no account (security):** it does not make users, set passwords, enable users or raise roles (`403 forbidden_scope`), whatever its role and scopes; a login of a person and a token without expiry do as before. A program that provisions users needs a token without expiry (`docs/API.md`).
+
 ## [0.2.5] - Stricter token permissions, owners by identifier, version checked on updates and faster node polling
 
 - **The nodes of the pick-and-place machines stay heard (safety):** `pnp_node_poll_s` is 1 by default (it was 5, and a head goes to its safe state after 2 seconds without being asked); each node is asked on its own connection without waiting for the answers still due, of it or of another node; and an interval that is too slow for a node is said on the console and in `GET /api/v1/pnp/nodes` (`warnings`, and `poll_too_slow` of each node). A `server.cfg` that names a slower interval keeps it and gets the warning.
