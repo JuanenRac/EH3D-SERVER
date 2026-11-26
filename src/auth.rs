@@ -248,6 +248,12 @@ impl Identity {
         self.scopes.is_none()
             || (role != Role::Admin && role_scopes(role).iter().all(|s| self.allows(s)))
     }
+
+    /// Whether the caller may open a way into an account (make a user, set a password, enable a user, raise a role). What that leaves behind does not end with the
+    /// caller, so a token that expires may not: a person logged in and a token without expiry may (the role and the scopes are checked apart).
+    pub fn may_open_accounts(&self) -> bool {
+        self.expires.is_none()
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -1045,8 +1051,9 @@ impl Auth {
             .map(|u| u.uid.clone())
     }
 
-    /// Refuses a caller limited to scopes a change of a user that is above its limits: anything about an administrator, making one, or giving back or opening the way
-    /// into an account (a password, enabling it, a higher role) of a role that can use what the caller cannot. A user that does not exist is left to the change itself.
+    /// Refuses a change of a user that is above the limits of the caller. Giving back or opening the way into an account (a password, enabling it, a higher role) is
+    /// never done by a token that expires. A caller limited to scopes changes nothing about an administrator, never makes one, and opens the way only into a role that
+    /// can use nothing the caller cannot. A user that does not exist is left to the change itself.
     pub fn check_user_change(
         &self,
         actor: &Identity,
@@ -1055,16 +1062,19 @@ impl Auth {
         password: bool,
         disabled: Option<bool>,
     ) -> Result<(), AuthError> {
-        if actor.scopes.is_none() {
-            return Ok(());
-        }
         let Some(user) = self.users.iter().find(|u| u.name == name) else {
             return Ok(());
         };
+        let gives = password || disabled == Some(false) || role.is_some_and(|r| r > user.role);
+        if gives && !actor.may_open_accounts() {
+            return Err(AuthError::ForbiddenScope);
+        }
+        if actor.scopes.is_none() {
+            return Ok(());
+        }
         if user.role == Role::Admin || role == Some(Role::Admin) {
             return Err(AuthError::ForbiddenScope);
         }
-        let gives = password || disabled == Some(false) || role.is_some_and(|r| r > user.role);
         if gives && !actor.may_hand_out(role.unwrap_or(user.role)) {
             return Err(AuthError::ForbiddenScope);
         }

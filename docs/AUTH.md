@@ -37,7 +37,7 @@ Each user has, besides the name, an identifier (`uid` in `users.json`) that is g
 
 **Users from before the identifiers.** Their identifier is their name, which is what their things were already filed under, so nothing has to be moved or rewritten and they keep everything; `users.json` gets the field the next time it is saved. A user deleted before this and not made again leaves things that no new user gets. If a server is taken back to a version from before the identifiers and users are changed there, that version writes `users.json` without them: the users made in the meantime should then be checked, because they come back identified by their name.
 
-What a token with scopes may do with users, tokens and keys is in `docs/API.md`.
+What a token with scopes, and a token that expires, may do with users, tokens and keys is in `docs/API.md`: users are made, passwords set, users enabled and roles raised only from a login of a person or with a token that does not expire.
 
 ## The open logins
 

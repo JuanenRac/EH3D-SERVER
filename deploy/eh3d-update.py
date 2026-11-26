@@ -23,9 +23,22 @@ Every download is checked against the SHA-256 that the release publishes next to
 `ssh-keygen -Y verify` against one of those keys: then a stolen account of GitHub, which can replace the file and its hash, still cannot make this machine install what the
 owner did not sign. Without the file of signers, or without a valid `.sig`, NOTHING is installed.
 
+A signature of a file does not say which repository, version or architecture the file is for, and every repository is signed with the same key. So a release also publishes
+its record, `eh3d-release.json` (the repository, the version and, for every file, its name, architecture, size and SHA-256), signed the same way (`eh3d-release.json.sig`).
+When is it demanded:
+
+    * the version is later than the last one of that repository published without a record (`LAST_WITHOUT_RECORD`): always. Taking the record away from such a release does
+      not turn it into an old one, because what decides is its version;
+    * any release that publishes the record or its signature, whatever its version: both must be there;
+    * an earlier release that publishes neither: not demanded, the `.sig` of the file is enough.
+
+A record that is demanded must be signed by an allowed signer and name this repository, this version and the downloaded file with its SHA-256 and an architecture that fits
+this machine, or nothing is installed.
+
 The installation checked by the hash only has to be allowed on purpose, in any of three places: the option `--allow-unsigned`, the setting `{"settings": {"require_signature": false}}`
 in the file of `--config`, or the switch `update_allow_unsigned` of the security page of Studio, which the server passes in the request as `"allow_unsigned": true`. Even then a
-signature that is published must verify: only a release with no `.sig` falls back to the hash, and the log says that the files are not checked for who made them.
+signature that is published must verify, and so must a record that is published: only a release with no `.sig` (and no record) falls back to the hash, and the log says that
+the files are not checked for who made them.
 
 A release whose version is lower than the installed one is refused (a signed old release published again as the latest would otherwise be installed): `--allow-downgrade`, or
 `{"settings": {"allow_downgrade": true}}` in the file of `--config`, allows going back on purpose.
@@ -56,6 +69,12 @@ OWNER = "JuanenRac"
 DEFAULT_SIGNERS = "/etc/eh3d-update.signers"
 SIGNATURE_NAMESPACE = "eh3d-release"
 SIGNATURE_IDENTITY = "eh3d-release"
+#: The record of a release and its signature; the most bytes a record may have.
+RECORD = "eh3d-release.json"
+RECORD_SIG = RECORD + ".sig"
+MAX_RECORD = 256 * 1024
+#: The last version of each repository that was published without a record. Every later version has one, and nothing of it is installed without it.
+LAST_WITHOUT_RECORD = {"EH3D-SERVER": "0.2.5", "EH3D-STUDIO": "0.2.0"}
 SIGNERS = DEFAULT_SIGNERS if os.path.exists(DEFAULT_SIGNERS) else None
 #: Whether a release with no signature may be installed when its hash is right. Off: a signature is required. Turned on by `--allow-unsigned` or by
 #: `{"settings": {"require_signature": false}}` in the file of `--config`; a request can allow it for one installation (`"allow_unsigned": true`).
@@ -237,6 +256,57 @@ def verify_signature(archive: Path, signature: bytes, signers: str, run=subproce
     return done.returncode == 0
 
 
+def record_expected(repo: str, release: dict) -> bool:
+    """Whether the release must have its record: it publishes the record or its signature, or its version is later than the last one published without."""
+    if RECORD in release["assets"] or RECORD_SIG in release["assets"]:
+        return True
+    floor = LAST_WITHOUT_RECORD.get(repo)
+    return floor is not None and is_older(floor, release["latest"])
+
+
+def check_record(folder: Folder, comp_id: str, repo: str, release: dict, name: str, archive: Path, get, unsigned_allowed: bool) -> None:
+    """Refuses the downloaded file `name` unless the record of the release is signed and names this repository, this version and this file as it arrived."""
+    version = release["latest"]
+
+    def refuse(why: str):
+        raise RuntimeError(f"{comp_id}: {why}; nothing was installed")
+
+    url, sig_url = release["assets"].get(RECORD), release["assets"].get(RECORD_SIG)
+    if not url:
+        refuse(f"the release {version} of {repo} has no {RECORD}, and this version must have one")
+    data = get(url)
+    if len(data) > MAX_RECORD:
+        refuse(f"{RECORD} is bigger than {MAX_RECORD} bytes")
+    if SIGNERS and sig_url:
+        with tempfile.TemporaryDirectory(prefix="eh3d-record-") as tmp:
+            record = Path(tmp) / RECORD
+            record.write_bytes(data)
+            if not verify_signature(record, get(sig_url), SIGNERS):
+                refuse(f"the signature of {RECORD} is not one of the allowed signers")
+    elif not unsigned_allowed:
+        refuse(f"the release has no {RECORD_SIG}, and a record has to be signed")
+    try:
+        document = json.loads(data.decode("utf-8"))
+        kind = (document["format"], document["format_version"])
+        said_repo, said_version = document["repository"], document["version"]
+        entries = [f for f in document["files"] if f["name"] == name]
+    except (ValueError, KeyError, TypeError):
+        refuse(f"{RECORD} is not a record of a release")
+    if kind != ("eh3d-release", 1):
+        refuse(f"{RECORD} is not a record of a release that this helper reads")
+    if said_repo != f"{OWNER}/{repo}":
+        refuse(f"{RECORD} is the record of {str(said_repo)[:80]!r}, not of {OWNER}/{repo}")
+    if said_version != version:
+        refuse(f"{RECORD} is the record of the version {str(said_version)[:40]!r}, not of {version}")
+    if len(entries) != 1:
+        refuse(f"{RECORD} does not name {name} once")
+    if entries[0].get("sha256") != sha256_of(archive):
+        refuse(f"{name} is not the file that {RECORD} names")
+    if entries[0].get("arch") not in ("any", f"linux-{arch()}"):
+        refuse(f"{RECORD} says {name} is built for {str(entries[0].get('arch'))[:40]!r}, not for this machine")
+    folder.say("updating", f"{comp_id}: the record of the release agrees ({repo} {version})")
+
+
 def refresh_helper(folder: Folder, comp_id: str, comp: dict, tree: Path, own: Path = None) -> bool:
     """Puts the copy of this script that comes in the release in its place (written beside it and moved, never half written). Only a file that parses is taken; the next
     request is answered by it. True when the script was replaced."""
@@ -342,6 +412,12 @@ def install(folder: Folder, comp_id: str, comp: dict, release: dict, get=http_ge
                 f"this machine has no file of allowed signers ({DEFAULT_SIGNERS}) and installs only what is signed: nothing was installed. "
                 "Put the file there, or allow the installation checked by the hash alone (update_allow_unsigned in the security page of Studio, require_signature in the settings of the helper)"
             )
+        published = RECORD in release["assets"] or RECORD_SIG in release["assets"]
+        unsigned_allowed = ALLOW_UNSIGNED or allow_unsigned
+        # a release with no signature at all, installed by the hash alone because that was allowed, has nothing a record could add
+        hash_alone = unsigned_allowed and not sig_url and not published
+        if not hash_alone and record_expected(comp["repo"], release):
+            check_record(folder, comp_id, comp["repo"], release, name, archive, get, unsigned_allowed)
         folder.say("updating", f"{comp_id}: the hash is right, unpacking")
         folder.step(f"{comp_id}.verify", "done")
         folder.step(f"{comp_id}.install", "running")

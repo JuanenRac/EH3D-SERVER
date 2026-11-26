@@ -309,6 +309,8 @@ A scope the token lacks answers `403 forbidden_scope`; a role that is too low st
 
 **What a token that expires makes ends with it.** A token made by a token that has an expiry expires at the latest when its maker does, whatever `days` says (`GET /tokens` shows the date). Such a token rotates only tokens that expire no later than itself, and makes no key of a 3D printer (those keys do not expire). A person logged in, and a token without expiry, are not limited this way.
 
+**A token that expires opens no account.** Users and passwords stay after the token has ended, so a token that has an expiry, whatever its role and scopes, answers `403 forbidden_scope` to `POST /users` and to a `PUT /users/{name}` that sets a password, enables a user (`"disabled": false`) or raises a role; nothing of that request is changed. It can still do what only takes away (lower a role, disable, delete), within its scopes. To provision users from a program, give it a token without expiry (`POST /tokens` without `days`, made by a login, while `token_default_days` is 0), or do it from a login of a person. With `token_default_days` above 0 every token made without `days` expires and none can be made without expiry, so users are made and passwords set from a login.
+
 **The generic work of the machines** (plugins, a queue of jobs with history for any kind of machine, the stream of events and the notifications) is under `/api/v1/work`, `/api/v1/plugins`, `/api/v1/events/stream` and `/api/v1/notifications`; see `docs/MACHINE_PLUGINS.md`. The websocket below is not changed.
 
 **The shared catalogs** (materials, tools, machine profiles, footprints, symbols, components) are read by every application under `/api/v1/catalogs` and written by an administrator; see `docs/CATALOGS.md`.

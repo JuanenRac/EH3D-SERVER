@@ -209,6 +209,77 @@ async fn the_key_of_a_machine_is_not_made_with_more_than_the_caller_has() {
     assert!(refused(status, &body), "{body}");
 }
 
+#[tokio::test]
+async fn a_token_that_expires_opens_no_account() {
+    let s = server("accounts-short");
+    let boss = admin(&s).await;
+    add_user(&s, &boss, "oper1", "operator").await;
+    add_user(&s, &boss, "view1", "viewer").await;
+    let (status, body) = change(&s, &boss, "oper1", json!({"disabled": true})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    // an administrator's token without limits of scopes, and one with some scopes: both expire
+    let (_, whole) = make_token(
+        &s,
+        &boss,
+        json!({"name": "whole", "role": "admin", "days": 1}),
+    )
+    .await;
+    let (_, scoped) = make_token(
+        &s,
+        &boss,
+        json!({"name": "scoped", "role": "admin", "days": 1, "scopes": VIEWER_AND_USERS}),
+    )
+    .await;
+    for short in [&whole, &scoped] {
+        for role in ["viewer", "operator", "admin"] {
+            let (status, body) = new_user(&s, short, "nina", role).await;
+            assert!(refused(status, &body), "{role}: {body}");
+        }
+        for (name, wanted) in [
+            ("view1", json!({"password": OTHER_PASSWORD})),
+            ("view1", json!({"role": "operator"})),
+            ("view1", json!({"role": "admin"})),
+            (
+                "view1",
+                json!({"disabled": true, "password": OTHER_PASSWORD}),
+            ),
+            ("oper1", json!({"disabled": false})),
+            ("juan", json!({"password": OTHER_PASSWORD})),
+        ] {
+            let (status, body) = change(&s, short, name, wanted.clone()).await;
+            assert!(refused(status, &body), "{name} {wanted}: {body}");
+        }
+    }
+    // nothing of a refused request was done
+    assert!(!logs_in(&s, "nina", PASSWORD).await);
+    assert!(logs_in(&s, "view1", PASSWORD).await);
+    assert!(logs_in(&s, "juan", "una-clave-larga").await);
+    assert!(!logs_in(&s, "oper1", PASSWORD).await);
+    // what only takes away is done
+    for wanted in [json!({"role": "viewer"}), json!({"disabled": true})] {
+        let (status, body) = change(&s, &whole, "view1", wanted.clone()).await;
+        assert_eq!(status, StatusCode::OK, "{wanted}: {body}");
+    }
+    let path = "/api/v1/users/view1";
+    let (status, body) = call(&s, Method::DELETE, path, Some(&whole), None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    // a token without expiry and a person do all of it
+    let (_, lasting) = make_token(&s, &boss, json!({"name": "lasting", "role": "admin"})).await;
+    let (status, body) = new_user(&s, &lasting, "nina", "operator").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    for wanted in [
+        json!({"disabled": false}),
+        json!({"password": OTHER_PASSWORD}),
+        json!({"role": "admin"}),
+    ] {
+        let (status, body) = change(&s, &lasting, "oper1", wanted.clone()).await;
+        assert_eq!(status, StatusCode::OK, "{wanted}: {body}");
+    }
+    assert!(logs_in(&s, "oper1", OTHER_PASSWORD).await);
+    let (status, body) = new_user(&s, &boss, "pepe", "viewer").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
 /// A project of each store made by `token`: its id in the projects with revisions and its id in the store of the applications.
 async fn two_projects(s: &Server, token: &str, name: &str) -> (String, String) {
     let mut ids = Vec::new();
