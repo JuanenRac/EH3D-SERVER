@@ -31,6 +31,14 @@ A login says which application it is for. The server knows these by name; `auth_
 
 **Ending.** `POST /auth/logout` ends the login that asks; `POST /auth/logout-all` ends every login of the person. Changing the role or the password of a user, disabling or deleting them also ends their logins (as it did).
 
+## Who a user is
+
+Each user has, besides the name, an identifier (`uid` in `users.json`) that is given once and never again. What a person makes (projects and their revisions, shares, artifacts, uploads, tasks, jobs of the queue, locks and notifications) is filed under it, and the API shows the name. Deleting a user and making another with the same name gives a different person: nothing is inherited, and what the deleted one made is left to the administrators.
+
+**Users from before the identifiers.** Their identifier is their name, which is what their things were already filed under, so nothing has to be moved or rewritten and they keep everything; `users.json` gets the field the next time it is saved. A user deleted before this and not made again leaves things that no new user gets. If a server is taken back to a version from before the identifiers and users are changed there, that version writes `users.json` without them: the users made in the meantime should then be checked, because they come back identified by their name.
+
+What a token with scopes may do with users, tokens and keys is in `docs/API.md`.
+
 ## The open logins
 
 `GET /auth/sessions` lists the open logins of the caller, the newest first: `{"id", "name", "role", "app", "created", "last_seen", "expires", "ip", "current"}`. The `id` is not the token and cannot be used as one; `current` marks the login that asks; `ip` is the address of the connection (never a header a client can write). An administrator lists everybody's with `?all=true`. `DELETE /auth/sessions/{id}` closes one: a person closes their own (the phone that was lost), an administrator closes anybody's; the token of that login stops working at once. Another person's id answers `404 unknown_session`, the same as an id that never existed. `auth_max_sessions` limits how many logins a person has open at once (20 by default, 0 for no limit): the oldest is closed when a new one comes.

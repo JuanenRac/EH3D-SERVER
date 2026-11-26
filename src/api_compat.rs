@@ -177,6 +177,8 @@ fn compat_identity(machine: &str) -> Identity {
         token_id: Some(format!("compat-{machine}")),
         scopes: None,
         template: None,
+        uid: None,
+        expires: None,
     }
 }
 

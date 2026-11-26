@@ -19,7 +19,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::auth::{Identity, Role};
+use crate::auth::{display_owner, Identity, Role};
 use crate::jobs::now;
 use crate::store;
 
@@ -33,9 +33,21 @@ pub enum Access {
 /// One person (a user, or a program's token) the owner shared something with.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Share {
-    /// The owner key of the person (`Identity::owner`): a user name, or `token:<id>`.
+    /// The owner key of the person (`Identity::owner`): the identifier of a user, or `token:<id>`.
     pub who: String,
     pub access: Access,
+}
+
+impl Share {
+    /// The share as the API shows it: the name, never the identifier.
+    pub fn view(&self) -> Value {
+        json!({ "who": display_owner(&self.who), "access": self.access })
+    }
+
+    /// Whether `target`, an owner key or what is shown for one, names this share.
+    pub fn is_for(&self, target: &str) -> bool {
+        self.who == target || display_owner(&self.who) == target
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -45,6 +57,15 @@ pub struct Revision {
     pub artifact_id: String,
     pub by: String,
     pub at: u64,
+}
+
+impl Revision {
+    /// The revision as the API shows it.
+    pub fn view(&self) -> Value {
+        json!({
+            "number": self.number, "artifact_id": self.artifact_id, "by": display_owner(&self.by), "at": self.at,
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -82,11 +103,13 @@ impl ProjectRecord {
     /// The project as the API shows it; the list of shares only to those who manage it.
     pub fn view(&self, manager: bool) -> Value {
         let mut v = json!({
-            "id": self.id, "name": self.name, "owner": self.owner, "created": self.created,
-            "head": self.head(), "revisions": self.revisions, "deleted": self.deleted,
+            "id": self.id, "name": self.name, "owner": display_owner(&self.owner), "created": self.created,
+            "head": self.head(),
+            "revisions": self.revisions.iter().map(Revision::view).collect::<Vec<_>>(),
+            "deleted": self.deleted,
         });
         if manager {
-            v["shares"] = json!(self.shares);
+            v["shares"] = self.shares.iter().map(Share::view).collect();
         }
         v
     }
@@ -249,6 +272,10 @@ impl ProjectBook {
             return Err(ProjectError::BadShare("the owner has it already"));
         }
         let before = project.shares.clone();
+        // a share left by an earlier user with this name gives nobody anything: it goes
+        project
+            .shares
+            .retain(|s| s.who == target || display_owner(&s.who) != display_owner(target));
         match project.shares.iter_mut().find(|s| s.who == target) {
             Some(s) => s.access = access,
             None => project.shares.push(Share {
@@ -276,7 +303,7 @@ impl ProjectBook {
             return Err(ProjectError::ReadOnly);
         }
         let before = project.shares.clone();
-        project.shares.retain(|s| s.who != target);
+        project.shares.retain(|s| !s.is_for(target));
         if project.shares.len() == before.len() {
             return Err(ProjectError::Unknown);
         }
@@ -368,6 +395,8 @@ mod tests {
             token_id: None,
             scopes: None,
             template: None,
+            uid: None,
+            expires: None,
         }
     }
 
@@ -503,6 +532,8 @@ mod tests {
             token_id: Some("t1".into()),
             scopes: None,
             template: None,
+            uid: None,
+            expires: None,
         };
         let p = book.create(&ana, "mine").unwrap();
         assert!(book.visible(&p.id, &token).is_err());

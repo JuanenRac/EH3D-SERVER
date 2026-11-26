@@ -234,7 +234,7 @@ impl AppState {
 
     /// A project of the store was made, changed or removed.
     pub fn announce_project(&self, kind: &str, m: &ProjectMeta) {
-        let data = json!({ "name": m.name, "owner": m.owner, "etag": m.etag() });
+        let data = json!({ "name": m.name, "owner": crate::auth::display_owner(&m.owner), "etag": m.etag() });
         self.feed.publish(
             FeedEvent::new(kind, self.project_visibility(&m.owner), data)
                 .app(&m.app)
@@ -317,6 +317,8 @@ mod tests {
             token_id: None,
             scopes: None,
             template: None,
+            uid: None,
+            expires: None,
         }
     }
 

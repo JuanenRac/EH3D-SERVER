@@ -39,6 +39,10 @@ impl Role {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct User {
     name: String,
+    /// What the things this person makes are filed under. It is given once and never to anybody else: a new user with the name of a deleted one gets another. Empty in a
+    /// file written before it existed, and then it is the name, which is what those things are filed under.
+    #[serde(default)]
+    uid: String,
     role: Role,
     /// The Argon2 hash of the password, in PHC text.
     hash: String,
@@ -92,6 +96,46 @@ pub const SCOPES: [&str; 19] = [
     "admin:updates",
 ];
 
+/// What a login of each role can use, as scopes (an administrator: all of [`SCOPES`]).
+pub fn role_scopes(role: Role) -> &'static [&'static str] {
+    const VIEWER: [&str; 5] = [
+        "projects:read",
+        "catalog:read",
+        "artifacts:read",
+        "tasks:read",
+        "machines:view",
+    ];
+    const OPERATOR: [&str; 13] = [
+        "projects:read",
+        "catalog:read",
+        "artifacts:read",
+        "tasks:read",
+        "machines:view",
+        "projects:write",
+        "artifacts:write",
+        "tasks:run",
+        "jobs:prepare",
+        "jobs:authorize",
+        "jobs:start",
+        "jobs:confirm",
+        "jobs:cancel",
+    ];
+    match role {
+        Role::Viewer => &VIEWER,
+        Role::Operator => &OPERATOR,
+        Role::Admin => &SCOPES,
+    }
+}
+
+/// How an owner key is shown: the name of the person (without the part that tells apart two people who had it), or `token:<id>` as it is.
+pub fn display_owner(key: &str) -> &str {
+    if key.starts_with("token:") {
+        key
+    } else {
+        key.split('#').next().unwrap_or(key)
+    }
+}
+
 /// The scopes that move or release a machine, or that administer the server (users, tokens, security, updates): a person's, never a design program's.
 pub const MACHINE_SCOPES: [&str; 9] = [
     "jobs:authorize",
@@ -135,6 +179,9 @@ pub fn effective_scopes(template: Option<&str>, scopes: Option<&[String]>) -> Op
 struct SavedSession {
     hash: String,
     name: String,
+    /// The owner key of the user; empty in a file written before it existed.
+    #[serde(default)]
+    uid: String,
     expires: u64,
     #[serde(default)]
     id: String,
@@ -172,6 +219,10 @@ pub struct Identity {
     pub scopes: Option<Vec<String>>,
     /// The template the token was made from.
     pub template: Option<String>,
+    /// The owner key of a person logged in; `None` for a program's token (and then the name stands for a person made without one).
+    pub uid: Option<String>,
+    /// When the program's token stops working; `None` for a person and for a token that does not expire.
+    pub expires: Option<u64>,
 }
 
 impl Identity {
@@ -182,13 +233,20 @@ impl Identity {
             .is_none_or(|list| list.iter().any(|s| s == scope))
     }
 
-    /// The key that owns what this caller makes: the name of the user, or `token:<id>` for a program's token (a user name can never have a colon, so the two never
-    /// meet, and two tokens with the same name stay apart).
+    /// The key that owns what this caller makes: the identifier of the user, or `token:<id>` for a program's token (a user name can never have a colon, so the two never
+    /// meet, and two tokens with the same name stay apart). See [`display_owner`] for what is shown.
     pub fn owner(&self) -> String {
         match &self.token_id {
             Some(id) => format!("token:{id}"),
-            None => self.name.clone(),
+            None => self.uid.clone().unwrap_or_else(|| self.name.clone()),
         }
+    }
+
+    /// Whether the caller may give somebody a login of `role`. A person and a token without scopes: yes (the role of the caller is checked apart). A token limited to
+    /// scopes: never an administrator, and any other role only when it carries every scope that role can use.
+    pub fn may_hand_out(&self, role: Role) -> bool {
+        self.scopes.is_none()
+            || (role != Role::Admin && role_scopes(role).iter().all(|s| self.allows(s)))
     }
 }
 
@@ -365,6 +423,11 @@ fn random_hex(bytes: usize) -> String {
     hex::encode(buf)
 }
 
+/// The identifier of a new user: the name (which no `#` can be in) and a random part, so it is never the one of an earlier user with that name.
+fn new_uid(name: &str) -> String {
+    format!("{name}#{}", random_hex(8))
+}
+
 pub fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 32
@@ -408,7 +471,14 @@ fn same(a: &str, b: &str) -> bool {
 impl Auth {
     /// Opens the users and tokens kept in `dir`. With no user yet it makes a set-up code.
     pub fn open(dir: &Path, session_hours: u32) -> io::Result<Auth> {
-        let users: Vec<User> = store::read_json(&dir.join("users.json"))?.unwrap_or_default();
+        let mut users: Vec<User> = store::read_json(&dir.join("users.json"))?.unwrap_or_default();
+        // a file written before the identifiers existed: what those users made is filed under their names, so that is their identifier. Nothing else is rewritten, and
+        // until the file is saved again reading it gives the same answer
+        for user in &mut users {
+            if user.uid.is_empty() {
+                user.uid.clone_from(&user.name);
+            }
+        }
         let tokens: Vec<ApiToken> = store::read_json(&dir.join("tokens.json"))?.unwrap_or_default();
         let setup_code = if users.is_empty() {
             Some(format!("{:08}", rand::random::<u32>() % 100_000_000))
@@ -479,7 +549,13 @@ impl Auth {
     /// Takes up the saved logins that are still good and belong to a user that still counts.
     fn adopt_saved(&mut self, saved: Vec<SavedSession>, now: u64) {
         for s in saved {
-            let Some(user) = self.users.iter().find(|u| u.name == s.name && !u.disabled) else {
+            // a login saved before the identifiers existed is the one of the user whose identifier is still the name
+            let uid = if s.uid.is_empty() { &s.name } else { &s.uid };
+            let Some(user) = self
+                .users
+                .iter()
+                .find(|u| u.name == s.name && &u.uid == uid && !u.disabled)
+            else {
                 continue;
             };
             if s.expires > now {
@@ -493,6 +569,8 @@ impl Auth {
                             token_id: None,
                             scopes: None,
                             template: None,
+                            uid: Some(user.uid.clone()),
+                            expires: None,
                         },
                         expires: s.expires,
                         id: if s.id.is_empty() { random_hex(8) } else { s.id },
@@ -535,6 +613,7 @@ impl Auth {
             .map(|(hash, s)| SavedSession {
                 hash: hash.clone(),
                 name: s.who.name.clone(),
+                uid: s.who.uid.clone().unwrap_or_default(),
                 expires: s.expires,
                 id: s.id.clone(),
                 app: s.app.clone(),
@@ -629,6 +708,7 @@ impl Auth {
         let hash = hash_password(password).ok_or(AuthError::Storage)?;
         self.users.push(User {
             name: name.into(),
+            uid: new_uid(name),
             role: Role::Admin,
             hash,
             disabled: false,
@@ -764,6 +844,7 @@ impl Auth {
             self.ip_failures.remove(&a);
         }
         let role = user.map(|u| u.role).unwrap_or(Role::Viewer);
+        let uid = user.map(|u| u.uid.clone());
         let token = random_hex(32);
         // the person already has as many logins as they may: the oldest is closed
         if max_sessions > 0 {
@@ -790,6 +871,8 @@ impl Auth {
                     token_id: None,
                     scopes: None,
                     template: None,
+                    uid,
+                    expires: None,
                 },
                 expires: now + self.session_secs,
                 id: id.clone(),
@@ -918,6 +1001,8 @@ impl Auth {
                 token_id: Some(token.id.clone()),
                 scopes: effective_scopes(token.template.as_deref(), token.scopes.as_deref()),
                 template: token.template.clone(),
+                uid: None,
+                expires: token.expires,
             };
             self.tokens_dirty = true;
             if now.saturating_sub(self.tokens_saved_at) >= LAST_USED_SAVE_SECS {
@@ -933,11 +1018,11 @@ impl Auth {
         let session = self.sessions.get_mut(&hash)?;
         session.last_seen = now;
         let session_name = session.who.name.clone();
+        let session_uid = session.who.uid.clone();
         // a user that was deleted or disabled since the login no longer counts
-        let user = self
-            .users
-            .iter()
-            .find(|u| u.name == session_name && !u.disabled)?;
+        let user = self.users.iter().find(|u| {
+            u.name == session_name && Some(&u.uid) == session_uid.as_ref() && !u.disabled
+        })?;
         Some(Identity {
             name: user.name.clone(),
             role: user.role,
@@ -945,10 +1030,58 @@ impl Auth {
             token_id: None,
             scopes: None,
             template: None,
+            uid: Some(user.uid.clone()),
+            expires: None,
         })
     }
 
     // ---- users
+
+    /// The owner key of the user with this name.
+    pub fn owner_key_of(&self, name: &str) -> Option<String> {
+        self.users
+            .iter()
+            .find(|u| u.name == name)
+            .map(|u| u.uid.clone())
+    }
+
+    /// Refuses a caller limited to scopes a change of a user that is above its limits: anything about an administrator, making one, or giving back or opening the way
+    /// into an account (a password, enabling it, a higher role) of a role that can use what the caller cannot. A user that does not exist is left to the change itself.
+    pub fn check_user_change(
+        &self,
+        actor: &Identity,
+        name: &str,
+        role: Option<Role>,
+        password: bool,
+        disabled: Option<bool>,
+    ) -> Result<(), AuthError> {
+        if actor.scopes.is_none() {
+            return Ok(());
+        }
+        let Some(user) = self.users.iter().find(|u| u.name == name) else {
+            return Ok(());
+        };
+        if user.role == Role::Admin || role == Some(Role::Admin) {
+            return Err(AuthError::ForbiddenScope);
+        }
+        let gives = password || disabled == Some(false) || role.is_some_and(|r| r > user.role);
+        if gives && !actor.may_hand_out(role.unwrap_or(user.role)) {
+            return Err(AuthError::ForbiddenScope);
+        }
+        Ok(())
+    }
+
+    /// The same for deleting a user: a caller limited to scopes never deletes an administrator.
+    pub fn check_user_delete(&self, actor: &Identity, name: &str) -> Result<(), AuthError> {
+        let admin = self
+            .users
+            .iter()
+            .any(|u| u.name == name && u.role == Role::Admin);
+        if actor.scopes.is_some() && admin {
+            return Err(AuthError::ForbiddenScope);
+        }
+        Ok(())
+    }
 
     pub fn users(&self) -> Vec<(String, Role, bool)> {
         self.users
@@ -977,6 +1110,7 @@ impl Auth {
         let hash = hash_password(password).ok_or(AuthError::Storage)?;
         self.users.push(User {
             name: name.into(),
+            uid: new_uid(name),
             role,
             hash,
             disabled: false,
@@ -1091,6 +1225,21 @@ impl Auth {
         template: Option<&str>,
         scopes: Option<&[String]>,
     ) -> Result<(String, String), AuthError> {
+        self.create_token_within(name, role, now, days, template, scopes, None)
+    }
+
+    /// The same for a token made by another that expires: it never lasts past `not_after` (seconds since 1970), whatever `days` says.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_token_within(
+        &mut self,
+        name: &str,
+        role: Role,
+        now: u64,
+        days: Option<u32>,
+        template: Option<&str>,
+        scopes: Option<&[String]>,
+        not_after: Option<u64>,
+    ) -> Result<(String, String), AuthError> {
         if name.is_empty() || name.len() > 64 {
             return Err(AuthError::BadName);
         }
@@ -1125,7 +1274,11 @@ impl Auth {
             hash: sha(&secret),
             created: now,
             last_used: None,
-            expires: days.map(|d| now + u64::from(d) * 86_400),
+            expires: days
+                .map(|d| now + u64::from(d) * 86_400)
+                .into_iter()
+                .chain(not_after)
+                .min(),
             template: template.map(str::to_string),
             scopes: kept,
         });

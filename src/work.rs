@@ -323,7 +323,7 @@ impl WorkJob {
     pub fn summary(&self) -> Value {
         json!({
             "id": self.id, "machine": self.machine, "plugin": self.plugin, "app": self.app,
-            "name": self.name, "owner": self.owner, "by": self.by, "state": self.state,
+            "name": self.name, "owner": crate::auth::display_owner(&self.owner), "by": self.by, "state": self.state,
             "created": self.created, "started": self.started, "finished": self.finished,
             "done": self.done, "total": self.total, "percent": self.percent(), "message": self.message,
             "toolpath_sha256": self.toolpath_sha256,
@@ -1376,6 +1376,8 @@ mod tests {
             token_id: None,
             scopes: None,
             template: None,
+            uid: None,
+            expires: None,
         }
     }
 

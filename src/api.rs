@@ -161,6 +161,10 @@ impl From<MachineError> for ApiError {
 
 pub(crate) type ApiResult = Result<Json<Value>, ApiError>;
 
+fn beyond_the_token(detail: &str) -> ApiError {
+    ApiError::new(StatusCode::FORBIDDEN, "forbidden_scope", detail)
+}
+
 fn forbidden() -> ApiError {
     ApiError::new(
         StatusCode::FORBIDDEN,
@@ -769,6 +773,11 @@ async fn add_user(
 ) -> ApiResult {
     need(&who, Role::Admin)?;
     need_scope(&who, "admin:users")?;
+    if !who.may_hand_out(b.role) {
+        return Err(beyond_the_token(
+            "a token limited to some scopes cannot make an administrator, nor a user whose role can use more than the token",
+        ));
+    }
     let audit = s.clone();
     let (name, role) = (b.name.clone(), b.role);
     tokio::task::spawn_blocking(move || s.auth.locked().add_user(&b.name, b.role, &b.password))
@@ -810,10 +819,12 @@ async fn update_user(
         },
         if b.disabled.is_some() { "disabled" } else { "" }
     );
+    let actor = who.clone();
     tokio::task::spawn_blocking(move || {
-        s.auth
-            .locked()
-            .update_user(&name, b.role, b.password.as_deref(), b.disabled)
+        // checked and changed under the same lock
+        let mut auth = s.auth.locked();
+        auth.check_user_change(&actor, &name, b.role, b.password.is_some(), b.disabled)?;
+        auth.update_user(&name, b.role, b.password.as_deref(), b.disabled)
     })
     .await
     .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))??;
@@ -833,7 +844,11 @@ async fn delete_user(
 ) -> ApiResult {
     need(&who, Role::Admin)?;
     need_scope(&who, "admin:users")?;
-    s.auth.locked().delete_user(&name)?;
+    {
+        let mut auth = s.auth.locked();
+        auth.check_user_delete(&who, &name)?;
+        auth.delete_user(&name)?;
+    }
     note(&s, "user_delete", &who, &[("user", &name)]);
     Ok(Json(json!({ "ok": true })))
 }
@@ -893,13 +908,15 @@ async fn add_token(
         }
     }
     let days = b.days.or(Some(s.cfg.token_default_days).filter(|d| *d > 0));
-    let (id, secret) = s.auth.locked().create_token_with(
+    // a token made by a token that expires does not outlive it
+    let (id, secret) = s.auth.locked().create_token_within(
         &b.name,
         b.role,
         now(),
         days,
         b.template.as_deref(),
         b.scopes.as_deref(),
+        who.expires,
     )?;
     note(
         &s,
@@ -946,6 +963,19 @@ async fn rotate_token(
                     StatusCode::FORBIDDEN,
                     "forbidden_scope",
                     "a token limited to some scopes can only rotate tokens limited to some of the same scopes",
+                ));
+            }
+        }
+        // nor does a caller that expires get the secret of a token that lasts longer than itself
+        if let Some(end) = who.expires {
+            let target = auth
+                .tokens()
+                .iter()
+                .find(|t| t.id == id)
+                .ok_or(AuthError::UnknownToken)?;
+            if target.expires.is_none_or(|t| t > end) {
+                return Err(beyond_the_token(
+                    "a token that expires can only rotate a token that expires no later",
                 ));
             }
         }

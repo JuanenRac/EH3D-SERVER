@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 
 use crate::api::{ApiError, ApiJson, ApiResult, Authed, Shared};
 use crate::artifacts::ArtifactError;
-use crate::auth::{Identity, Role};
+use crate::auth::{display_owner, Identity, Role};
 use crate::projects::{Access, ProjectError, ProjectRecord, Share};
 use crate::state::Audience;
 use crate::sync::Locked;
@@ -169,9 +169,9 @@ async fn add_revision(
     );
     s.publish_scoped(
         people,
-        json!({ "type": "revision", "project": id, "revision": revision }),
+        json!({ "type": "revision", "project": id, "revision": revision.view() }),
     );
-    Ok((StatusCode::CREATED, axum::Json(json!(revision))))
+    Ok((StatusCode::CREATED, axum::Json(revision.view())))
 }
 
 /// Who a share is for: a user by name, or a program's token by id.
@@ -187,14 +187,11 @@ struct ShareBody {
 /// The owner key of the person named, which has to exist.
 fn target_of(s: &Shared, b: &ShareBody) -> Result<String, ApiError> {
     match (&b.user, &b.token) {
-        (Some(name), None) => {
-            let known = s.auth.locked().users().iter().any(|(n, _, _)| n == name);
-            if known {
-                Ok(name.clone())
-            } else {
-                Err(ApiError::new(StatusCode::NOT_FOUND, "unknown_user", ""))
-            }
-        }
+        (Some(name), None) => s
+            .auth
+            .locked()
+            .owner_key_of(name)
+            .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "unknown_user", "")),
         (None, Some(id)) => {
             let known = s.auth.locked().tokens().iter().any(|t| &t.id == id);
             if known {
@@ -240,7 +237,7 @@ async fn share_project(
         &s,
         "project_share",
         &who,
-        &[("project", &id), ("with", &target)],
+        &[("project", &id), ("with", display_owner(&target))],
     );
     s.publish_scoped(
         people,
@@ -256,21 +253,26 @@ async fn unshare_project(
 ) -> ApiResult {
     crate::api::need(&who, Role::Operator)?;
     crate::api::need_scope(&who, "projects:write")?;
-    let project = {
+    let (project, lost) = {
         let mut book = s.projects.book.locked();
-        book.visible(&id, &who)?;
+        let before = book.visible(&id, &who)?.shares.clone();
         book.unshare(&who, &id, &target)?;
-        book.get(&id).cloned().ok_or(ProjectError::Unknown)?
+        let lost: Vec<String> = before
+            .into_iter()
+            .filter(|x| x.is_for(&target))
+            .map(|x| x.who)
+            .collect();
+        (book.get(&id).cloned().ok_or(ProjectError::Unknown)?, lost)
     };
     crate::api::note(
         &s,
         "project_unshare",
         &who,
-        &[("project", &id), ("with", &target)],
+        &[("project", &id), ("with", display_owner(&target))],
     );
     // the one who lost it is told, and so is whoever still sees it
     s.publish_scoped(
-        Audience::of(&target),
+        Audience::of_all(lost),
         json!({ "type": "project_removed", "id": id }),
     );
     s.publish_scoped(
@@ -301,7 +303,8 @@ async fn list_artifact_shares(
     if !artifact_manager(r, &who) {
         return Err(ApiError::new(StatusCode::FORBIDDEN, "forbidden", ""));
     }
-    Ok(axum::Json(json!({ "shares": r.shares })))
+    let shares: Vec<Value> = r.shares.iter().map(Share::view).collect();
+    Ok(axum::Json(json!({ "shares": shares })))
 }
 
 async fn share_artifact(
@@ -330,6 +333,10 @@ async fn share_artifact(
     if target == record.owner {
         return Err(ProjectError::BadShare("the owner has it already").into());
     }
+    // a share left by an earlier user with this name gives nobody anything: it goes
+    record
+        .shares
+        .retain(|x| x.who == target || display_owner(&x.who) != display_owner(&target));
     if !record.shares.iter().any(|x| x.who == target) {
         record.shares.push(Share {
             who: target.clone(),
@@ -342,7 +349,7 @@ async fn share_artifact(
         &s,
         "artifact_share",
         &who,
-        &[("artifact", &id), ("with", &target)],
+        &[("artifact", &id), ("with", display_owner(&target))],
     );
     Ok(axum::Json(json!({ "ok": true })))
 }
@@ -364,7 +371,7 @@ async fn unshare_artifact(
     }
     let record = store.get_mut(&id).ok_or(ArtifactError::Unknown)?;
     let before = record.shares.len();
-    record.shares.retain(|x| x.who != target);
+    record.shares.retain(|x| !x.is_for(&target));
     if record.shares.len() == before {
         return Err(ArtifactError::Unknown.into());
     }
@@ -374,7 +381,7 @@ async fn unshare_artifact(
         &s,
         "artifact_unshare",
         &who,
-        &[("artifact", &id), ("with", &target)],
+        &[("artifact", &id), ("with", display_owner(&target))],
     );
     Ok(axum::Json(json!({ "ok": true })))
 }

@@ -477,6 +477,22 @@ async fn compat_key_issue(
             }
         }
     };
+    // a key of a machine never expires and, made to write, starts, stops and feeds prints: it is not made with more than the caller has
+    let needed: &[&str] = if write {
+        &["machines:view", "jobs:prepare", "jobs:start", "jobs:cancel"]
+    } else {
+        &["machines:view"]
+    };
+    if who.expires.is_some() || !needed.iter().all(|scope| who.allows(scope)) {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "forbidden_scope",
+            format!(
+                "a key of a machine needs a caller that does not expire and carries {}",
+                needed.join(", ")
+            ),
+        ));
+    }
     let key = s
         .compat_keys
         .issue(&id, write)

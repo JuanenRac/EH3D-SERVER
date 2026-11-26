@@ -119,7 +119,7 @@ impl ArtifactRecord {
     /// The record as the API shows it.
     pub fn view(&self) -> Value {
         json!({
-            "artifact_id": self.artifact_id, "blob_sha256": self.blob_sha256, "size": self.size, "owner": self.owner,
+            "artifact_id": self.artifact_id, "blob_sha256": self.blob_sha256, "size": self.size, "owner": crate::auth::display_owner(&self.owner),
             "name": self.name, "format": self.format, "schema_version": self.schema_version,
             "origin": self.origin, "producer": self.producer, "inputs": self.inputs, "params": self.params,
             "result_type": self.result_type, "diagnostics": self.diagnostics, "validation": self.validation,
@@ -1345,6 +1345,8 @@ mod tests {
             token_id: None,
             scopes: None,
             template: None,
+            uid: None,
+            expires: None,
         };
         assert!(visible_to(&r, &who("ana", Role::Viewer)));
         assert!(!visible_to(&r, &who("bob", Role::Operator)));

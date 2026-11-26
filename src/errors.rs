@@ -71,7 +71,7 @@ pub const ALL: &[(&str, u16, &str)] = &[
     ("file_too_big", 413, "The file is bigger than project_max_file_mb."),
     ("focus_not_checked", 409, "The focus input of the laser machine says the head is not focused and the machine requires it to be."),
     ("forbidden", 403, "The role of the caller is not enough for this request."),
-    ("forbidden_scope", 403, "The token is limited to scopes that do not include this one, or a token of a design program was asked for a scope of the machines."),
+    ("forbidden_scope", 403, "The token is limited to scopes that do not include this one, the request would give more than the token has (or outlive it), or a token of a design program was asked for a scope of the machines."),
     ("hash_mismatch", 422, "The bytes of the upload do not have the SHA-256 that was declared; the upload is discarded."),
     ("head_refused", 502, "The node of the drill head answered with a refusal."),
     ("head_unreachable", 502, "The node of the drill head does not answer."),
