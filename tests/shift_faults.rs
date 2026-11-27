@@ -36,6 +36,8 @@ fn server(name: &str) -> Server {
     let _ = std::fs::remove_dir_all(&dir);
     let cfg = ServerConfig {
         data_dir: dir.clone(),
+        // these tests answer a job without naming its question
+        answer_needs_question: false,
         ..ServerConfig::default()
     };
     let state = AppState::open(cfg).unwrap();

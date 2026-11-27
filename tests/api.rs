@@ -27,11 +27,13 @@ impl Drop for Server {
     }
 }
 
+/// A server that also takes an answer to a job that names no question, as programs from before send it (the setting off).
 fn server(name: &str) -> Server {
     let dir = std::env::temp_dir().join(format!("eh3d-server-api-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let cfg = ServerConfig {
         data_dir: dir.clone(),
+        answer_needs_question: false,
         ..ServerConfig::default()
     };
     let state = AppState::open(cfg).unwrap();
