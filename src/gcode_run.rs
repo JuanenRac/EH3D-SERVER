@@ -1275,6 +1275,7 @@ mod tests {
             spindle_wait: Duration::from_millis(50),
             power_on_hold: program.power_on_at,
             stop_wait: Duration::from_millis(300),
+            stop_spindle_on_pause: false,
             expected_mm: Some(WAS_AT),
             tolerance_mm: 0.05,
         }));
@@ -1349,6 +1350,7 @@ mod tests {
             spindle_wait,
             power_on_hold: None,
             stop_wait: Duration::from_millis(300),
+            stop_spindle_on_pause: false,
             expected_mm: Some(WAS_AT),
             tolerance_mm: 0.05,
         }));
