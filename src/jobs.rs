@@ -48,6 +48,10 @@ pub struct PauseView {
     /// after a stop and waits for the operator before the first move).
     pub kind: String,
     pub tool: Option<u8>,
+    /// Identifies this question: a new one every time the job stops to ask. An answer (`confirm`, `resume`) that names it is refused when the job
+    /// asks something else by then.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub question: String,
 }
 
 /// What is known of a machine once its G-code job has ended.
@@ -387,6 +391,11 @@ pub fn new_id() -> String {
     let mut b = [0u8; 4];
     rand::thread_rng().fill_bytes(&mut b);
     format!("j{}", hex::encode(b))
+}
+
+/// A new identifier for a question a job asks its operator.
+pub fn new_question_id() -> String {
+    format!("q{}", &new_id()[1..])
 }
 
 pub fn now() -> u64 {

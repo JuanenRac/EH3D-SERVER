@@ -110,6 +110,9 @@ pub struct ServerConfig {
     pub resume_plunge_feed_mm_min: u64,
     /// How far, in micrometres, each axis may be from where a stopped job left the machine for the job to go on by itself.
     pub resume_position_tolerance_um: u64,
+    /// `confirm` and `resume` of a job must name the question they answer (`pause.question`). Off: an answer without it is taken, as the clients
+    /// published before it send it; one that names another question is refused either way.
+    pub answer_needs_question: bool,
     /// How many wrong passwords in a row, with any names, block an address (the one of the socket) for a while; 0 turns it off.
     pub login_ip_limit: u32,
     /// Accept the token of the session in the address (`?token=`) of the camera and of the websocket, as the first versions of the clients sent it. Off: only a ticket.
@@ -321,6 +324,7 @@ impl Default for ServerConfig {
             resume_spindle_wait_s: 3,
             resume_plunge_feed_mm_min: 100,
             resume_position_tolerance_um: 50,
+            answer_needs_question: false,
             login_ip_limit: 10,
             url_token: false,
             local_until_setup: false,
@@ -502,6 +506,7 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
             "resume_margin_lines" => {
                 c.resume_margin_lines = number(&key, value, 0, 1_000).map_err(at)? as usize
             }
+            "answer_needs_question" => c.answer_needs_question = flag(&key, value).map_err(at)?,
             "exit_on_panic" => c.exit_on_panic = flag(&key, value).map_err(at)?,
             "trust_forwarded_for" => c.trust_forwarded_for = flag(&key, value).map_err(at)?,
             "persist_sessions" => c.persist_sessions = flag(&key, value).map_err(at)?,
@@ -900,6 +905,13 @@ mod tests {
     #[test]
     fn the_margin_of_a_resumed_gcode_job_is_a_setting() {
         assert_eq!(parse("").unwrap().resume_margin_lines, 16);
+        assert!(!parse("").unwrap().answer_needs_question);
+        assert!(
+            parse("answer_needs_question = true\n")
+                .unwrap()
+                .answer_needs_question
+        );
+        assert!(parse("answer_needs_question = perhaps\n").is_err());
         assert_eq!(
             parse("resume_margin_lines = 0\n")
                 .unwrap()

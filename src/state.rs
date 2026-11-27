@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use eh3d_drillpro::protocol::job::Pause;
 use eh3d_drillpro::runner::{RealRun, RunState};
@@ -14,7 +14,7 @@ use tokio::sync::broadcast;
 use crate::auth::Auth;
 use crate::config::ServerConfig;
 use crate::gcode_run::{GState, GcodeRun, Hold, RunOptions};
-use crate::jobs::{now, JobBook, JobRecord, JobState, PauseView};
+use crate::jobs::{new_question_id, now, JobBook, JobRecord, JobState, PauseView};
 use crate::machines::Machines;
 use crate::plan::{self, JobRequest};
 use crate::sync::Locked;
@@ -63,6 +63,8 @@ pub struct AppState {
     pub runs: Mutex<HashMap<String, Arc<RealRun>>>,
     /// The G-code jobs that are running, by the id of the job.
     pub gcode_runs: Mutex<HashMap<String, Arc<GcodeRun>>>,
+    /// The identifier of the question each waiting job asks, by the id of the job; one that was answered is no longer here.
+    questions: Mutex<HashMap<String, String>>,
     /// Every change, as a JSON text, for the clients that listen (the websocket).
     pub events: broadcast::Sender<String>,
     /// The events about things that have an owner (tasks, artifacts): each client gets only those of the things it may see.
@@ -122,6 +124,48 @@ pub enum PauseError {
     NotGcode,
     /// The job is not in the state this needs (running to hold it, held to resume it).
     NotInState,
+}
+
+/// Why the answer of a person to the question of a job was not taken.
+#[derive(Debug, PartialEq)]
+pub enum AnswerError {
+    /// The setting `answer_needs_question` is on and the answer names no question.
+    QuestionRequired,
+    /// The question named is not the one the job asks now.
+    QuestionChanged,
+    Pause(PauseError),
+}
+
+/// The longest an answer waits for the run to leave the question it answered.
+const ANSWER_WAIT: Duration = Duration::from_secs(1);
+
+/// Gives the question a job stops at its identifier, and forgets it once the job goes on. The caller holds `open` from the reading of the run.
+fn name_question(open: &mut HashMap<String, String>, id: &str, pause: &mut Option<PauseView>) {
+    match pause {
+        Some(p) => {
+            p.question = open
+                .entry(id.to_string())
+                .or_insert_with(new_question_id)
+                .clone();
+        }
+        None => {
+            open.remove(id);
+        }
+    }
+}
+
+fn wait_until_left(left: impl Fn() -> bool) {
+    let end = Instant::now() + ANSWER_WAIT;
+    while !left() && Instant::now() < end {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+/// Lets a held G-code run go on and waits until it has left the wait.
+fn release(run: &GcodeRun) {
+    let asked = run.state();
+    run.resume();
+    wait_until_left(|| run.state() != asked);
 }
 
 /// Gives the logins the limits and the rules of the passwords in force.
@@ -186,6 +230,7 @@ impl AppState {
             jobs: Mutex::new(jobs),
             runs: Mutex::new(HashMap::new()),
             gcode_runs: Mutex::new(HashMap::new()),
+            questions: Mutex::new(HashMap::new()),
             events,
             scoped,
             tasks,
@@ -387,7 +432,9 @@ impl AppState {
     fn follow_gcode(&self, id: &str, run: Arc<GcodeRun>) {
         let mut last: Option<(JobState, usize, usize, Option<PauseView>, String)> = None;
         loop {
-            let (state, message, pause) = match run.state() {
+            // the run is read with the questions held, so that an answer cannot fall between what is read and the name it is given
+            let mut open = self.questions.locked();
+            let (state, message, mut pause) = match run.state() {
                 GState::Connecting => (JobState::Connecting, String::new(), None),
                 GState::Running => (JobState::Running, String::new(), None),
                 GState::Held(hold) => (
@@ -400,12 +447,15 @@ impl AppState {
                         }
                         .into(),
                         tool: None,
+                        question: String::new(),
                     }),
                 ),
                 GState::Done => (JobState::Done, String::new(), None),
                 GState::Cancelled => (JobState::Cancelled, String::new(), None),
                 GState::Failed(why) => (JobState::Failed, why, None),
             };
+            name_question(&mut open, id, &mut pause);
+            drop(open);
             let (done, total) = run.progress();
             let items_done = if state == JobState::Done { total } else { done };
             let line = run.line();
@@ -469,15 +519,38 @@ impl AppState {
 
     /// Holds a running G-code job where it is.
     pub fn pause_job(&self, id: &str) -> Result<(), PauseError> {
-        self.hold_or_resume(id, true)
+        self.gcode_in(id, JobState::Running)?.pause();
+        Ok(())
     }
 
-    /// Lets a held G-code job go on.
+    /// Lets a job that the operator held go on: for the routes of the work queue and of the programs, which carry no question. It never answers
+    /// the question of a job that goes on after a stop.
     pub fn resume_job(&self, id: &str) -> Result<(), PauseError> {
-        self.hold_or_resume(id, false)
+        let run = self.gcode_in(id, JobState::WaitingOperator)?;
+        let mut open = self.questions.locked();
+        if run.state() != GState::Held(Hold::Operator) {
+            return Err(PauseError::NotInState);
+        }
+        open.remove(id);
+        release(&run);
+        Ok(())
     }
 
-    fn hold_or_resume(&self, id: &str, hold: bool) -> Result<(), PauseError> {
+    /// A person lets a waiting G-code job go on, naming (or not) the question they answer.
+    pub fn answer_resume(&self, id: &str, question: Option<&str>) -> Result<(), AnswerError> {
+        let run = self
+            .gcode_in(id, JobState::WaitingOperator)
+            .map_err(AnswerError::Pause)?;
+        let mut open = self.questions.locked();
+        if !self.take_question(&mut open, id, question)? {
+            return Err(AnswerError::Pause(PauseError::NotInState));
+        }
+        release(&run);
+        Ok(())
+    }
+
+    /// The run of a G-code job that the book has in the state asked for.
+    fn gcode_in(&self, id: &str, wanted: JobState) -> Result<Arc<GcodeRun>, PauseError> {
         let state = {
             let jobs = self.jobs.locked();
             let job = jobs.get(id).ok_or(PauseError::UnknownJob)?;
@@ -486,29 +559,39 @@ impl AppState {
             }
             job.state
         };
-        let wanted = if hold {
-            JobState::Running
-        } else {
-            JobState::WaitingOperator
-        };
         if state != wanted {
             return Err(PauseError::NotInState);
         }
-        let runs = self.gcode_runs.locked();
-        let run = runs.get(id).ok_or(PauseError::NotInState)?;
-        if hold {
-            run.pause();
-        } else {
-            run.resume();
+        self.gcode_runs
+            .locked()
+            .get(id)
+            .cloned()
+            .ok_or(PauseError::NotInState)
+    }
+
+    /// Checks an answer against the question the job asks and takes the question, so that it is answered once. `Ok(false)` when no question is
+    /// named yet or the one asked was already answered.
+    fn take_question(
+        &self,
+        open: &mut HashMap<String, String>,
+        id: &str,
+        question: Option<&str>,
+    ) -> Result<bool, AnswerError> {
+        match question {
+            Some(q) if open.get(id).map(String::as_str) != Some(q) => {
+                Err(AnswerError::QuestionChanged)
+            }
+            None if self.cfg.answer_needs_question => Err(AnswerError::QuestionRequired),
+            _ => Ok(open.remove(id).is_some()),
         }
-        Ok(())
     }
 
     /// Watches a running job and keeps the book and the clients up to date until it finishes.
     fn follow(&self, id: &str, run: Arc<RealRun>, hole_ends: &[usize]) {
         let mut last: Option<(JobState, usize, usize, Option<PauseView>, String)> = None;
         loop {
-            let (state, message, pause) = match run.state() {
+            let mut open = self.questions.locked();
+            let (state, message, mut pause) = match run.state() {
                 RunState::Connecting => (JobState::Connecting, String::new(), None),
                 RunState::Running => (JobState::Running, String::new(), None),
                 RunState::WaitPause(p) => (
@@ -518,10 +601,12 @@ impl AppState {
                         Pause::ToolChange { tool } => PauseView {
                             kind: "tool_change".into(),
                             tool: Some(tool),
+                            question: String::new(),
                         },
                         Pause::SpindleStart => PauseView {
                             kind: "spindle_start".into(),
                             tool: None,
+                            question: String::new(),
                         },
                     }),
                 ),
@@ -529,6 +614,8 @@ impl AppState {
                 RunState::Cancelled => (JobState::Cancelled, String::new(), None),
                 RunState::Failed(why) => (JobState::Failed, why, None),
             };
+            name_question(&mut open, id, &mut pause);
+            drop(open);
             let (next, _) = run.progress();
             let holes_done = hole_ends.iter().filter(|&&e| e < next).count();
             let items_done = if state == JobState::Done {
@@ -591,19 +678,26 @@ impl AppState {
         self.jobs.locked().changed();
     }
 
-    /// The operator answers the dialog the job is waiting at.
-    pub fn confirm_job(&self, id: &str) -> bool {
+    /// The operator answers the dialog the job is waiting at, naming (or not) the question they answer. `NotInState` when the job is not running.
+    pub fn confirm_job(&self, id: &str, question: Option<&str>) -> Result<(), AnswerError> {
         // the dialog of a G-code job is the hold: confirming it lets the job go on
         if self.gcode_runs.locked().contains_key(id) {
-            return self.resume_job(id).is_ok();
+            return self.answer_resume(id, question);
         }
-        match self.runs.locked().get(id) {
-            Some(run) => {
-                run.confirm();
-                true
-            }
-            None => false,
+        let run = self
+            .runs
+            .locked()
+            .get(id)
+            .cloned()
+            .ok_or(AnswerError::Pause(PauseError::NotInState))?;
+        let mut open = self.questions.locked();
+        // an answer to a question that nobody has been shown does nothing: it must not answer the one that comes next
+        if self.take_question(&mut open, id, question)? {
+            let asked = run.state();
+            run.confirm();
+            wait_until_left(|| run.state() != asked);
         }
+        Ok(())
     }
 
     /// Stops a running job (the machine stops with the drivers off); a job that is only ready is cancelled where it stands.
