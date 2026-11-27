@@ -129,7 +129,7 @@ jobs:
           name="eh3d-server-${version}-${os}-${arch}"
           mkdir -p dist "$name"
           cp "target/release/eh3d-server${MATRIX_EXT}" "$name/"
-          cp LICENSE README.md CHANGELOG.md server.cfg.example "$name/"
+          cp LICENSE README.md CHANGELOG.md docs/THIRD_PARTY_NOTICES server.cfg.example "$name/"
           cp -r deploy "$name/deploy"
           if [ "${MATRIX_ARCHIVE}" = "zip" ]; then
             7z a -tzip "dist/${name}.zip" "$name" >/dev/null

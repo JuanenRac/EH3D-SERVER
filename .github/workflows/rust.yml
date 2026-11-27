@@ -89,3 +89,14 @@ jobs:
         run: |
           cargo clippy --all-targets --features serial -- -D warnings
           cargo test --no-fail-fast --all-targets --features serial
+
+      - name: Every dependency is in the third-party notices
+        if: runner.os == 'Linux'
+        shell: bash
+        working-directory: EH3D-SERVER
+        # the tool is EH3D-COMMON's, fetched by commit so that it does not depend on the sibling tag this build uses
+        run: |
+          git init -q "$RUNNER_TEMP/notices"
+          git -C "$RUNNER_TEMP/notices" fetch -q --depth 1 https://github.com/JuanenRac/EH3D-COMMON.git ea71ffba79e0b9f37b1d6c80e992df662332eb8a
+          git -C "$RUNNER_TEMP/notices" checkout -q FETCH_HEAD
+          python3 -I "$RUNNER_TEMP/notices/tools/third_party_notices.py" --output docs/THIRD_PARTY_NOTICES --check
