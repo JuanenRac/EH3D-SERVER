@@ -14,6 +14,8 @@ An error path may refuse, stop, latch or keep the old value. It may never relax 
 | A write is refused (wrong role, a looser policy value without `confirm_weak`, a key that does not exist) | Changes nothing and keeps nothing on disk | Applies it in memory only, or applies the part that was allowed |
 | A login is closed, expired or unknown | Answers `401`; the latch, the policy and the machines stay as they were | Treats it as the anonymous user with some rights, or as the last user |
 | The emergency stop is asked for a machine that does not exist | `404` | Answers that it stopped |
+| A stopped GRBL machine does not say in time that it stands still, or goes into alarm | Writes the reset all the same, and writes down that the position of the machine is not known | Takes the position it last had as good, or goes on by itself from it |
+| A job that goes on finds the controller not idle, unreadable or away from where the job left it | Fails the job with the reason before anything is sent | Moves the machine or starts the spindle to find out |
 | The file of the changes of the security page (`policy.json`) is missing | Starts from `server.cfg`, whose defaults are the conservative ones | Starts with a switch on |
 | That file has a value of the wrong type or a key this version does not know | Leaves that value out and keeps the one of `server.cfg` | Reads `"yes"` or `1` as true |
 | That file cannot be read at all | Does not start (`--check` exits 2 and says which file) | Guesses, or replaces it with defaults and overwrites the old file |

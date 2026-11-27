@@ -677,9 +677,17 @@ fn plan_gcode(machine: &MachineRecord, req: &GcodeRequest) -> Result<Planned, Pl
     let spindle_warnings = spindle_verdict(&guard, excess)?;
     if let Some(g) = guard.filter(|g| g.mode == crate::spindle::Mode::Warn) {
         let top = f64::from(g.limits.max_rpm);
+        program.speed_limit = Some(top);
         for e in &mut program.entries {
             e.text = crate::gcode::cut_speed(&e.text, top);
         }
+    }
+    // a job that goes on is refused, with the reason, where the place the tool has to go back to is not certain
+    if program.resume {
+        crate::gcode::resume_point(&req.gcode, req.skip).map_err(|detail| PlanError {
+            code: "bad_request",
+            detail,
+        })?;
     }
     let work = program.work();
     let view = JobView {

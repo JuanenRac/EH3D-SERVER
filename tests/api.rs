@@ -2788,6 +2788,81 @@ async fn a_stopped_gcode_job_goes_on_from_its_line_and_waits_for_the_operator_be
     assert_eq!(held["items_done"], 0);
 }
 
+/// A job of twenty moves that fails on the line after them, run on the demo machine: its id.
+async fn failed_gcode_job(s: &Server, token: &str) -> String {
+    let text = format!("G21 G90\n{}G2 X5 I1\nG0 X9\n", "G0 X1\n".repeat(20));
+    let (_, job) = post(s, token, "/api/v1/machines/m1/jobs", Some(gcode_job(&text))).await;
+    let id = job["id"].as_str().unwrap().to_string();
+    post(s, token, &format!("/api/v1/jobs/{id}/start"), None).await;
+    let failed = wait_state(s, token, &id, &["failed", "done"]).await;
+    assert_eq!(failed["state"], "failed", "{failed}");
+    id
+}
+
+#[tokio::test]
+async fn a_job_does_not_go_on_by_itself_where_the_position_of_the_machine_is_not_known() {
+    use eh3d_server::jobs::StopRecord;
+    let s = server("resume-unknown");
+    let token = admin(&s).await;
+    demo_machine(&s, &token, "m1").await;
+    let id = failed_gcode_job(&s, &token).await;
+    let path = format!("/api/v1/jobs/{id}/resume-from");
+    for (stop, why) in [
+        (
+            Some(StopRecord::unknown("the controller is in alarm")),
+            "alarm",
+        ),
+        (None, "where the machine stood"),
+    ] {
+        s.state.jobs.lock().unwrap().get_mut(&id).unwrap().stop = stop;
+        let (_, saved) = get(&s, &token, &format!("/api/v1/jobs/{id}/request")).await;
+        assert!(saved["next_skip"].is_null(), "{saved}");
+        let (status, body) = post(&s, &token, &path, None).await;
+        assert_eq!(
+            (status, body["error"].as_str()),
+            (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_request")),
+            "{body}"
+        );
+        assert!(body["detail"].as_str().unwrap().contains(why), "{body}");
+    }
+    // a person who has put the machine right names the line
+    let (status, again) = post(&s, &token, &path, Some(json!({"skip": 5}))).await;
+    assert_eq!(status, StatusCode::OK, "{again}");
+}
+
+#[tokio::test]
+async fn a_resumed_job_waits_takes_one_confirmation_and_refuses_a_second_one() {
+    let s = server("resume-twice");
+    let token = admin(&s).await;
+    demo_machine(&s, &token, "m1").await;
+    let id = failed_gcode_job(&s, &token).await;
+    // the end of the failed job says where its machine stands
+    let stop = s.state.jobs.lock().unwrap().get(&id).unwrap().stop.clone();
+    assert!(stop.is_some_and(|stop| stop.known));
+    let path = format!("/api/v1/jobs/{id}/resume-from");
+    let (status, second) = post(&s, &token, &path, None).await;
+    assert_eq!(status, StatusCode::OK, "{second}");
+    let second = second["id"].as_str().unwrap().to_string();
+    post(&s, &token, &format!("/api/v1/jobs/{second}/start"), None).await;
+    wait_state(&s, &token, &second, &["waiting_operator"]).await;
+    let resume = format!("/api/v1/jobs/{second}/resume");
+    let (status, _) = post(&s, &token, &resume, None).await;
+    assert_eq!(status, StatusCode::OK);
+    // the program fails again at the same line, after the spindle-less sequence went out
+    let end = wait_state(&s, &token, &second, &["done", "failed"]).await;
+    assert_eq!(end["state"], "failed", "{end}");
+    assert!(
+        end["message"].as_str().unwrap().contains("line 22"),
+        "{end}"
+    );
+    let (status, body) = post(&s, &token, &resume, None).await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::CONFLICT, Some("not_in_state")),
+        "{body}"
+    );
+}
+
 #[tokio::test]
 async fn a_stopped_gcode_job_goes_back_by_the_margin_of_the_server() {
     use eh3d_server::jobs::JobState;
@@ -2847,7 +2922,18 @@ async fn a_job_that_cannot_go_on_by_itself_says_why_and_a_person_may_still_name_
         "{body}"
     );
     assert!(body["detail"].as_str().unwrap().contains("G91"), "{body}");
-    let (status, again) = post(&s, &token, &path, Some(json!({"skip": 2}))).await;
+    // a line named by a person does not make the place of the tool certain either; the whole program may be run again
+    let (status, body) = post(&s, &token, &path, Some(json!({"skip": 2}))).await;
+    assert_eq!(
+        (status, body["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("bad_request")),
+        "{body}"
+    );
+    assert!(
+        body["detail"].as_str().unwrap().contains("not resumed"),
+        "{body}"
+    );
+    let (status, again) = post(&s, &token, &path, Some(json!({"skip": 0}))).await;
     assert_eq!(status, StatusCode::OK, "{again}");
 
     // a job that ran on the tool changer: the chuck may hold any tool

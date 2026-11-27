@@ -2179,6 +2179,261 @@
       }
     },
     {
+      "key": "grbl_stop_wait_s",
+      "group": "machines",
+      "type": "integer",
+      "min": 1,
+      "max": 60,
+      "default": 3,
+      "unit": "seconds",
+      "apply": "restart",
+      "write": {
+        "via": "file",
+        "method": null,
+        "path": null,
+        "file": "server.cfg"
+      },
+      "role": null,
+      "scope": null,
+      "confirm_when_looser": false,
+      "secret": false,
+      "risk": "machine",
+      "label": {
+        "en": "Wait for the machine to stand still",
+        "es": "Espera de la parada de la máquina",
+        "de": "Warten auf den Stillstand",
+        "fr": "Attente de l'arrêt de la machine",
+        "it": "Attesa dell'arresto della macchina",
+        "ja": "機械の停止を待つ時間",
+        "zh": "等待机床停稳",
+        "pt": "Espera pela paragem da máquina"
+      },
+      "help": {
+        "en": "Seconds after a stop for GRBL to say it stands still before the reset goes anyway.",
+        "es": "Segundos tras una parada para que GRBL diga que está quieta antes de reiniciar igualmente.",
+        "de": "Sekunden nach einem Stopp, bis GRBL Stillstand meldet; sonst folgt der Reset trotzdem.",
+        "fr": "Secondes après un arrêt pour que GRBL annonce l'immobilité avant la réinitialisation forcée.",
+        "it": "Secondi dopo un arresto perché GRBL dica che è ferma prima del reset comunque.",
+        "ja": "停止後、GRBL が静止を報告するまで待つ秒数。超えるとそのままリセットします。",
+        "zh": "停止后等待 GRBL 报告静止的秒数，超时仍会复位。",
+        "pt": "Segundos após uma paragem para o GRBL dizer que está parada antes de reiniciar à mesma."
+      },
+      "warning": {
+        "en": "Set in server.cfg; it takes effect after the server restarts. A wrong value can stop a job on a real machine or leave it held; try it on the simulator first.",
+        "es": "Se fija en server.cfg; se aplica tras reiniciar el servidor. Un valor erróneo puede detener un trabajo en una máquina real o dejarla retenida; probar antes en el simulador.",
+        "de": "Wird in server.cfg gesetzt und wirkt nach einem Neustart des Servers. Ein falscher Wert kann einen Auftrag an einer echten Maschine stoppen oder sie angehalten lassen; zuerst im Simulator testen.",
+        "fr": "Défini dans server.cfg ; effectif après le redémarrage du serveur. Une mauvaise valeur peut arrêter un travail sur une vraie machine ou la laisser retenue ; essayer d'abord sur le simulateur.",
+        "it": "Si imposta in server.cfg; ha effetto dopo il riavvio del server. Un valore sbagliato può fermare un lavoro su una macchina reale o lasciarla bloccata; provare prima sul simulatore.",
+        "ja": "server.cfg で設定し、サーバーの再起動後に反映されます。誤った値は実機のジョブを止めたり機械を保留状態にしたりします。先にシミュレーターで試してください。",
+        "zh": "在 server.cfg 中设置；服务器重启后生效。错误的值可能使真实机床上的作业中止或停在保持状态；请先在模拟器上试用。",
+        "pt": "Define-se em server.cfg; aplica-se após reiniciar o servidor. Um valor errado pode parar um trabalho numa máquina real ou deixá-la retida; experimentar primeiro no simulador."
+      }
+    },
+    {
+      "key": "resume_safe_z_mm",
+      "group": "machines",
+      "type": "integer",
+      "min": 0,
+      "max": 500,
+      "default": 5,
+      "unit": "millimetres",
+      "apply": "restart",
+      "write": {
+        "via": "file",
+        "method": null,
+        "path": null,
+        "file": "server.cfg"
+      },
+      "role": null,
+      "scope": null,
+      "confirm_when_looser": false,
+      "secret": false,
+      "risk": "machine",
+      "label": {
+        "en": "Safe height to resume",
+        "es": "Altura segura al reanudar",
+        "de": "Sichere Höhe beim Fortsetzen",
+        "fr": "Hauteur de sécurité à la reprise",
+        "it": "Altezza di sicurezza alla ripresa",
+        "ja": "再開時の安全高さ",
+        "zh": "恢复时的安全高度",
+        "pt": "Altura segura ao retomar"
+      },
+      "help": {
+        "en": "Work Z (mm) a resumed job goes up to before the spindle starts and it crosses.",
+        "es": "Z de trabajo (mm) a la que sube un trabajo reanudado antes de arrancar el husillo y desplazarse.",
+        "de": "Werkstück-Z (mm), auf die vor dem Spindelstart und der Querfahrt angehoben wird.",
+        "fr": "Z pièce (mm) atteinte avant le démarrage de la broche et le déplacement.",
+        "it": "Z pezzo (mm) raggiunta prima di avviare il mandrino e spostarsi.",
+        "ja": "主軸の起動と移動の前に上がるワーク Z (mm)。",
+        "zh": "恢复作业在启动主轴和平移前抬升到的工件 Z（mm）。",
+        "pt": "Z de trabalho (mm) a que sobe antes de arrancar a fresa e se deslocar."
+      },
+      "warning": {
+        "en": "Set in server.cfg; it takes effect after the server restarts. A wrong value can stop a job on a real machine or leave it held; try it on the simulator first.",
+        "es": "Se fija en server.cfg; se aplica tras reiniciar el servidor. Un valor erróneo puede detener un trabajo en una máquina real o dejarla retenida; probar antes en el simulador.",
+        "de": "Wird in server.cfg gesetzt und wirkt nach einem Neustart des Servers. Ein falscher Wert kann einen Auftrag an einer echten Maschine stoppen oder sie angehalten lassen; zuerst im Simulator testen.",
+        "fr": "Défini dans server.cfg ; effectif après le redémarrage du serveur. Une mauvaise valeur peut arrêter un travail sur une vraie machine ou la laisser retenue ; essayer d'abord sur le simulateur.",
+        "it": "Si imposta in server.cfg; ha effetto dopo il riavvio del server. Un valore sbagliato può fermare un lavoro su una macchina reale o lasciarla bloccata; provare prima sul simulatore.",
+        "ja": "server.cfg で設定し、サーバーの再起動後に反映されます。誤った値は実機のジョブを止めたり機械を保留状態にしたりします。先にシミュレーターで試してください。",
+        "zh": "在 server.cfg 中设置；服务器重启后生效。错误的值可能使真实机床上的作业中止或停在保持状态；请先在模拟器上试用。",
+        "pt": "Define-se em server.cfg; aplica-se após reiniciar o servidor. Um valor errado pode parar um trabalho numa máquina real ou deixá-la retida; experimentar primeiro no simulador."
+      }
+    },
+    {
+      "key": "resume_spindle_wait_s",
+      "group": "machines",
+      "type": "integer",
+      "min": 0,
+      "max": 120,
+      "default": 3,
+      "unit": "seconds",
+      "apply": "restart",
+      "write": {
+        "via": "file",
+        "method": null,
+        "path": null,
+        "file": "server.cfg"
+      },
+      "role": null,
+      "scope": null,
+      "confirm_when_looser": false,
+      "secret": false,
+      "risk": "machine",
+      "label": {
+        "en": "Spindle start time",
+        "es": "Tiempo de arranque del husillo",
+        "de": "Anlaufzeit der Spindel",
+        "fr": "Temps de démarrage de la broche",
+        "it": "Tempo di avvio del mandrino",
+        "ja": "主軸の起動時間",
+        "zh": "主轴启动时间",
+        "pt": "Tempo de arranque da fresa"
+      },
+      "help": {
+        "en": "Seconds a resumed job gives the spindle to reach its speed.",
+        "es": "Segundos que un trabajo reanudado da al husillo para alcanzar su velocidad.",
+        "de": "Sekunden, die ein fortgesetzter Auftrag der Spindel zum Hochlaufen gibt.",
+        "fr": "Secondes laissées à la broche pour atteindre sa vitesse à la reprise.",
+        "it": "Secondi concessi al mandrino per raggiungere la velocità alla ripresa.",
+        "ja": "再開時に主軸が回転数に達するまで待つ秒数。",
+        "zh": "恢复作业时等待主轴达到转速的秒数。",
+        "pt": "Segundos que um trabalho retomado dá à fresa para atingir a velocidade."
+      },
+      "warning": {
+        "en": "Set in server.cfg; it takes effect after the server restarts. A wrong value can stop a job on a real machine or leave it held; try it on the simulator first.",
+        "es": "Se fija en server.cfg; se aplica tras reiniciar el servidor. Un valor erróneo puede detener un trabajo en una máquina real o dejarla retenida; probar antes en el simulador.",
+        "de": "Wird in server.cfg gesetzt und wirkt nach einem Neustart des Servers. Ein falscher Wert kann einen Auftrag an einer echten Maschine stoppen oder sie angehalten lassen; zuerst im Simulator testen.",
+        "fr": "Défini dans server.cfg ; effectif après le redémarrage du serveur. Une mauvaise valeur peut arrêter un travail sur une vraie machine ou la laisser retenue ; essayer d'abord sur le simulateur.",
+        "it": "Si imposta in server.cfg; ha effetto dopo il riavvio del server. Un valore sbagliato può fermare un lavoro su una macchina reale o lasciarla bloccata; provare prima sul simulatore.",
+        "ja": "server.cfg で設定し、サーバーの再起動後に反映されます。誤った値は実機のジョブを止めたり機械を保留状態にしたりします。先にシミュレーターで試してください。",
+        "zh": "在 server.cfg 中设置；服务器重启后生效。错误的值可能使真实机床上的作业中止或停在保持状态；请先在模拟器上试用。",
+        "pt": "Define-se em server.cfg; aplica-se após reiniciar o servidor. Um valor errado pode parar um trabalho numa máquina real ou deixá-la retida; experimentar primeiro no simulador."
+      }
+    },
+    {
+      "key": "resume_plunge_feed_mm_min",
+      "group": "machines",
+      "type": "integer",
+      "min": 1,
+      "max": 100000,
+      "default": 100,
+      "unit": "mm/min",
+      "apply": "restart",
+      "write": {
+        "via": "file",
+        "method": null,
+        "path": null,
+        "file": "server.cfg"
+      },
+      "role": null,
+      "scope": null,
+      "confirm_when_looser": false,
+      "secret": false,
+      "risk": "machine",
+      "label": {
+        "en": "Plunge feed to resume",
+        "es": "Avance de bajada al reanudar",
+        "de": "Eintauchvorschub beim Fortsetzen",
+        "fr": "Avance de plongée à la reprise",
+        "it": "Avanzamento di discesa alla ripresa",
+        "ja": "再開時の下降送り",
+        "zh": "恢复时的下刀进给",
+        "pt": "Avanço de descida ao retomar"
+      },
+      "help": {
+        "en": "Most mm/min a resumed job goes down at, back to where the tool was.",
+        "es": "Máximo de mm/min al que baja un trabajo reanudado hasta donde estaba la herramienta.",
+        "de": "Höchstens so viele mm/min beim Absenken zurück zur Werkzeugposition.",
+        "fr": "Vitesse maximale (mm/min) de descente jusqu'à la position de l'outil.",
+        "it": "Massimo di mm/min nella discesa fino a dove era l'utensile.",
+        "ja": "工具があった位置まで下げる最大送り (mm/min)。",
+        "zh": "恢复时下降到刀具原位置的最大进给（mm/min）。",
+        "pt": "Máximo de mm/min na descida até onde estava a ferramenta."
+      },
+      "warning": {
+        "en": "Set in server.cfg; it takes effect after the server restarts. A wrong value can stop a job on a real machine or leave it held; try it on the simulator first.",
+        "es": "Se fija en server.cfg; se aplica tras reiniciar el servidor. Un valor erróneo puede detener un trabajo en una máquina real o dejarla retenida; probar antes en el simulador.",
+        "de": "Wird in server.cfg gesetzt und wirkt nach einem Neustart des Servers. Ein falscher Wert kann einen Auftrag an einer echten Maschine stoppen oder sie angehalten lassen; zuerst im Simulator testen.",
+        "fr": "Défini dans server.cfg ; effectif après le redémarrage du serveur. Une mauvaise valeur peut arrêter un travail sur une vraie machine ou la laisser retenue ; essayer d'abord sur le simulateur.",
+        "it": "Si imposta in server.cfg; ha effetto dopo il riavvio del server. Un valore sbagliato può fermare un lavoro su una macchina reale o lasciarla bloccata; provare prima sul simulatore.",
+        "ja": "server.cfg で設定し、サーバーの再起動後に反映されます。誤った値は実機のジョブを止めたり機械を保留状態にしたりします。先にシミュレーターで試してください。",
+        "zh": "在 server.cfg 中设置；服务器重启后生效。错误的值可能使真实机床上的作业中止或停在保持状态；请先在模拟器上试用。",
+        "pt": "Define-se em server.cfg; aplica-se após reiniciar o servidor. Um valor errado pode parar um trabalho numa máquina real ou deixá-la retida; experimentar primeiro no simulador."
+      }
+    },
+    {
+      "key": "resume_position_tolerance_um",
+      "group": "machines",
+      "type": "integer",
+      "min": 1,
+      "max": 10000,
+      "default": 50,
+      "unit": "micrometres",
+      "apply": "restart",
+      "write": {
+        "via": "file",
+        "method": null,
+        "path": null,
+        "file": "server.cfg"
+      },
+      "role": null,
+      "scope": null,
+      "confirm_when_looser": false,
+      "secret": false,
+      "risk": "machine",
+      "label": {
+        "en": "Position tolerance to resume",
+        "es": "Tolerancia de posición al reanudar",
+        "de": "Positionstoleranz beim Fortsetzen",
+        "fr": "Tolérance de position à la reprise",
+        "it": "Tolleranza di posizione alla ripresa",
+        "ja": "再開時の位置許容差",
+        "zh": "恢复时的位置容差",
+        "pt": "Tolerância de posição ao retomar"
+      },
+      "help": {
+        "en": "Micrometres an axis may differ from where the job stopped for it to go on.",
+        "es": "Micrómetros que un eje puede diferir de donde paró el trabajo para continuar.",
+        "de": "Mikrometer, um die eine Achse von der Stoppposition abweichen darf.",
+        "fr": "Micromètres d'écart admis par axe avec la position d'arrêt.",
+        "it": "Micrometri di scarto ammessi per asse dalla posizione di arresto.",
+        "ja": "続行を許す停止位置からの各軸のずれ (µm)。",
+        "zh": "允许继续时各轴与停止位置的偏差（微米）。",
+        "pt": "Micrómetros que um eixo pode diferir de onde o trabalho parou para continuar."
+      },
+      "warning": {
+        "en": "Set in server.cfg; it takes effect after the server restarts. A wrong value can stop a job on a real machine or leave it held; try it on the simulator first.",
+        "es": "Se fija en server.cfg; se aplica tras reiniciar el servidor. Un valor erróneo puede detener un trabajo en una máquina real o dejarla retenida; probar antes en el simulador.",
+        "de": "Wird in server.cfg gesetzt und wirkt nach einem Neustart des Servers. Ein falscher Wert kann einen Auftrag an einer echten Maschine stoppen oder sie angehalten lassen; zuerst im Simulator testen.",
+        "fr": "Défini dans server.cfg ; effectif après le redémarrage du serveur. Une mauvaise valeur peut arrêter un travail sur une vraie machine ou la laisser retenue ; essayer d'abord sur le simulateur.",
+        "it": "Si imposta in server.cfg; ha effetto dopo il riavvio del server. Un valore sbagliato può fermare un lavoro su una macchina reale o lasciarla bloccata; provare prima sul simulatore.",
+        "ja": "server.cfg で設定し、サーバーの再起動後に反映されます。誤った値は実機のジョブを止めたり機械を保留状態にしたりします。先にシミュレーターで試してください。",
+        "zh": "在 server.cfg 中设置；服务器重启后生效。错误的值可能使真实机床上的作业中止或停在保持状态；请先在模拟器上试用。",
+        "pt": "Define-se em server.cfg; aplica-se após reiniciar o servidor. Um valor errado pode parar um trabalho numa máquina real ou deixá-la retida; experimentar primeiro no simulador."
+      }
+    },
+    {
       "key": "resume_margin_lines",
       "group": "machines",
       "type": "integer",

@@ -50,6 +50,35 @@ pub struct PauseView {
     pub tool: Option<u8>,
 }
 
+/// What is known of a machine once its G-code job has ended.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct StopRecord {
+    /// The controller said that the machine stood still, and where.
+    pub known: bool,
+    /// The position of the machine then, in mm (X, Y, Z); `None` when it is not known.
+    pub machine_mm: Option<[f64; 3]>,
+    /// Why it is not known, in English; empty when it is.
+    pub why: String,
+}
+
+impl StopRecord {
+    pub fn at(machine_mm: [f64; 3]) -> StopRecord {
+        StopRecord {
+            known: true,
+            machine_mm: Some(machine_mm),
+            why: String::new(),
+        }
+    }
+
+    pub fn unknown(why: impl Into<String>) -> StopRecord {
+        StopRecord {
+            known: false,
+            machine_mm: None,
+            why: why.into(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct JobRecord {
     pub id: String,
@@ -85,6 +114,12 @@ pub struct JobRecord {
     /// The job this one goes on from (made by `resume-from`); empty for the others.
     #[serde(default)]
     pub resumed_from: String,
+    /// A G-code job that ended: what is known of its machine. A job goes on by itself only when it says where the machine stood.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop: Option<StopRecord>,
+    /// A job that goes on after a stop by itself: where the machine has to be (mm) for it to start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_at_mm: Option<[f64; 3]>,
     pub view: JobView,
 }
 
@@ -386,6 +421,8 @@ impl JobRecord {
             pause: None,
             request: serde_json::json!({}),
             resumed_from: String::new(),
+            stop: None,
+            resume_at_mm: None,
             view: JobView {
                 kind: "drill".into(),
                 name: "n".into(),

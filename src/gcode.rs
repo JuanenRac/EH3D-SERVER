@@ -1,5 +1,6 @@
 //! Free G-code on the server: the text of a program is cleaned into the lines that are sent to the controller, read for what it asks of the spindle,
-//! and, when it goes on after a stop, the codes that were in force are rebuilt from the lines that were already sent. Nothing here touches a machine.
+//! and, when it goes on after a stop, the codes that were in force and the place the program had reached are rebuilt from the lines before it, with
+//! the lines that take the machine back there. Nothing here touches a machine.
 //!
 //! The lines that are sent are the code without its comments; blank lines and `%` are dropped. A line that is not G-code (`$` settings of GRBL, its
 //! real-time characters, control characters) is refused: a job must not change the controller's settings or unlock it. A machine whose administrator
@@ -33,6 +34,288 @@ pub struct Program {
     pub raw_total: usize,
     /// The job goes on after a stop: it waits for the operator before the first move.
     pub resume: bool,
+    /// The entry after which the spindle is given its time to reach its speed.
+    pub spindle_wait_after: Option<usize>,
+    /// The most the spindle of the machine may be asked to turn (a machine whose spindle switch is on `warn`).
+    pub speed_limit: Option<f64>,
+}
+
+/// Where a program was at the line it goes on from, read from the lines before it.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct ResumePoint {
+    /// X, Y and Z in the work coordinates in force, in mm; `None` for an axis the program had not moved.
+    pub at_mm: [Option<f64>; 3],
+    /// The last of `M3`, `M4`, `M5` and the last `S`.
+    pub spindle: Option<i32>,
+    pub speed: Option<f64>,
+    /// The last of `M7`, `M8`, `M9`.
+    pub coolant: Option<i32>,
+    /// `G17`, `G18`, `G19` and `G54` to `G59`, as numbers.
+    pub plane: Option<i32>,
+    pub wcs: Option<i32>,
+    /// The program works in inches (`G20`).
+    pub inches: bool,
+    /// `G94` or `G95` (the feed for each turn), as a number.
+    pub feed_mode: Option<i32>,
+    /// The last `F`, as the program wrote it.
+    pub feed: Option<f64>,
+}
+
+/// What the server adds of its own to the sequence of a job that goes on.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ResumeMoves {
+    /// The height, in the work coordinates and in mm, the tool goes up to before the spindle starts and before it crosses.
+    pub safe_z_mm: f64,
+    /// The most the tool goes down at, in mm/min, back to where the program had it.
+    pub plunge_feed_mm_min: f64,
+}
+
+impl Default for ResumeMoves {
+    fn default() -> Self {
+        ResumeMoves {
+            safe_z_mm: 5.0,
+            plunge_feed_mm_min: 100.0,
+        }
+    }
+}
+
+/// Where the program was at line `skip`, or why the server does not know it: then the job is not resumed, because the tool could not be taken back
+/// to its place.
+pub fn resume_point(text: &str, skip: usize) -> Result<ResumePoint, String> {
+    const AXIS: [char; 3] = ['X', 'Y', 'Z'];
+    let mut point = ResumePoint::default();
+    let (mut relative, mut scale, mut wcs) = (false, 1.0, 540);
+    // for each axis: the line that left it where the program does not say
+    let mut lost: [Option<usize>; 3] = [None; 3];
+    let mut shifted: Option<usize> = None;
+    let (mut tool_length, mut cycle): (Option<usize>, Option<usize>) = (None, None);
+    for (n, line) in text.lines().take(skip).enumerate() {
+        let code = strip(line);
+        let number_of_line = n + 1;
+        if let Some(rest) = code.strip_prefix('$') {
+            // a homing cycle or a jog moves the machine in a way the words of the program do not follow
+            let rest = rest.to_ascii_uppercase();
+            for (axis, letter) in AXIS.iter().enumerate() {
+                if rest.starts_with('H') || (rest.starts_with("J=") && rest.contains(*letter)) {
+                    lost[axis] = Some(number_of_line);
+                }
+            }
+            continue;
+        }
+        let ws = words(&code);
+        let named = AXIS.map(|a| ws.iter().find(|(l, _)| *l == a).map(|&(_, v)| v));
+        let (mut home, mut elsewhere, mut offset) = (false, false, false);
+        for g in g_codes(&ws) {
+            match g {
+                200 => {
+                    scale = 25.4;
+                    point.inches = true;
+                }
+                210 => {
+                    scale = 1.0;
+                    point.inches = false;
+                }
+                900 => relative = false,
+                910 => relative = true,
+                940 | 950 => point.feed_mode = Some(g / 10),
+                170 | 180 | 190 => point.plane = Some(g / 10),
+                540 | 550 | 560 | 570 | 580 | 590 => {
+                    point.wcs = Some(g / 10);
+                    if g != wcs {
+                        // what was read so far is in the other coordinates
+                        for (axis, here) in point.at_mm.iter_mut().enumerate() {
+                            if here.take().is_some() {
+                                lost[axis] = Some(number_of_line);
+                            }
+                        }
+                        wcs = g;
+                    }
+                }
+                100 => {
+                    offset = true;
+                    for (axis, here) in point.at_mm.iter_mut().enumerate() {
+                        if here.take().is_some() {
+                            lost[axis] = Some(number_of_line);
+                        }
+                    }
+                }
+                920 => {
+                    offset = true;
+                    shifted = Some(number_of_line);
+                }
+                921 | 922 => shifted = None,
+                431 => {
+                    offset = true;
+                    tool_length = Some(number_of_line);
+                }
+                490 => tool_length = None,
+                280 | 300 => home = true,
+                530 => elsewhere = true,
+                382..=385 => elsewhere = true,
+                800 => cycle = None,
+                810..=890 => cycle = Some(number_of_line),
+                _ => {}
+            }
+        }
+        for &(l, v) in &ws {
+            match l {
+                'M' => match v.round() as i32 {
+                    m @ 3..=5 => point.spindle = Some(m),
+                    m @ 7..=9 => point.coolant = Some(m),
+                    // the end of the program switches both off
+                    2 | 30 => {
+                        point.spindle = Some(5);
+                        point.coolant = Some(9);
+                    }
+                    _ => {}
+                },
+                'S' => point.speed = Some(v),
+                'F' => point.feed = Some(v),
+                _ => {}
+            }
+        }
+        // `G28` and `G30` with no axis take every axis away
+        let every = home && named.iter().all(Option::is_none);
+        for axis in 0..3 {
+            if every || ((home || elsewhere) && named[axis].is_some()) {
+                point.at_mm[axis] = None;
+                lost[axis] = Some(number_of_line);
+                continue;
+            }
+            let Some(value) = named[axis] else { continue };
+            if offset {
+                continue;
+            }
+            if !relative {
+                point.at_mm[axis] = Some(value * scale);
+                lost[axis] = None;
+            } else {
+                match point.at_mm[axis].as_mut() {
+                    Some(here) => *here += value * scale,
+                    None => lost[axis] = Some(number_of_line),
+                }
+            }
+        }
+    }
+    let refuse = |why: String| Err(format!("the job is not resumed: {why}"));
+    if relative {
+        return refuse(
+            "the program is in relative distances (G91) there, so where it was is not certain"
+                .into(),
+        );
+    }
+    if let Some(n) = cycle {
+        return refuse(format!("the canned cycle of line {n} is still on there"));
+    }
+    if let Some(n) = shifted {
+        return refuse(format!(
+            "line {n} shifts the zero (G92), which the reset of the controller takes away"
+        ));
+    }
+    if let Some(n) = tool_length {
+        return refuse(format!(
+            "line {n} sets a tool length offset (G43.1), which the reset of the controller takes away"
+        ));
+    }
+    if let Some((axis, Some(n))) = lost.iter().enumerate().find(|(_, l)| l.is_some()) {
+        return refuse(format!(
+            "after line {n} the position of the axis {} in the work coordinates is not known",
+            AXIS[axis]
+        ));
+    }
+    if point.feed.is_some_and(|f| !f.is_finite()) || point.speed.is_some_and(|s| !s.is_finite()) {
+        return refuse("a feed or a speed of the program is not a number".into());
+    }
+    if point.at_mm.iter().flatten().any(|v| !v.is_finite()) {
+        return refuse("a position of the program is not a number".into());
+    }
+    Ok(point)
+}
+
+/// Puts in front of a program that goes on the lines that take the machine back to where the program was, in place of the codes alone: up to the safe
+/// height, the spindle (and its time to reach its speed), over the point, down to it, and the modes of the program. The spindle is started when the
+/// program had it on, whatever `restore_outputs` says: a stopped tool must not be taken back into the work. The coolant follows `restore_outputs`.
+/// A program that does not go on is left as it is.
+pub fn with_resume_sequence(
+    program: &mut Program,
+    point: &ResumePoint,
+    moves: ResumeMoves,
+    restore_outputs: bool,
+) {
+    if !program.resume {
+        return;
+    }
+    let [x, y, z] = point.at_mm;
+    let mut lines = vec!["G21 G90".to_string()];
+    // after the reset the controller is in G17, G54 and G94: only what differs is given again
+    if let Some(plane) = point.plane.filter(|p| *p != 17) {
+        lines.push(format!("G{plane}"));
+    }
+    if let Some(wcs) = point.wcs.filter(|w| *w != 54) {
+        lines.push(format!("G{wcs}"));
+    }
+    // the feeds that follow are in mm/min
+    if point.feed_mode.is_some() {
+        lines.push("G94".to_string());
+    }
+    let lift = z.map_or(moves.safe_z_mm, |z| z.max(moves.safe_z_mm));
+    lines.push(format!("G0 Z{}", number(lift)));
+    let mut spindle_wait_after = None;
+    if let Some(m @ (3 | 4)) = point.spindle {
+        spindle_wait_after = Some(lines.len());
+        let limit = program.speed_limit.unwrap_or(f64::INFINITY);
+        let speed = point
+            .speed
+            .map(|s| format!(" S{}", number(s.min(limit))))
+            .unwrap_or_default();
+        lines.push(format!("M{m}{speed}"));
+    }
+    if restore_outputs {
+        if let Some(m @ (7 | 8)) = point.coolant {
+            lines.push(format!("M{m}"));
+        }
+    }
+    let across: String = [('X', x), ('Y', y)]
+        .iter()
+        .filter_map(|(a, v)| v.map(|v| format!(" {a}{}", number(v))))
+        .collect();
+    if !across.is_empty() {
+        lines.push(format!("G0{across}"));
+    }
+    if let Some(z) = z.filter(|z| *z < lift) {
+        let scale = if point.inches { 25.4 } else { 1.0 };
+        let own = point
+            .feed
+            .filter(|f| point.feed_mode != Some(95) && *f > 0.0)
+            .map(|f| f * scale);
+        let feed = own.map_or(moves.plunge_feed_mm_min, |f| {
+            f.min(moves.plunge_feed_mm_min)
+        });
+        lines.push(format!("G1 Z{} F{}", number(z), number(feed)));
+    }
+    // the first line of the program that moves is given its motion again: until then the controller is in rapid, as after a reset
+    lines.push("G0".to_string());
+    if point.inches {
+        lines.push("G20".to_string());
+    }
+    if point.feed_mode == Some(95) {
+        lines.push("G95".to_string());
+    }
+    if let Some(f) = point.feed {
+        lines.push(format!("F{}", number(f)));
+    }
+    // the lines of the sequence belong to the line the job goes on from
+    let raw = program
+        .entries
+        .first()
+        .filter(|_| program.preamble > 0)
+        .or_else(|| program.entries.get(program.preamble))
+        .map_or(program.raw_total, |e| e.raw);
+    let first = program.entries.split_off(program.preamble);
+    program.entries = lines.into_iter().map(|text| Entry { raw, text }).collect();
+    program.preamble = program.entries.len();
+    program.entries.extend(first);
+    program.spindle_wait_after = spindle_wait_after;
 }
 
 impl Program {
@@ -304,6 +587,8 @@ pub fn parse_with(
         preamble,
         raw_total: raw.len(),
         resume: skip > 0,
+        spindle_wait_after: None,
+        speed_limit: None,
     })
 }
 
@@ -546,6 +831,140 @@ mod tests {
         // an offset set again from wherever the head is now
         assert!(why("G0 X1\nG0 X2\nG10 L20 P1 X0\n", 3).contains("G10"));
         assert!(why("G0 X1\nG92 Y0\n", 2).contains("G92"));
+    }
+
+    fn sequence(text: &str, skip: usize, outputs: bool) -> (Vec<String>, Option<usize>) {
+        let mut p = parse(text, skip, outputs).unwrap();
+        let point = resume_point(text, skip).unwrap();
+        with_resume_sequence(&mut p, &point, ResumeMoves::default(), outputs);
+        assert_eq!(p.entries[p.preamble].raw, skip);
+        assert!(p.entries[..p.preamble].iter().all(|e| e.raw == skip));
+        let lines = p.entries[..p.preamble]
+            .iter()
+            .map(|e| e.text.clone())
+            .collect();
+        (lines, p.spindle_wait_after)
+    }
+
+    #[test]
+    fn a_resumed_job_goes_up_starts_the_spindle_crosses_and_goes_down_to_where_it_was() {
+        let text = "G21 G90\nG55\nM3 S9000\nM8\nG0 X10 Y20\nG1 Z-1.5 F300\nX30\nX40\n";
+        let (lines, wait) = sequence(text, 7, true);
+        assert_eq!(
+            lines,
+            [
+                "G21 G90",
+                "G55",
+                "G0 Z5",
+                "M3 S9000",
+                "M8",
+                "G0 X30 Y20",
+                "G1 Z-1.5 F100",
+                "G0",
+                "F300"
+            ]
+        );
+        assert_eq!(
+            wait,
+            Some(3),
+            "the wait comes after the line of the spindle"
+        );
+        // the spindle starts also without the outputs; the coolant does not
+        let (lines, wait) = sequence(text, 7, false);
+        assert!(lines.contains(&"M3 S9000".to_string()) && !lines.contains(&"M8".to_string()));
+        assert_eq!(wait, Some(3));
+    }
+
+    #[test]
+    fn the_sequence_keeps_the_units_a_slower_feed_and_a_height_above_the_safe_one() {
+        // inches: the places are given in mm and the unit comes back at the end; a feed slower than the plunge one is kept
+        let (lines, wait) = sequence("G20 G90\nF2\nG0 X1 Y2\nG1 Z-0.1\nX2\n", 4, false);
+        assert_eq!(
+            lines,
+            [
+                "G21 G90",
+                "G0 Z5",
+                "G0 X25.4 Y50.8",
+                "G1 Z-2.54 F50.8",
+                "G0",
+                "G20",
+                "F2"
+            ]
+        );
+        assert_eq!(wait, None, "no spindle in the program, nothing to wait for");
+        // the program was above the safe height: it stays there, and the spindle that was switched off stays off
+        let (lines, wait) = sequence("M3 S1000\nM5\nG0 Z30\nG0 X1\nG0 X2\n", 4, true);
+        assert_eq!(lines, ["G21 G90", "G0 Z30", "G0 X1", "G0"]);
+        assert_eq!(wait, None);
+        // a plane and relative lines that are over and done with
+        let (lines, _) = sequence(
+            "G18\nG0 X1 Z1\nG91\nG0 X2 Z-3\nG90\nG0 Y1\nG0 Y2\n",
+            6,
+            false,
+        );
+        assert_eq!(
+            lines,
+            ["G21 G90", "G18", "G0 Z5", "G0 X3 Y1", "G1 Z-2 F100", "G0"]
+        );
+        // a feed for each turn is set aside while the tool is taken back, and given again
+        let (lines, _) = sequence("G95\nF0.1\nG0 X1 Z-1\nG1 X2\n", 3, false);
+        assert_eq!(
+            lines,
+            [
+                "G21 G90",
+                "G94",
+                "G0 Z5",
+                "G0 X1",
+                "G1 Z-1 F100",
+                "G0",
+                "G95",
+                "F0.1"
+            ]
+        );
+        // a machine whose spindle gives less starts it at what it gives
+        let text = "M3 S30000\nG0 X1\nG0 X2\n";
+        let mut p = parse(text, 2, false).unwrap();
+        p.speed_limit = Some(24_000.0);
+        let point = resume_point(text, 2).unwrap();
+        with_resume_sequence(&mut p, &point, ResumeMoves::default(), false);
+        assert!(texts(&p).contains(&"M3 S24000"), "{:?}", texts(&p));
+        // a program that does not go on is left as it is
+        let mut p = parse("G0 X1", 0, false).unwrap();
+        with_resume_sequence(
+            &mut p,
+            &ResumePoint::default(),
+            ResumeMoves::default(),
+            true,
+        );
+        assert_eq!((p.preamble, p.entries.len()), (0, 1));
+    }
+
+    #[test]
+    fn a_job_is_not_resumed_where_the_place_of_the_tool_is_not_certain() {
+        let why = |text: &str| {
+            let skip = text.lines().count();
+            resume_point(text, skip).unwrap_err()
+        };
+        assert!(why("G91\nG1 X1 F100\n").contains("G91"));
+        assert!(why("G91\nG1 X1 F100\nG90\n").contains("axis X"));
+        assert!(why("G0 X1\nG92 X0\n").contains("G92"));
+        assert!(why("G43.1 Z2\nG0 X1\n").contains("G43.1"));
+        assert!(why("G81 Z-1 R1 X1\n").contains("canned cycle"));
+        assert!(why("G0 Z5\nG53 G0 Z0\n").contains("axis Z"));
+        assert!(why("G0 X1 Y1\nG28\n").contains("axis X"));
+        assert!(why("$H\nG0 X1\n").contains("axis Y"));
+        assert!(why("G0 X1\nG55\n").contains("axis X"));
+        assert!(why("G0 Y1\nG10 L20 P1 X0\n").contains("axis Y"));
+        assert!(why("G38.2 Z-5 F50\n").contains("axis Z"));
+        // an absolute move after it says again where the axis is
+        let p = resume_point("G53 G0 Z0\nG0 X1 Y2 Z3\n", 2).unwrap();
+        assert_eq!(p.at_mm, [Some(1.0), Some(2.0), Some(3.0)]);
+        // G54 is the one in force from the start, and the end of a program switches the outputs off
+        let p = resume_point("G0 X1\nG54\nM3 S10\nM8\nM30\n", 5).unwrap();
+        assert_eq!(
+            (p.at_mm[0], p.spindle, p.coolant),
+            (Some(1.0), Some(5), Some(9))
+        );
     }
 
     #[test]
