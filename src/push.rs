@@ -14,8 +14,8 @@ use ring::signature::RsaKeyPair;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::auth::Role;
 use crate::api::Shared;
+use crate::auth::Role;
 use crate::store;
 use crate::sync::Locked;
 
