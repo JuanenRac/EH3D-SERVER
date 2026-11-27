@@ -444,11 +444,11 @@ dependencies = [
 
 [[package]]
 name = "eh3d-parser-common"
-version = "0.0.9"
+version = "0.1.3"
 
 [[package]]
 name = "eh3d-parser-gcode"
-version = "0.0.9"
+version = "0.1.3"
 dependencies = [
  "eh3d-parser-common",
 ]
