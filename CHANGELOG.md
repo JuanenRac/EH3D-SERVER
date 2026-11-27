@@ -4,6 +4,7 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **The server is built with the current drilling and routing engines (safety):** EH3D-DRILLPRO at v0.2.4 (it was v0.1.7), EH3D-ROUTEPRO with its latest tool changer fix (it was v0.1.6) and the shared repository EH3D-COMMON at v0.3.6 (it was v0.2.1), so the jobs the server runs have the waits, the stops and the tool changes of those programs. Checked by the tests against the simulator; not tried on a machine.
 - **Going on from a stopped G-code job is more careful (safety):** the motion in force (`G0` to `G3`) is given back with the other codes, the margin `resume_margin_lines` counts lines that move, and where the server cannot tell where to go on from (relative distances, offsets the controller loses, a job that ran on the tool changer) it says why and a person names the line.
 - **Stopping a G-code job (safety):** a controller that cannot be read during the last moves is now told to stop, and no line can follow the real-time stop on the port.
 - **Releases have a signed record, and the update helper asks for it (security):** `eh3d-release.json` says the repository, the version and the name, architecture, size and SHA-256 of every file of a release, and is signed like the files. Every version of EH3D-SERVER after 0.2.5 and of EH3D-STUDIO after 0.2.0 is installed only with it, and a record that any release publishes must agree with the download. Earlier releases, which only have the `.sig` of each file, are installed as before (`docs/DEPLOY.md`, "The record of a release").
