@@ -83,9 +83,9 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Tests
         working-directory: EH3D-SERVER
-        run: cargo test --all-targets
+        run: cargo test --no-fail-fast --all-targets
       - name: Lints and tests with the serial port support
         working-directory: EH3D-SERVER
         run: |
           cargo clippy --all-targets --features serial -- -D warnings
-          cargo test --all-targets --features serial
+          cargo test --no-fail-fast --all-targets --features serial

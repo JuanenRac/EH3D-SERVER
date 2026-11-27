@@ -1328,7 +1328,7 @@ mod tests {
                 .warnings
                 .iter()
                 .all(|w| w.code != "units_supposed"),
-            "a file that says its unit is not warned"
+            "a file that declares its format is not warned"
         );
         // a file with no unit in its header is read as mils and the view says so
         let bare = "%
