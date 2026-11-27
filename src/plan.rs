@@ -4,6 +4,7 @@
 //! machine will do.
 
 use eh3d_drillpro::config::{self, MachineSettings};
+use eh3d_drillpro::drill_format::{how_to_choose, NumberFormat};
 use eh3d_drillpro::dryrun;
 use eh3d_drillpro::job::{
     geometry_from, hole_end_indexes, job_machine, job_rack_for, sort_holes, JobOptions,
@@ -115,6 +116,8 @@ pub struct DrillRequest {
     pub tools: Option<Vec<DrillToolIn>>,
     pub holes: Option<Vec<HoleIn>>,
     pub files: Option<DrillFiles>,
+    /// How a drill file of `files` that does not declare its number format is read (`mils`, `inch-2.4-tz`...); without it such a file is refused.
+    pub drill_format: Option<String>,
     /// Tools that are switched off: their holes are left out of the job.
     #[serde(default)]
     pub skip_tools: Vec<u8>,
@@ -725,13 +728,6 @@ fn plan_gcode(machine: &MachineRecord, req: &GcodeRequest) -> Result<Planned, Pl
     })
 }
 
-/// Whether the header of a drill file says its unit (`METRIC`, `INCH`, `M71` or `M72`): when it does not, its numbers are read as mils.
-fn declares_unit(text: &str) -> bool {
-    text.lines()
-        .map(str::trim)
-        .any(|l| l.starts_with("METRIC") || l.starts_with("INCH") || l == "M71" || l == "M72")
-}
-
 fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, PlanError> {
     let settings = settings_of(&machine.dcf);
     let connection = machine.connection_config().map_err(|e| PlanError {
@@ -750,13 +746,25 @@ fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, Pl
     // the holes, in mm from the file's zero, and the tool table
     let mut holes: Vec<HoleIn> = Vec::new();
     let mut tool_rows: Vec<DrillToolIn> = Vec::new();
-    // a drill file that does not say its unit is read as mils: the view says so (`units_supposed`)
+    // a drill file read with a chosen format because it declares none: the view says so (`units_supposed`)
     let mut units_supposed = false;
     match (&req.files, &req.holes) {
         (Some(files), None) => {
-            let file = ncd::parse(&files.ncd).map_err(|e| PlanError {
+            let chosen = match req.drill_format.as_deref() {
+                None => None,
+                Some(text) => NumberFormat::from_setting(text).map_err(|wrong| PlanError {
+                    code: "bad_ncd",
+                    detail: format!("drill_format '{wrong}' is not a format"),
+                })?,
+            };
+            // a file that does not declare its number format is refused unless the request names one
+            let file = ncd::parse_as(&files.ncd, chosen).map_err(|e| PlanError {
                 code: "bad_ncd",
-                detail: format!("{e:?}"),
+                detail: if e.code.id() == "EH3D-FORMATS-014" {
+                    format!("{e}. {} (drill_format)", how_to_choose("en"))
+                } else {
+                    e.to_string()
+                },
             })?;
             // a slot or a routed move is not part of the holes: planning the rest would make another job
             if let Some(first) = file.ignored.first() {
@@ -768,7 +776,7 @@ fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, Pl
                     ),
                 );
             }
-            units_supposed = !declares_unit(&files.ncd);
+            units_supposed = !ncd::diagnose(&files.ncd).is_empty();
             let unit = settings.as_ref().map_or(MIL_MM, |m| m.unit.mm());
             let scale = settings.as_ref().map_or((1.0, 1.0), |m| m.scale);
             let sorting = sorting_of(req.sorting.as_deref(), settings.as_ref())?;
@@ -1304,7 +1312,7 @@ mod tests {
         let ncd = "M48\nINCH\nT1C0.8\n%\nT1\nX1000Y1000\nX2000Y1000\nX1000Y2000\n";
         let dtd = format!("{}1 0.0 1000 24000\n", "# comment\n".repeat(19));
         let request =
-            serde_json::json!({"kind": "drill", "files": {"ncd": ncd, "dtd": dtd}, "sorting": "x"})
+            serde_json::json!({"kind": "drill", "drill_format": "mils", "files": {"ncd": ncd, "dtd": dtd}, "sorting": "x"})
                 .to_string();
         let planned = plan(&machine(), &serde_json::from_str(&request).unwrap()).unwrap();
         assert_eq!(planned.view.holes.len(), 3);
@@ -1329,7 +1337,7 @@ X1000Y1000
 X2000Y1000
 ";
         let request =
-            serde_json::json!({"kind": "drill", "files": {"ncd": bare, "dtd": dtd}}).to_string();
+            serde_json::json!({"kind": "drill", "drill_format": "mils", "files": {"ncd": bare, "dtd": dtd}}).to_string();
         let planned = plan(&machine(), &serde_json::from_str(&request).unwrap()).unwrap();
         let codes: Vec<&str> = planned
             .view
@@ -1338,7 +1346,7 @@ X2000Y1000
             .map(|w| w.code.as_str())
             .collect();
         assert!(codes.contains(&"units_supposed"), "{codes:?}");
-        let bad = serde_json::json!({"kind": "drill", "files": {"ncd": ncd, "dtd": dtd}, "sorting": "diagonal"}).to_string();
+        let bad = serde_json::json!({"kind": "drill", "drill_format": "mils", "files": {"ncd": ncd, "dtd": dtd}, "sorting": "diagonal"}).to_string();
         assert_eq!(
             plan(&machine(), &serde_json::from_str(&bad).unwrap())
                 .err()
@@ -1385,7 +1393,9 @@ X2000Y1000
             Some("both_sources")
         );
         assert_eq!(
-            code(r#"{"kind":"drill","files":{"ncd":"garbage that is not a drill file"}}"#),
+            code(
+                r#"{"kind":"drill", "drill_format": "mils","files":{"ncd":"garbage that is not a drill file"}}"#
+            ),
             Some("bad_ncd")
         );
         assert_eq!(code(r#"{"kind":"route"}"#), Some("no_work"));
@@ -1952,7 +1962,9 @@ X2000Y1000
         let slot =
             "M48\nINCH\nT1C0.8\n%\nT1\nX1000Y1000\nG00X2000Y2000\nM15\nG01X3000Y2000\nM16\nM30\n";
         assert_eq!(
-            code(serde_json::json!({"kind": "drill", "files": {"ncd": slot, "dtd": dtd}})),
+            code(
+                serde_json::json!({"kind": "drill", "drill_format": "mils", "files": {"ncd": slot, "dtd": dtd}})
+            ),
             Some("bad_ncd")
         );
         // a coordinate that cannot be read, and one with no pair

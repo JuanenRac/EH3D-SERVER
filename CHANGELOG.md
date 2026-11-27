@@ -4,6 +4,9 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **A drill file that does not declare its number format is refused until the request names one (safety, changes what is accepted):** drilling plans from files and the `drill` job of the CAM service no longer read a machine file without a header or an `INCH` header alone by supposing it. Send `drill_format` (`params.drill_format` for the CAM service): `mils` gives the old reading of the plans; `inch-2.4-tz`, `inch-2.4-lz`, `metric-3.3-tz`, `metric-3.3-lz`. The clients do not offer the choice yet.
+- **The drill reader of the layers follows what the file declares:** `TZ` and `LZ` were applied the wrong way round (a file with `INCH,TZ` and numbers without a point was placed a hundred times off), and `FILE_FORMAT` and a number mask were not looked at.
+
 - **A job that goes on after a stop asks apart before the spindle or the laser goes on (safety):** the `M3` or `M4` of the resume sequence is sent only after a second confirmation that names its own question (`pause.power_on`; without the name it is refused, whatever `answer_needs_question` says). The new machine member `tool_head` (`laser`, `spindle` or empty) says what the machine carries: on a laser the head is back over the point before the beam goes on; a machine said to carry a spindle, or that names its spindle (`original`, `vfd`) and says nothing, asks once as before; a machine that says neither asks twice. 3 new tests. Simulator only.
 
 - **A job file that would be planned only in part is refused (safety):** a drilling file with slots or routed moves was planned from its holes alone, and a plot with a number that cannot be read or a coordinate with no pair was planned with its points moved. The job is now refused, with `bad_ncd` and the line, or `bad_path` and what the shared plot reader tells. A job that was accepted before may be refused now. 1 test. Checked with the planner only; not tried on a machine.
