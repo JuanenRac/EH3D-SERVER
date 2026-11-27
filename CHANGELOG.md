@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.2.7] - Limits that a spaced number could skip, real-time characters refused and a prudent stop and resume (not tried on a machine)
+
 - **Blanks no longer hide a speed or a feed from the limits (safety):** the lines of a program are read with the G-code reader of the suite at a later commit, which reads them as GRBL does (`S1 000` is `S1000`, `F1 000` is `F1000`). Before, the findings `rpm_over_limit` and `feed_over_limit` and the limits of the spindle could be passed that way. The cut of the `S` words (spindle switch on `warn`) takes the number the same way, the unit a line sets counts for all its words, the feed of a jog is judged, and the CAM verification judges feeds in inches and moves that do not name their motion.
 - **A command of the controller is refused wherever it stands in a line (safety):** `$`, `!`, `~`, `?`, control characters and characters outside ASCII, not only at the start; blanks no longer hide `$RST` on a machine that allows `$` lines.
 - **A G-code program the controller would read in another way is refused, with the line and the reason (safety):** unreadable or repeated words, `G93`/`G95`, canned cycles, cutter compensation, a comment that is not closed, a carriage return inside a line, code after `M2`/`M30`, a block-delete line and a wait for the operator (`M0`, `M1`) with the spindle on. A program that ends with the spindle or the coolant on is given `M5`/`M9`. A job that was accepted before may be refused now.
