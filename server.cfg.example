@@ -48,6 +48,11 @@ bambu_lan_enabled = false
 # The port of the MQTT broker of the printer and how long, in seconds, a connection and each answer may take (1 to 60).
 bambu_lan_port = 8883
 bambu_lan_timeout_s = 5
+# ---- notices on a phone (docs/API.md) ----
+# Send the registered phones a notice through Firebase Cloud Messaging when a job waits for the operator, fails or ends. The notice carries no name, only which of the three happened. Off by default.
+push_enabled = false
+# The service account file of your own Firebase project (Firebase console, project settings, service accounts). It holds a private key: keep it readable by the server only and never share it.
+push_service_account_file = push-service-account.json
 # ---- the 3D printers the server watches, READ ONLY (docs/API.md)
 # Let the server keep a list of printers (Bambu Lab on the LAN, Klipper through Moonraker, or simulated ones) and read their state: temperatures, progress, layers, alerts. The server never
 # sends them an order, G-code or a file. Off: the routes of /api/v1/printers answer 501 and no connection to a printer is opened. A Bambu Lab printer on the LAN also needs bambu_lan_enabled.

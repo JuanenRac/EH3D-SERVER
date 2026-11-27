@@ -521,3 +521,14 @@ Every refusal carries one of these codes (the same list is in `error-codes.json`
 | `weak_confirm_required` | 409 | The new value of the switch of security is looser than recommended: send confirm_weak: true to apply it. |
 | `weak_password` | 422 | The password is not from 8 to 128 characters. |
 | `wrong_machine` | 422 | The job is of a kind the machine does not take. |
+
+## Notices on a phone
+
+With `push_enabled` on (off by default) the server sends the registered phones a message through Firebase Cloud Messaging when a job starts waiting for the operator, fails, or ends after running. The message carries no name and no text, only `data.eh3d` = `waiting`, `failed` or `finished`: the app words the notice and asks this server for the rest. The server needs the service account file of your own Firebase project (`push_service_account_file`); it holds a private key and stays on the server.
+
+| Request | Who | What |
+|---|---|---|
+| `POST /api/v1/push/devices` `{"token": "..."}` | a person, operator or administrator | Registers the phone; answers `{"registered": true, "enabled": <push_enabled>}`. At most 100 phones. |
+| `DELETE /api/v1/push/devices` `{"token": "..."}` | the same | Takes it away; answers `{"removed": true or false}`. |
+
+A phone gets notices while the account that registered it may run jobs. A phone Firebase no longer knows is forgotten.

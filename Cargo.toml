@@ -33,6 +33,9 @@ tokio-util = { version = "0.7", features = ["io"] }
 # the stream of events (server-sent events) is built with futures_util::stream::unfold
 futures-util = "0.3"
 tower-http = { version = "0.5", features = ["limit", "fs"] }
+# the notices on a phone (src/push.rs): the call to Firebase over TLS, and the signature of the assertion of the account
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
+ring = "0.17"
 # the TLS of the LAN link to a Bambu Lab printer (src/tls_pin.rs): the certificate is pinned by its fingerprint; only the "ring" backend of the library, no system library, and a fixed version
 rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 eh3d-drillpro = { version = ">=0.1.0", path = "../EH3D-DRILLPRO" }

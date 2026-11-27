@@ -79,6 +79,8 @@ async fn main() {
     let _node_poller = eh3d_server::pnp_nodes::spawn(state.clone());
     // the 3D printers are read only while their switch is on (off by default), and nothing is ever asked of them but their state
     let _printer_poller = eh3d_server::printers::spawn(state.clone());
+    // notices on a phone are sent only while their switch is on (off by default)
+    let _pusher = eh3d_server::push::spawn(state.clone());
     let app = api::router(state.clone());
     let stopper = state.clone();
     let served = axum::serve(

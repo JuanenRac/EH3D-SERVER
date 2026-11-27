@@ -375,6 +375,7 @@ pub fn router(state: Shared) -> Router {
         .merge(crate::api_pstore::routes(&state.cfg))
         .merge(crate::api_catalogs::routes(&state.cfg))
         .merge(crate::api_work::routes())
+        .merge(crate::api_push::routes())
         .merge(crate::api_compat::routes())
         .merge(crate::api_slice::routes())
         .merge(crate::api_auth::routes())

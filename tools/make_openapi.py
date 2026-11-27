@@ -828,6 +828,10 @@ op("POST", "/work/jobs/{id}/resume", "work", "operator", "Let a held job go on",
 op("POST", "/work/jobs/{id}/cancel", "work", "operator", "Cancel a queued job or stop a running one", scope="jobs:cancel", ok=(200, "WorkJob", "application/json"),
    errors=WJOB_ERR + ["not_cancellable", "not_in_state"],
    desc="For a `laser` machine the stop of a job that runs or is held is the emergency stop: the job ends at once and, unless the machine's `latch_on_stop` is off, the machine is latched until an administrator releases it (`POST /work/machines/{id}/laser/release`).")
+op("POST", "/push/devices", "work", "operator", "Register the phone of the person for notices",
+   body=obj({"token": S}, ["token"]), ok=(200, obj({"registered": B, "enabled": B}), None), errors=["bad_request", "forbidden"])
+op("DELETE", "/push/devices", "work", "operator", "Take a phone away from the notices",
+   body=obj({"token": S}, ["token"]), ok=(200, obj({"removed": B}), None), errors=["bad_request", "forbidden"])
 op("GET", "/events/stream", "work", "viewer", "Open the stream of events (server-sent events)", security=SECURITY_OPEN, ok=(200, S, "text/event-stream"),
    errors=["too_many_clients"],
    query=[q("machine", S, "Only the events about this machine."), q("project", S, "Only the events about this project."), q("job", S, "Only the events about this job."),

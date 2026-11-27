@@ -9639,6 +9639,131 @@ paths:
               example:
                 error: plugin_failed
                 detail: ""
+  "/push/devices":
+    post:
+      operationId: post_push_devices
+      tags:
+        - work
+      summary: Register the phone of the person for notices
+      description: Role operator or higher.
+      x-role: operator
+      x-error-codes:
+        - bad_request
+        - forbidden
+        - unauthorized
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+              required:
+                - token
+              additionalProperties: false
+      responses:
+        "200":
+          description: Done.
+          content:
+            null:
+              schema:
+                type: object
+                properties:
+                  registered:
+                    type: boolean
+                  enabled:
+                    type: boolean
+                additionalProperties: false
+        "400":
+          description: "Refused with `bad_request`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_request
+                detail: ""
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
+    delete:
+      operationId: delete_push_devices
+      tags:
+        - work
+      summary: Take a phone away from the notices
+      description: Role operator or higher.
+      x-role: operator
+      x-error-codes:
+        - bad_request
+        - forbidden
+        - unauthorized
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+              required:
+                - token
+              additionalProperties: false
+      responses:
+        "200":
+          description: Done.
+          content:
+            null:
+              schema:
+                type: object
+                properties:
+                  removed:
+                    type: boolean
+                additionalProperties: false
+        "400":
+          description: "Refused with `bad_request`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: bad_request
+                detail: ""
+        "401":
+          description: "Refused with `unauthorized`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: unauthorized
+                detail: ""
+        "403":
+          description: "Refused with `forbidden`."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/ErrorBody"
+              example:
+                error: forbidden
+                detail: ""
   "/events/stream":
     get:
       operationId: get_events_stream

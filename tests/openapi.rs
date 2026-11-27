@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use serde_json::Value;
 
 const METHODS: [&str; 5] = ["get", "post", "put", "delete", "head"];
-const ROUTER_FILES: [&str; 12] = [
+const ROUTER_FILES: [&str; 13] = [
     "api.rs",
     "api_tasks.rs",
     "api_pnp_nodes.rs",
@@ -18,6 +18,7 @@ const ROUTER_FILES: [&str; 12] = [
     "api_pstore.rs",
     "api_catalogs.rs",
     "api_work.rs",
+    "api_push.rs",
     "api_slice.rs",
     "api_auth.rs",
     "design.rs",

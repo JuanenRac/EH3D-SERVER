@@ -116,6 +116,10 @@ pub struct ServerConfig {
     /// `confirm` and `resume` of a job must name the question they answer (`pause.question`), the default. Off: an answer without it is taken, as
     /// programs from before it send it; one that names another question is refused either way.
     pub answer_needs_question: bool,
+    /// Whether a notice is sent to the registered phones through Firebase (`src/push.rs`). Off by default.
+    pub push_enabled: bool,
+    /// The service account file of the Firebase project of the owner; it stays on this computer.
+    pub push_service_account_file: PathBuf,
     /// How many wrong passwords in a row, with any names, block an address (the one of the socket) for a while; 0 turns it off.
     pub login_ip_limit: u32,
     /// Accept the token of the session in the address (`?token=`) of the camera and of the websocket, as the first versions of the clients sent it. Off: only a ticket.
@@ -329,6 +333,8 @@ impl Default for ServerConfig {
             resume_plunge_feed_mm_min: 100,
             resume_position_tolerance_um: 50,
             answer_needs_question: true,
+            push_enabled: false,
+            push_service_account_file: PathBuf::from("push-service-account.json"),
             login_ip_limit: 10,
             url_token: false,
             local_until_setup: false,
@@ -514,6 +520,8 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
                 c.resume_margin_lines = number(&key, value, 0, 1_000).map_err(at)? as usize
             }
             "answer_needs_question" => c.answer_needs_question = flag(&key, value).map_err(at)?,
+            "push_enabled" => c.push_enabled = flag(&key, value).map_err(at)?,
+            "push_service_account_file" => c.push_service_account_file = PathBuf::from(value),
             "exit_on_panic" => c.exit_on_panic = flag(&key, value).map_err(at)?,
             "trust_forwarded_for" => c.trust_forwarded_for = flag(&key, value).map_err(at)?,
             "persist_sessions" => c.persist_sessions = flag(&key, value).map_err(at)?,
