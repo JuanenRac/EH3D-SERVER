@@ -186,6 +186,11 @@ fn the_waits_of_the_machine_have_their_ranges() {
     bounds("grbl_line_timeout_s", 1, 3_600);
     bounds("grbl_homing_timeout_s", 1, 3_600);
     bounds("grbl_jog_timeout_s", 1, 3_600);
+    bounds("grbl_stop_wait_s", 1, 60);
+    bounds("resume_safe_z_mm", 0, 500);
+    bounds("resume_spindle_wait_s", 0, 120);
+    bounds("resume_plunge_feed_mm_min", 1, 100_000);
+    bounds("resume_position_tolerance_um", 1, 10_000);
     bounds("log_max_kb", 16, 1_048_576);
 }
 

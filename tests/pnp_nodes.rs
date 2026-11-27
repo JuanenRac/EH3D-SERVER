@@ -29,6 +29,8 @@ struct Model {
     /// How many requests came with the right token, and how many for the status.
     heard: u32,
     status_hits: u32,
+    /// How many of the questions of the status carried the token.
+    status_with_token: u32,
     /// The answer to the first question of the status is held this long, as on a node that takes long to give one.
     hold_first_ms: u64,
     /// The time the node says in its status, when it says one.
@@ -49,6 +51,7 @@ fn model(kind: &'static str, token: &str) -> Node {
         nozzle_faults: vec![false, false],
         heard: 0,
         status_hits: 0,
+        status_with_token: 0,
         hold_first_ms: 0,
         link_lost_ms: None,
     }))
@@ -143,6 +146,7 @@ async fn start_node(node: Node) -> String {
                     }
                     if path == "/api/status" {
                         m.status_hits += 1;
+                        m.status_with_token += u32::from(authorised);
                         if m.junk {
                             (200, "not json at all".to_string())
                         } else {
@@ -276,6 +280,32 @@ async fn off_by_default_the_routes_answer_501_and_the_fleet_is_as_it_was() {
     }
     let (_, fleet) = call(&s, Method::GET, "/api/v1/fleet", Some(&boss), None).await;
     assert!(fleet.get("pnp_nodes").is_none(), "{fleet}");
+}
+
+/// A node counts the server as heard only by a request that carries the token: the question of the status, which a node also answers without it, has to
+/// carry it too, or a node that is only being watched would go to its safe state.
+#[tokio::test]
+async fn the_question_of_the_status_carries_the_token_so_that_the_node_hears_the_server() {
+    let s = nodes_on("pnpn-heard");
+    let boss = admin(&s).await;
+    for kind in ["head", "feeder"] {
+        let node = model(kind, "tok-heard");
+        let address = start_node(node.clone()).await;
+        let made = register(
+            &s,
+            &boss,
+            json!({"kind": kind, "name": kind, "address": address, "token": "tok-heard"}),
+        )
+        .await;
+        poll(&s, &boss, made["id"].as_str().unwrap()).await;
+        let m = node.lock().unwrap();
+        assert!(m.status_hits >= 1, "{kind}");
+        assert_eq!(m.status_with_token, m.status_hits, "{kind}");
+        assert!(
+            m.heard > m.status_hits,
+            "{kind}: the read that needs the token follows"
+        );
+    }
 }
 
 #[tokio::test]

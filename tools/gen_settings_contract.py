@@ -31,7 +31,7 @@ import settings_contract_texts as T  # noqa: E402
 SCHEMA = "eh3d.settings.contract/1"
 OUT = ROOT / "docs" / "settings-contract.json"
 POLICY_PATH = "/api/v1/auth/policy"
-UNITS = {"_s": "seconds", "_mb": "megabytes", "_kb": "kilobytes", "_gb": "gigabytes", "_hours": "hours", "_days": "days", "_lines": "lines", "_slots": "places"}
+UNITS = {"_mm_min": "mm/min", "_mm": "millimetres", "_um": "micrometres", "_s": "seconds", "_mb": "megabytes", "_kb": "kilobytes", "_gb": "gigabytes", "_hours": "hours", "_days": "days", "_lines": "lines", "_slots": "places"}
 # The light, read-only view for any login (viewer, operator, admin): no texts, no secret, no path. The limits are the constants of src/settings.rs (a test compares them).
 READ_LIGHT = {
     "method": "GET", "path": "/api/v1/settings/values", "role": "viewer", "scope": None, "schema": "eh3d.settings.values/1",

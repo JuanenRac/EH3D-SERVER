@@ -13,7 +13,7 @@ use tokio::sync::broadcast;
 
 use crate::auth::Auth;
 use crate::config::ServerConfig;
-use crate::gcode_run::{GState, GcodeRun, Hold};
+use crate::gcode_run::{GState, GcodeRun, Hold, RunOptions};
 use crate::jobs::{now, JobBook, JobRecord, JobState, PauseView};
 use crate::machines::Machines;
 use crate::plan::{self, JobRequest};
@@ -254,7 +254,16 @@ impl AppState {
         let planned =
             plan::plan(&machine, &request).map_err(|e| StartError::Plan(e.code, e.detail))?;
         if let Some(program) = planned.gcode {
-            return self.start_gcode(id, &machine, planned.view, program, by);
+            // where the program was, for the sequence of a job that goes on (`plan` has already refused one that is not certain)
+            let back = match &request {
+                JobRequest::Gcode(g) if program.resume => (
+                    crate::gcode::resume_point(&g.gcode, g.skip)
+                        .map_err(|why| StartError::Plan("bad_request", why))?,
+                    g.restore_outputs,
+                ),
+                _ => Default::default(),
+            };
+            return self.start_gcode(id, &machine, planned.view, program, back, by);
         }
         let config = machine.connection_config().map_err(|e| {
             StartError::Plan(e.code(), "the machine's tuning does not parse".into())
@@ -307,6 +316,7 @@ impl AppState {
         machine: &crate::machines::MachineRecord,
         view: crate::plan::JobView,
         program: crate::gcode::Program,
+        (point, restore_outputs): (crate::gcode::ResumePoint, bool),
         by: &str,
     ) -> Result<(), StartError> {
         let started_line;
@@ -326,6 +336,7 @@ impl AppState {
             job.items_done = 0;
             job.holes_done = 0;
             job.line = 0;
+            job.stop = None;
             job.view = view;
             job.message.clear();
             job.pause = None;
@@ -336,7 +347,23 @@ impl AppState {
             jobs.changed();
         }
         self.job_log.append(&started_line);
-        let run = GcodeRun::start(
+        let mut program = program;
+        let resume_at_mm = self.jobs.locked().get(id).and_then(|j| j.resume_at_mm);
+        if program.resume {
+            let moves = crate::gcode::ResumeMoves {
+                safe_z_mm: self.cfg.resume_safe_z_mm as f64,
+                plunge_feed_mm_min: self.cfg.resume_plunge_feed_mm_min as f64,
+            };
+            crate::gcode::with_resume_sequence(&mut program, &point, moves, restore_outputs);
+        }
+        let options = RunOptions {
+            spindle_wait_after: program.spindle_wait_after,
+            spindle_wait: Duration::from_secs(self.cfg.resume_spindle_wait_s),
+            stop_wait: Duration::from_secs(self.cfg.grbl_stop_wait_s),
+            expected_mm: resume_at_mm.filter(|_| program.resume),
+            tolerance_mm: self.cfg.resume_position_tolerance_um as f64 / 1000.0,
+        };
+        let run = GcodeRun::start_with(
             machine.connection.clone(),
             program.entries,
             program.preamble,
@@ -344,6 +371,7 @@ impl AppState {
             program.resume,
             Duration::from_secs(self.cfg.gcode_finish_wait_s),
             self.cfg.grbl_timeouts(),
+            options,
         );
         self.gcode_runs.locked().insert(id.to_string(), run.clone());
         if self.stop_was_asked(id) {
@@ -381,6 +409,19 @@ impl AppState {
             let (done, total) = run.progress();
             let items_done = if state == JobState::Done { total } else { done };
             let line = run.line();
+            // the end of the job says what is known of its machine, and why when the stop was not confirmed
+            let stop = state.finished().then(|| run.stop_record()).flatten();
+            let message = match &stop {
+                Some(s) if !s.known && !s.why.is_empty() => {
+                    let note = format!("the position of the machine is not known: {}", s.why);
+                    if message.is_empty() {
+                        note
+                    } else {
+                        format!("{message}; {note}")
+                    }
+                }
+                _ => message,
+            };
             let now_view = (state, items_done, line, pause.clone(), message.clone());
             if last.as_ref() != Some(&now_view) {
                 let mut ended = None;
@@ -392,6 +433,7 @@ impl AppState {
                     job.pause = pause;
                     job.message = message;
                     if state.finished() {
+                        job.stop = stop;
                         job.finished = Some(now());
                         ended = Some((end_line(job), job.stopped_by.clone()));
                     }
@@ -652,7 +694,8 @@ impl AppState {
         for run in &gcode {
             run.cancel();
         }
-        for _ in 0..50 {
+        // a stop of a G-code job waits for the machine to stand still before its reset: the server does not leave before it is out
+        for _ in 0..50.max((self.cfg.grbl_stop_wait_s + 2) * 10) {
             if runs.iter().all(|r| r.finished()) && gcode.iter().all(|r| r.finished()) {
                 break;
             }

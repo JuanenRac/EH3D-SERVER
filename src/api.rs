@@ -1306,7 +1306,7 @@ async fn create_job(
     need(&who, Role::Operator)?;
     need_scope(&who, "jobs:prepare")?;
     let machine = machine_of(&s, &id)?;
-    let shown = make_job(&s, &who.name, machine, body, String::new()).await?;
+    let shown = make_job(&s, &who.name, machine, body, String::new(), None).await?;
     // a job asked with the chaining of the tool changer says in the audit whether the plan used it
     let rack = match shown["rack_applied"].as_bool() {
         Some(true) => "applied",
@@ -1331,6 +1331,7 @@ async fn make_job(
     machine: MachineRecord,
     body: Value,
     resumed_from: String,
+    resume_at_mm: Option<[f64; 3]>,
 ) -> Result<Value, ApiError> {
     let request = request_of(&body)?;
     let name = request.name().map(str::to_string);
@@ -1367,6 +1368,8 @@ async fn make_job(
         pause: None,
         request: body,
         resumed_from,
+        stop: None,
+        resume_at_mm,
         view,
     };
     let shown = job.full();
@@ -1423,7 +1426,26 @@ async fn skip_of(
         // the lines the controller had taken but not yet done are sent again: a margin of moves before the line reached
         "gcode" => {
             let text = job.request.get("gcode").and_then(Value::as_str);
-            gcode::resume_line(text.unwrap_or(""), job.line, margin, before).map_err(cannot)
+            let line =
+                gcode::resume_line(text.unwrap_or(""), job.line, margin, before).map_err(cannot)?;
+            // a job that goes on has to know where its machine stands
+            if line > 0 && job.started.is_some() {
+                match &job.stop {
+                    Some(stop) if stop.known => {}
+                    Some(stop) => {
+                        return Err(cannot(&format!(
+                            "the position of the machine is not known after the stop ({}): home it, check the work zero and the tool, then name the line to go on from",
+                            stop.why
+                        )))
+                    }
+                    None => {
+                        return Err(cannot(
+                            "nothing says where the machine stood when the job ended: home it, check the work zero and the tool, then name the line to go on from",
+                        ))
+                    }
+                }
+            }
+            Ok(line)
         }
         _ => {
             if job.items_done == 0 {
@@ -1524,6 +1546,15 @@ async fn resume_from(
         Some(n) => n,
         None => skip_of(&machine, &job, s.cfg.resume_margin_lines).await?,
     };
+    // a person who names the line answers for where the machine is; otherwise it has to be where the stopped job left it
+    let resume_at_mm = match b.skip {
+        Some(_) => None,
+        None => job
+            .stop
+            .as_ref()
+            .and_then(|stop| stop.machine_mm)
+            .or(job.resume_at_mm),
+    };
     let mut request = job.request.clone();
     let object = request.as_object_mut().ok_or_else(|| {
         ApiError::new(
@@ -1542,7 +1573,15 @@ async fn resume_from(
     if let Some(n) = b.name {
         object.insert("name".into(), json!(n));
     }
-    let shown = make_job(&s, &who.name, machine, request, job.id.clone()).await?;
+    let shown = make_job(
+        &s,
+        &who.name,
+        machine,
+        request,
+        job.id.clone(),
+        resume_at_mm,
+    )
+    .await?;
     note(
         &s,
         "job_create",

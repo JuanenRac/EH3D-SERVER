@@ -100,6 +100,16 @@ pub struct ServerConfig {
     pub grbl_jog_timeout_s: u64,
     /// How many lines before the one a stopped G-code job had reached a resumed job starts again: the controller takes lines ahead of the movement, so the last ones sent were not all done.
     pub resume_margin_lines: usize,
+    /// How long, in seconds, a GRBL machine that is stopped may take to say that it stands still before the reset goes all the same (the position is then not known).
+    pub grbl_stop_wait_s: u64,
+    /// The height, in mm of the work coordinates, a resumed G-code job goes up to before the spindle starts and before it crosses.
+    pub resume_safe_z_mm: u64,
+    /// How long, in seconds, a resumed G-code job gives the spindle to reach its speed.
+    pub resume_spindle_wait_s: u64,
+    /// The most, in mm/min, a resumed G-code job goes down at, back to where the program had the tool.
+    pub resume_plunge_feed_mm_min: u64,
+    /// How far, in micrometres, each axis may be from where a stopped job left the machine for the job to go on by itself.
+    pub resume_position_tolerance_um: u64,
     /// How many wrong passwords in a row, with any names, block an address (the one of the socket) for a while; 0 turns it off.
     pub login_ip_limit: u32,
     /// Accept the token of the session in the address (`?token=`) of the camera and of the websocket, as the first versions of the clients sent it. Off: only a ticket.
@@ -306,6 +316,11 @@ impl Default for ServerConfig {
             grbl_homing_timeout_s: 120,
             grbl_jog_timeout_s: 60,
             resume_margin_lines: 16,
+            grbl_stop_wait_s: 3,
+            resume_safe_z_mm: 5,
+            resume_spindle_wait_s: 3,
+            resume_plunge_feed_mm_min: 100,
+            resume_position_tolerance_um: 50,
             login_ip_limit: 10,
             url_token: false,
             local_until_setup: false,
@@ -472,6 +487,17 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
             }
             "login_ip_limit" => {
                 c.login_ip_limit = number(&key, value, 0, 1_000).map_err(at)? as u32
+            }
+            "grbl_stop_wait_s" => c.grbl_stop_wait_s = number(&key, value, 1, 60).map_err(at)?,
+            "resume_safe_z_mm" => c.resume_safe_z_mm = number(&key, value, 0, 500).map_err(at)?,
+            "resume_spindle_wait_s" => {
+                c.resume_spindle_wait_s = number(&key, value, 0, 120).map_err(at)?
+            }
+            "resume_plunge_feed_mm_min" => {
+                c.resume_plunge_feed_mm_min = number(&key, value, 1, 100_000).map_err(at)?
+            }
+            "resume_position_tolerance_um" => {
+                c.resume_position_tolerance_um = number(&key, value, 1, 10_000).map_err(at)?
             }
             "resume_margin_lines" => {
                 c.resume_margin_lines = number(&key, value, 0, 1_000).map_err(at)? as usize
@@ -881,6 +907,44 @@ mod tests {
             0
         );
         assert!(parse("resume_margin_lines = 5000\n").is_err());
+    }
+
+    #[test]
+    fn the_stop_and_the_resume_of_a_machine_job_have_conservative_settings() {
+        let c = parse("").unwrap();
+        assert_eq!(
+            (
+                c.grbl_stop_wait_s,
+                c.resume_safe_z_mm,
+                c.resume_spindle_wait_s,
+                c.resume_plunge_feed_mm_min,
+                c.resume_position_tolerance_um
+            ),
+            (3, 5, 3, 100, 50)
+        );
+        let c = parse(
+            "grbl_stop_wait_s = 8\nresume_safe_z_mm = 20\nresume_spindle_wait_s = 0\nresume_plunge_feed_mm_min = 60\nresume_position_tolerance_um = 500\n",
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                c.grbl_stop_wait_s,
+                c.resume_safe_z_mm,
+                c.resume_spindle_wait_s
+            ),
+            (8, 20, 0)
+        );
+        for bad in [
+            "grbl_stop_wait_s = 0",
+            "grbl_stop_wait_s = 61",
+            "resume_safe_z_mm = -1",
+            "resume_safe_z_mm = 501",
+            "resume_spindle_wait_s = 121",
+            "resume_plunge_feed_mm_min = 0",
+            "resume_position_tolerance_um = 0",
+        ] {
+            assert!(parse(&format!("{bad}\n")).is_err(), "{bad}");
+        }
     }
 
     #[test]

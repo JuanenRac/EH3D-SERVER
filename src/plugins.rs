@@ -448,6 +448,8 @@ impl MachinePlugin for BungardPlugin {
             pause: None,
             request: request.clone(),
             resumed_from: String::new(),
+            stop: None,
+            resume_at_mm: None,
             view,
         };
         let shown = job.summary();

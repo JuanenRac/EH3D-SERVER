@@ -3,19 +3,27 @@
 //!
 //! What it does when something goes wrong: a line the controller refuses, an alarm or a link that fails ends the job as failed and, as far as the
 //! controller lets, stops it (the queue is cleared and the spindle goes off), because nobody is at the screen to decide.
+//!
+//! A stop holds the movement, waits until the controller says that the machine stands still and only then resets it; when the controller does not
+//! say so in time the reset goes all the same and the job is left with a position that is not known. A job that goes on after a stop first looks at
+//! the controller (idle, and where the stopped job left the machine), then waits for a person, looks again, and only then runs the sequence that
+//! takes the tool back (see [`crate::gcode::with_resume_sequence`]), with the time of the spindle in it. Where the state or the position is not
+//! certain the job is refused with the reason and nothing is sent.
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use eh3d_controller::grbl::Timeouts;
+use eh3d_controller::grbl::{LineTransport, Timeouts};
 use eh3d_controller::sim::SimController;
 use eh3d_controller::{Command, Controller, State};
 
 use crate::sync::Locked;
 
+use crate::emergency::StopHandle;
 use crate::gcode::Entry;
+use crate::jobs::StopRecord;
 use crate::machines::Connection;
 
 /// Why a job stands still waiting for a person.
@@ -43,8 +51,48 @@ impl GState {
     }
 }
 
-/// What writes the real-time stop to the port.
-type StopFn = Box<dyn Fn() -> std::io::Result<()> + Send + Sync>;
+/// What writes the real-time hold to the port.
+type HoldFn = Box<dyn Fn() -> std::io::Result<()> + Send + Sync>;
+
+/// What stops a machine from any thread: first the hold, then, once the machine stands still or the limit has passed, the reset.
+trait Stopper: Send + Sync {
+    fn begin(&self) -> std::io::Result<()>;
+    fn finish(&self, limit: Duration) -> StopRecord;
+}
+
+impl<T: LineTransport + Send> Stopper for StopHandle<T> {
+    fn begin(&self) -> std::io::Result<()> {
+        StopHandle::begin(self)
+    }
+    fn finish(&self, limit: Duration) -> StopRecord {
+        StopHandle::finish(self, limit)
+    }
+}
+
+/// What a run is told besides its lines.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RunOptions {
+    /// The entry after which the spindle is given `spindle_wait` to reach its speed.
+    pub spindle_wait_after: Option<usize>,
+    pub spindle_wait: Duration,
+    /// How long a machine that is stopped may take to say that it stands still.
+    pub stop_wait: Duration,
+    /// A job that goes on by itself: where the machine has to be, in mm, and how far from it each axis may be.
+    pub expected_mm: Option<[f64; 3]>,
+    pub tolerance_mm: f64,
+}
+
+impl Default for RunOptions {
+    fn default() -> Self {
+        RunOptions {
+            spindle_wait_after: None,
+            spindle_wait: Duration::from_secs(3),
+            stop_wait: Duration::from_secs(3),
+            expected_mm: None,
+            tolerance_mm: 0.05,
+        }
+    }
+}
 
 struct Shared {
     state: Mutex<GState>,
@@ -55,27 +103,37 @@ struct Shared {
     confirm: AtomicBool,
     /// The job stopped following: the server ends.
     detach: AtomicBool,
-    /// Writes the real-time stop to the port from any thread (a GRBL machine only; set by the thread of the job once the port is open).
-    emergency: Mutex<Option<StopFn>>,
-    /// The real-time stop went out: the controller was reset, so it will not answer the lines that were waiting.
-    hard: AtomicBool,
+    /// Stops the machine from any thread (a GRBL machine only; set by the thread of the job once the port is open).
+    stopper: Mutex<Option<Arc<dyn Stopper>>>,
     /// Writes the real-time feed hold to the port from any thread (a GRBL machine only).
-    hold_now: Mutex<Option<StopFn>>,
+    hold_now: Mutex<Option<HoldFn>>,
     /// The real-time feed hold went out: the thread of the job has to take over the pause (and the resume) even if it was already lifted.
     hold_sent: AtomicBool,
+    options: RunOptions,
+    /// A line of the job went out to the controller.
+    sent: AtomicBool,
+    /// What is known of the machine once the job has ended.
+    record: Mutex<Option<StopRecord>>,
 }
 
 impl Shared {
+    #[cfg(test)]
     fn new() -> Shared {
+        Shared::with(RunOptions::default())
+    }
+
+    fn with(options: RunOptions) -> Shared {
         Shared {
+            options,
+            sent: AtomicBool::new(false),
+            record: Mutex::new(None),
             state: Mutex::new(GState::Connecting),
             next: AtomicUsize::new(0),
             cancel: AtomicBool::new(false),
             hold: AtomicBool::new(false),
             confirm: AtomicBool::new(false),
             detach: AtomicBool::new(false),
-            emergency: Mutex::new(None),
-            hard: AtomicBool::new(false),
+            stopper: Mutex::new(None),
             hold_now: Mutex::new(None),
             hold_sent: AtomicBool::new(false),
         }
@@ -128,7 +186,7 @@ fn open_grbl(
     let handle = Arc::new(handle);
     let for_hold = handle.clone();
     *shared.hold_now.locked() = Some(Box::new(move || for_hold.hold()));
-    *shared.emergency.locked() = Some(Box::new(move || handle.stop()));
+    *shared.stopper.locked() = Some(handle);
     Ok(Box::new(GrblController::new(link).with_timeouts(timeouts)))
 }
 
@@ -157,7 +215,31 @@ impl GcodeRun {
         finish_wait: Duration,
         timeouts: Timeouts,
     ) -> Arc<GcodeRun> {
-        let shared = Arc::new(Shared::new());
+        GcodeRun::start_with(
+            connection,
+            entries,
+            preamble,
+            raw_total,
+            resume,
+            finish_wait,
+            timeouts,
+            RunOptions::default(),
+        )
+    }
+
+    /// Like [`GcodeRun::start`], with what a job that goes on after a stop and the stop itself need.
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_with(
+        connection: Connection,
+        entries: Vec<Entry>,
+        preamble: usize,
+        raw_total: usize,
+        resume: bool,
+        finish_wait: Duration,
+        timeouts: Timeouts,
+        options: RunOptions,
+    ) -> Arc<GcodeRun> {
+        let shared = Arc::new(Shared::with(options));
         let lines_raw: Vec<usize> = entries.iter().map(|e| e.raw).collect();
         let (worker, lines) = (shared.clone(), entries);
         let handle = thread::spawn(move || {
@@ -173,6 +255,7 @@ impl GcodeRun {
                 Ok(s) => s,
                 Err(why) => GState::Failed(why),
             };
+            settle(&worker);
             worker.set(end);
         });
         Arc::new(GcodeRun {
@@ -230,19 +313,25 @@ impl GcodeRun {
         }
     }
 
-    /// Stops the machine and ends the job. On a GRBL machine the feed hold and the soft reset are written to the port at once, from this thread, without
-    /// waiting for the line that is being sent to end; the job is marked as cancelled when its thread notices.
+    /// Stops the machine and ends the job. On a GRBL machine the feed hold is written to the port at once, from this thread, without waiting for
+    /// the line that is being sent to end; the soft reset follows, from a thread of its own, once the controller says that the machine stands
+    /// still or the time for that has passed. The job is marked as cancelled when its thread has seen the end of the stop.
     pub fn cancel(&self) {
-        self.shared.cancel.store(true, Ordering::SeqCst);
-        let sent = self
-            .shared
-            .emergency
-            .locked()
-            .as_ref()
-            .map(|stop| stop().is_ok());
-        if sent == Some(true) {
-            self.shared.hard.store(true, Ordering::SeqCst);
+        if self.shared.cancel.swap(true, Ordering::SeqCst) {
+            return;
         }
+        let stopper = self.shared.stopper.locked().clone();
+        if let Some(stopper) = stopper {
+            // the reset goes also when the hold could not be written, and the record of the stop says what failed
+            let _ = stopper.begin();
+            let limit = self.shared.options.stop_wait;
+            thread::spawn(move || stopper.finish(limit));
+        }
+    }
+
+    /// What is known of the machine of a job that has ended: where it stands, or why that is not known.
+    pub fn stop_record(&self) -> Option<StopRecord> {
+        self.shared.record.locked().clone()
     }
 
     pub fn finished(&self) -> bool {
@@ -274,28 +363,140 @@ fn alarm_of(c: &mut dyn Controller) -> Result<(), String> {
     }
 }
 
-/// Stops the machine. A controller that is in alarm is already stopped.
-fn stop(c: &mut dyn Controller) -> Result<(), String> {
-    match c.command(Command::Stop) {
-        Ok(()) | Err(eh3d_controller::Error::Alarm(_)) => Ok(()),
-        Err(e) => Err(format!("it could not be stopped: {e}")),
+/// Stops the machine and writes down what is known of it afterwards. A controller that is in alarm is already stopped.
+fn stop(c: &mut dyn Controller, shared: &Shared) -> Result<(), String> {
+    let limit = shared.options.stop_wait;
+    let stopper = shared.stopper.locked().clone();
+    let (record, outcome) = match stopper {
+        // the hold, the wait for the machine to stand still and the reset; a stop that is already going on is waited for
+        Some(stopper) => {
+            let _ = stopper.begin();
+            (stopper.finish(limit), Ok(()))
+        }
+        None => match c.command(Command::Stop) {
+            Ok(()) | Err(eh3d_controller::Error::Alarm(_)) => (standing(c, limit), Ok(())),
+            Err(e) => (
+                StopRecord::unknown(format!("it could not be stopped ({e})")),
+                Err(format!("it could not be stopped: {e}")),
+            ),
+        },
+    };
+    *shared.record.locked() = Some(record);
+    outcome
+}
+
+/// Asks the controller until it says that the machine stands still, at most `limit`.
+fn standing(c: &mut dyn Controller, limit: Duration) -> StopRecord {
+    let end = Instant::now() + limit;
+    loop {
+        match c.status() {
+            Ok(s)
+                if matches!(
+                    s.state,
+                    State::Idle | State::Hold | State::Check | State::Sleep
+                ) =>
+            {
+                return StopRecord::at([s.machine_mm[0], s.machine_mm[1], s.machine_mm[2]])
+            }
+            Ok(s) if s.state == State::Alarm => {
+                return StopRecord::unknown("the controller is in alarm")
+            }
+            Ok(_) => {}
+            Err(e) => return StopRecord::unknown(format!("the state could not be read ({e})")),
+        }
+        if Instant::now() >= end {
+            return StopRecord::unknown(format!(
+                "the controller did not say that the machine stood still within {} s",
+                limit.as_secs_f64()
+            ));
+        }
+        thread::sleep(Duration::from_millis(50));
     }
 }
 
-/// The end of a job that was cancelled. When the real-time stop went out the controller has been reset and is already stopped.
-fn cancelled(c: &mut dyn Controller, shared: &Shared) -> Result<GState, String> {
-    if !shared.hard.load(Ordering::SeqCst) {
-        stop(c)?;
+/// What the job leaves written of its machine. A job that sent nothing did not move it: one that goes on keeps the place it was waiting for,
+/// unless the controller said that its position is lost.
+fn settle(shared: &Shared) {
+    if shared.sent.load(Ordering::SeqCst) {
+        return;
     }
+    let mut record = shared.record.locked();
+    if record.as_ref().is_none_or(|r| r.known) {
+        if let Some(expected) = shared.options.expected_mm {
+            *record = Some(StopRecord::at(expected));
+        }
+    }
+}
+
+/// The end of a job that was cancelled.
+fn cancelled(c: &mut dyn Controller, shared: &Shared) -> Result<GState, String> {
+    stop(c, shared)?;
     Ok(GState::Cancelled)
 }
 
 /// Stops the machine as far as the controller allows; the word of what went wrong goes first.
-fn stop_after(c: &mut dyn Controller, why: String) -> String {
-    match stop(c) {
+fn stop_after(c: &mut dyn Controller, shared: &Shared, why: String) -> String {
+    match stop(c, shared) {
         Ok(()) => why,
         Err(e) => format!("{why}; {e}"),
     }
+}
+
+/// Whether a job that goes on may move this machine: the controller is idle and, for a job that goes on by itself, the machine is where the
+/// stopped job left it. Nothing is sent to find out but the request of the state.
+fn resume_ready(c: &mut dyn Controller, shared: &Shared) -> Result<(), String> {
+    const REFUSED: &str = "the job is not resumed";
+    let status = c
+        .status()
+        .map_err(|e| format!("{REFUSED}: the state of the controller could not be read ({e})"))?;
+    match status.state {
+        State::Idle => {}
+        State::Alarm => {
+            *shared.record.locked() = Some(StopRecord::unknown("the controller is in alarm"));
+            return Err(format!(
+                "{REFUSED}: the controller is in alarm, so the position of the machine is not certain: home it and check the work zero first"
+            ));
+        }
+        other => {
+            return Err(format!(
+                "{REFUSED}: the controller is not idle (it says {other:?})"
+            ))
+        }
+    }
+    if let Some(expected) = shared.options.expected_mm {
+        let at = status.machine_mm;
+        let moved = (0..3).any(|i| {
+            let apart = (at[i] - expected[i]).abs();
+            apart.is_nan() || apart > shared.options.tolerance_mm
+        });
+        if moved {
+            return Err(format!(
+                "{REFUSED}: the machine is not where the job left it (it says X{:.3} Y{:.3} Z{:.3} and was at X{:.3} Y{:.3} Z{:.3}): it was moved or the controller lost its position; check it, then name the line to go on from",
+                at[0], at[1], at[2], expected[0], expected[1], expected[2]
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Gives the spindle its time to reach its speed. A pause holds the machine and the time starts again afterwards; `Ok(false)` when the job was
+/// cancelled meanwhile.
+fn spin_up(c: &mut dyn Controller, shared: &Shared) -> Result<bool, String> {
+    let mut end = Instant::now() + shared.options.spindle_wait;
+    while Instant::now() < end {
+        if shared.cancel.load(Ordering::SeqCst) {
+            return Ok(false);
+        }
+        if hold_pending(shared) {
+            if !operator_pause(c, shared)? {
+                return Ok(false);
+            }
+            end = Instant::now() + shared.options.spindle_wait;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    alarm_of(c)?;
+    Ok(true)
 }
 
 /// The operator asked for a pause that the thread of the job has not taken over yet.
@@ -347,7 +548,13 @@ fn run(
     timeouts: Timeouts,
     shared: &Shared,
 ) -> Result<GState, String> {
-    let c = open(connection, timeouts, shared)?;
+    let mut c = open(connection, timeouts, shared)?;
+    // the simulator of a demo machine is made anew for each job: it is put where the machine was left, as a real one would still be
+    if let (Connection::Demo, Some([x, y, z])) = (connection, shared.options.expected_mm) {
+        for line in ["G21 G90".to_string(), format!("G0 X{x} Y{y} Z{z}")] {
+            c.send_line(&line).map_err(|e| e.to_string())?;
+        }
+    }
     drive(c, lines, preamble, resume, finish_wait, shared)
 }
 
@@ -360,13 +567,18 @@ fn drive(
     finish_wait: Duration,
     shared: &Shared,
 ) -> Result<GState, String> {
-    alarm_of(c.as_mut())?;
-    shared.set(GState::Running);
-    for (i, entry) in lines.iter().enumerate() {
-        // the check before the first move after a stop
-        if i == preamble && resume && !wait_held(shared, Hold::Resume) {
+    if resume {
+        // looked at before a person is asked, and again after the answer: the machine may have been touched meanwhile
+        resume_ready(c.as_mut(), shared)?;
+        if !wait_held(shared, Hold::Resume) {
             return cancelled(c.as_mut(), shared);
         }
+        resume_ready(c.as_mut(), shared)?;
+    } else {
+        alarm_of(c.as_mut())?;
+    }
+    shared.set(GState::Running);
+    for (i, entry) in lines.iter().enumerate() {
         if shared.cancel.load(Ordering::SeqCst) {
             return cancelled(c.as_mut(), shared);
         }
@@ -374,23 +586,37 @@ fn drive(
             match operator_pause(c.as_mut(), shared) {
                 Ok(true) => {}
                 Ok(false) => return cancelled(c.as_mut(), shared),
-                Err(why) => return Err(stop_after(c.as_mut(), why)),
+                Err(why) => return Err(stop_after(c.as_mut(), shared, why)),
             }
         }
+        shared.sent.store(true, Ordering::SeqCst);
         if let Err(e) = c.send_line(&entry.text) {
             // a line that was waiting when the operator stopped the machine is not a failure
             if shared.cancel.load(Ordering::SeqCst) {
                 return cancelled(c.as_mut(), shared);
             }
-            return Err(stop_after(
-                c.as_mut(),
-                format!("line {} ({}): {e}", entry.raw + 1, entry.text),
-            ));
+            // the lines of the sequence of a job that goes on are not lines of the program
+            let what = if i < preamble {
+                format!("resume ({}): {e}", entry.text)
+            } else {
+                format!("line {} ({}): {e}", entry.raw + 1, entry.text)
+            };
+            return Err(stop_after(c.as_mut(), shared, what));
         }
         shared.next.store(i + 1, Ordering::SeqCst);
+        if shared.options.spindle_wait_after == Some(i) {
+            match spin_up(c.as_mut(), shared) {
+                Ok(true) => {}
+                Ok(false) => return cancelled(c.as_mut(), shared),
+                Err(_) if shared.cancel.load(Ordering::SeqCst) => {
+                    return cancelled(c.as_mut(), shared)
+                }
+                Err(why) => return Err(stop_after(c.as_mut(), shared, why)),
+            }
+        }
         if (i + 1) % STATUS_EVERY == 0 {
             if let Err(why) = alarm_of(c.as_mut()) {
-                return Err(stop_after(c.as_mut(), why));
+                return Err(stop_after(c.as_mut(), shared, why));
             }
         }
     }
@@ -405,13 +631,14 @@ fn drive(
             match operator_pause(c.as_mut(), shared) {
                 Ok(true) => limit = Instant::now() + finish_wait,
                 Ok(false) => return cancelled(c.as_mut(), shared),
-                Err(why) => return Err(stop_after(c.as_mut(), why)),
+                Err(why) => return Err(stop_after(c.as_mut(), shared, why)),
             }
         }
         match c.status() {
             Ok(s) if s.state == State::Alarm => {
                 return Err(stop_after(
                     c.as_mut(),
+                    shared,
                     "the controller went into alarm".into(),
                 ))
             }
@@ -422,11 +649,12 @@ fn drive(
             // the status that could not be read because the operator stopped the machine is not a failure
             Err(_) if shared.cancel.load(Ordering::SeqCst) => return cancelled(c.as_mut(), shared),
             // the machine may still be moving with its spindle on: it is stopped as far as the link allows
-            Err(e) => return Err(stop_after(c.as_mut(), e.to_string())),
+            Err(e) => return Err(stop_after(c.as_mut(), shared, e.to_string())),
         }
         if Instant::now() >= limit {
             return Err(stop_after(
                 c.as_mut(),
+                shared,
                 format!(
                     "the machine was not still {} s after the last line",
                     finish_wait.as_secs()
@@ -784,5 +1012,244 @@ mod tests {
                 .unwrap();
             assert!(e.contains("serial"), "{e}");
         }
+    }
+
+    /// What a scripted machine was told, and the state and place it answers with.
+    #[derive(Default)]
+    struct Told {
+        lines: Mutex<Vec<(String, Instant)>>,
+        state: Mutex<Option<State>>,
+        at: Mutex<[f64; 3]>,
+        silent: AtomicBool,
+    }
+
+    struct Scripted {
+        inner: SimController,
+        told: Arc<Told>,
+    }
+
+    impl Controller for Scripted {
+        fn family(&self) -> eh3d_controller::Family {
+            self.inner.family()
+        }
+        fn capabilities(&self) -> eh3d_controller::Capabilities {
+            self.inner.capabilities()
+        }
+        fn status(&mut self) -> Result<eh3d_controller::Status, eh3d_controller::Error> {
+            if self.told.silent.load(Ordering::SeqCst) {
+                return Err(eh3d_controller::Error::Timeout);
+            }
+            let mut s = self.inner.status()?;
+            if let Some(state) = *self.told.state.lock().unwrap() {
+                s.state = state;
+            }
+            let at = *self.told.at.lock().unwrap();
+            s.machine_mm[..3].copy_from_slice(&at);
+            Ok(s)
+        }
+        fn command(&mut self, command: Command) -> Result<(), eh3d_controller::Error> {
+            if matches!(command, Command::Stop) {
+                let mut lines = self.told.lines.lock().unwrap();
+                lines.push(("stop".into(), Instant::now()));
+            }
+            self.inner.command(command)
+        }
+        fn send_line(&mut self, line: &str) -> Result<(), eh3d_controller::Error> {
+            self.told
+                .lines
+                .lock()
+                .unwrap()
+                .push((line.to_string(), Instant::now()));
+            self.inner.send_line(line)
+        }
+    }
+
+    const WAS_AT: [f64; 3] = [30.0, 20.0, -1.5];
+    const PROGRAM: &str = "G21 G90\nM3 S9000\nG0 X10 Y20\nG1 Z-1.5 F300\nX30\nX40\n";
+
+    type Resumed = (Arc<Shared>, Arc<Told>, JoinHandle<Result<GState, String>>);
+
+    /// A job that goes on from the fifth line, on a machine that stands where the stopped job left it unless `set` says otherwise.
+    fn resumed(spindle_wait: Duration, set: impl Fn(&Told)) -> Resumed {
+        let mut program = gcode::parse(PROGRAM, 5, false).unwrap();
+        let point = gcode::resume_point(PROGRAM, 5).unwrap();
+        gcode::with_resume_sequence(&mut program, &point, Default::default(), false);
+        let shared = Arc::new(Shared::with(RunOptions {
+            spindle_wait_after: program.spindle_wait_after,
+            spindle_wait,
+            stop_wait: Duration::from_millis(300),
+            expected_mm: Some(WAS_AT),
+            tolerance_mm: 0.05,
+        }));
+        let told = Arc::new(Told::default());
+        *told.at.lock().unwrap() = WAS_AT;
+        set(&told);
+        let machine = Scripted {
+            inner: SimController::new(),
+            told: told.clone(),
+        };
+        let worker = shared.clone();
+        let handle = thread::spawn(move || {
+            let end = drive(
+                Box::new(machine),
+                &program.entries,
+                program.preamble,
+                program.resume,
+                Duration::from_secs(10),
+                &worker,
+            );
+            settle(&worker);
+            end
+        });
+        (shared, told, handle)
+    }
+
+    fn waiting(shared: &Shared) {
+        until("the job did not wait for the person", || {
+            *shared.state.locked() == GState::Held(Hold::Resume)
+        });
+    }
+
+    fn said(told: &Told) -> Vec<String> {
+        told.lines
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|l| l.0.clone())
+            .collect()
+    }
+
+    #[test]
+    fn nothing_goes_out_before_the_person_confirms_and_then_the_whole_sequence_does_in_order() {
+        let (shared, told, handle) = resumed(Duration::from_millis(400), |_| {});
+        waiting(&shared);
+        thread::sleep(Duration::from_millis(200));
+        assert!(said(&told).is_empty(), "{:?}", said(&told));
+        shared.confirm.store(true, Ordering::SeqCst);
+        until("the job did not go on", || {
+            *shared.state.locked() != GState::Held(Hold::Resume)
+        });
+        // a second confirmation of a job that already goes on changes nothing
+        shared.confirm.store(true, Ordering::SeqCst);
+        assert_eq!(handle.join().unwrap(), Ok(GState::Done));
+        assert_eq!(
+            said(&told),
+            [
+                "G21 G90",
+                "G0 Z5",
+                "M3 S9000",
+                "G0 X30 Y20",
+                "G1 Z-1.5 F100",
+                "G0",
+                "F300",
+                "G1 X40"
+            ]
+        );
+        let lines = told.lines.lock().unwrap();
+        let waited = lines[3].1.duration_since(lines[2].1);
+        assert!(waited >= Duration::from_millis(400), "{waited:?}");
+    }
+
+    #[test]
+    fn a_job_is_refused_with_its_reason_where_the_state_or_the_place_is_not_certain() {
+        type Setting = fn(&Told);
+        let cases: [(Setting, &str); 4] = [
+            (|t| *t.at.lock().unwrap() = [30.0, 20.0, 0.0], "not where"),
+            (|t| *t.state.lock().unwrap() = Some(State::Alarm), "alarm"),
+            (|t| *t.state.lock().unwrap() = Some(State::Hold), "not idle"),
+            (
+                |t| t.silent.store(true, Ordering::SeqCst),
+                "could not be read",
+            ),
+        ];
+        for (set, why) in cases {
+            let (shared, told, handle) = resumed(Duration::ZERO, set);
+            let refused = handle.join().unwrap().unwrap_err();
+            assert!(
+                refused.starts_with("the job is not resumed") && refused.contains(why),
+                "{refused}"
+            );
+            assert!(said(&told).is_empty(), "{why}: {:?}", said(&told));
+            let record = shared.record.locked().clone().unwrap();
+            // a machine in alarm lost its place; otherwise the job may be tried again from the same one
+            assert_eq!(record.known, why != "alarm", "{why}: {record:?}");
+        }
+    }
+
+    #[test]
+    fn a_machine_moved_while_the_job_waited_for_the_person_is_not_moved() {
+        let (shared, told, handle) = resumed(Duration::ZERO, |_| {});
+        waiting(&shared);
+        *told.at.lock().unwrap() = [0.0, 0.0, 0.0];
+        shared.confirm.store(true, Ordering::SeqCst);
+        assert!(handle.join().unwrap().unwrap_err().contains("not where"));
+        assert!(said(&told).is_empty());
+        assert_eq!(
+            shared.record.locked().as_ref().unwrap().machine_mm,
+            Some(WAS_AT)
+        );
+    }
+
+    #[test]
+    fn a_cancel_while_the_spindle_starts_stops_before_the_tool_crosses() {
+        let (shared, told, handle) = resumed(Duration::from_secs(30), |_| {});
+        waiting(&shared);
+        shared.confirm.store(true, Ordering::SeqCst);
+        until("the spindle was not started", || {
+            said(&told).iter().any(|l| l == "M3 S9000")
+        });
+        shared.cancel.store(true, Ordering::SeqCst);
+        assert_eq!(handle.join().unwrap(), Ok(GState::Cancelled));
+        assert_eq!(said(&told), ["G21 G90", "G0 Z5", "M3 S9000", "stop"]);
+    }
+
+    #[test]
+    fn a_stop_that_is_not_confirmed_leaves_the_position_as_not_known() {
+        let (shared, told, handle) = resumed(Duration::from_secs(30), |_| {});
+        waiting(&shared);
+        shared.confirm.store(true, Ordering::SeqCst);
+        until("the spindle was not started", || {
+            said(&told).iter().any(|l| l == "M3 S9000")
+        });
+        *told.state.lock().unwrap() = Some(State::Run);
+        shared.cancel.store(true, Ordering::SeqCst);
+        assert_eq!(handle.join().unwrap(), Ok(GState::Cancelled));
+        let record = shared.record.locked().clone().unwrap();
+        assert!(
+            !record.known && record.why.contains("stood still"),
+            "{record:?}"
+        );
+    }
+
+    /// A stop of two steps that only writes down what it was asked.
+    #[derive(Default)]
+    struct Recorder(Mutex<Vec<String>>);
+
+    impl Stopper for Recorder {
+        fn begin(&self) -> std::io::Result<()> {
+            self.0.lock().unwrap().push("begin".into());
+            Ok(())
+        }
+        fn finish(&self, limit: Duration) -> StopRecord {
+            self.0
+                .lock()
+                .unwrap()
+                .push(format!("finish {}", limit.as_secs()));
+            StopRecord::at([1.0, 2.0, 3.0])
+        }
+    }
+
+    #[test]
+    fn a_cancel_holds_at_once_and_ends_with_the_stop_of_two_steps() {
+        let run = start("G21\nG90\nG0 X1\nG0 X2\n", 2);
+        wait(&run, |s| matches!(s, GState::Held(Hold::Resume)));
+        let recorder = Arc::new(Recorder::default());
+        *run.shared.stopper.locked() = Some(recorder.clone());
+        run.cancel();
+        assert_eq!(recorder.0.lock().unwrap().first().unwrap(), "begin");
+        run.cancel();
+        assert_eq!(wait(&run, GState::finished), GState::Cancelled);
+        assert!(recorder.0.lock().unwrap().iter().any(|c| c == "finish 3"));
+        assert_eq!(run.stop_record(), Some(StopRecord::at([1.0, 2.0, 3.0])));
     }
 }

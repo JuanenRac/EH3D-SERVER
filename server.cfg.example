@@ -82,6 +82,16 @@ gcode_finish_wait_s = 900
 grbl_line_timeout_s = 5
 # How many lines that move before the one it had reached a resumed G-code job starts again (0 to 1000): the controller takes lines ahead of the movement, so the last ones sent were not all done.
 resume_margin_lines = 16
+# How long, in seconds, a GRBL machine that is stopped may take to say that it stands still (1 to 60). The feed hold goes at once and the reset, which stops the spindle, goes when the machine says it stands still.
+# When it does not say so in time the reset goes all the same, the position of the machine is written down as not known and the job does not go on by itself.
+grbl_stop_wait_s = 3
+# A G-code job that goes on after a stop waits for a person and then goes up to this height of the work (mm, 0 to 500), starts the spindle the program had on, gives it its time (seconds, 0 to 120),
+# crosses to the point where it was and goes down at no more than this feed (mm/min).
+resume_safe_z_mm = 5
+resume_spindle_wait_s = 3
+resume_plunge_feed_mm_min = 100
+# How far, in micrometres, each axis may be from where the stopped job left the machine for the job to go on by itself (1 to 10000). Farther than that it is refused: the machine was moved or lost its position.
+resume_position_tolerance_um = 50
 # How many wrong passwords in a row, with any names, block the address they come from for a while (0 to 1000; 0 turns it off). The address is the one of the connection: behind a reverse proxy it is the proxy's, so turn it off there.
 login_ip_limit = 10
 # Accept the token of the session in the address of the camera and of the websocket (the first versions of the clients sent it there). Off by default: the clients ask for a ticket (POST /api/v1/tickets), good for one use within 30 seconds.
