@@ -117,6 +117,7 @@ struct Shared {
 }
 
 impl Shared {
+    #[cfg(test)]
     fn new() -> Shared {
         Shared::with(RunOptions::default())
     }
