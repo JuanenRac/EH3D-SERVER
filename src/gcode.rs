@@ -45,6 +45,8 @@ pub struct Program {
     pub spindle_wait_after: Option<usize>,
     /// The entry of the sequence of a job that goes on that switches the spindle or the laser on again (`M3`, `M4`).
     pub power_on_at: Option<usize>,
+    /// The entry of the sequence of a job that goes on that takes the tool down into the work again (`G1 Z`); none for a laser.
+    pub plunge_at: Option<usize>,
     /// The most the spindle of the machine may be asked to turn (a machine whose spindle switch is on `warn`).
     pub speed_limit: Option<f64>,
 }
@@ -286,6 +288,7 @@ pub fn with_resume_sequence(
     // a spindle turns before the tool goes back into the work; a laser is switched on only once the head is there
     let mut spindle_wait_after = None;
     let mut power_on_at = None;
+    let mut plunge_at = None;
     if let Some(line) = power_on.as_ref().filter(|_| !moves.laser) {
         spindle_wait_after = Some(lines.len());
         power_on_at = Some(lines.len());
@@ -310,6 +313,8 @@ pub fn with_resume_sequence(
         let feed = own.map_or(moves.plunge_feed_mm_min, |f| {
             f.min(moves.plunge_feed_mm_min)
         });
+        // a laser head going down cuts nothing: it is the power that is asked about there
+        plunge_at = (!moves.laser).then_some(lines.len());
         lines.push(format!("G1 Z{} F{}", number(z), number(feed)));
     }
     if let Some(line) = power_on.filter(|_| moves.laser) {
@@ -337,6 +342,7 @@ pub fn with_resume_sequence(
     program.entries.extend(first);
     program.spindle_wait_after = spindle_wait_after;
     program.power_on_at = power_on_at;
+    program.plunge_at = plunge_at;
 }
 
 impl Program {
@@ -789,6 +795,7 @@ pub fn parse_with(
         resume: skip > 0,
         spindle_wait_after: None,
         power_on_at: None,
+        plunge_at: None,
         speed_limit: None,
     })
 }

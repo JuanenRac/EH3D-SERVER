@@ -2881,6 +2881,65 @@ async fn a_resumed_job_waits_takes_one_confirmation_and_refuses_a_second_one() {
 }
 
 #[tokio::test]
+async fn a_resumed_mill_asks_apart_before_the_tool_goes_down_and_takes_only_the_named_answer() {
+    let s = server("resume-plunge");
+    let token = admin(&s).await;
+    let (status, body) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines",
+        Some(&token),
+        Some(json!({"id": "mill", "name": "mill", "connection": {"kind": "demo"}, "tool_head": "spindle"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    // the tool is below the safe height where the program fails, so the way back goes down into the work
+    let text = format!(
+        "G21 G90\nM3 S900\nG0 Z5\nG1 Z-1 F100\n{}G2 X5 I1\nG0 X9\n",
+        "G0 X1\n".repeat(20)
+    );
+    let (_, job) = post(
+        &s,
+        &token,
+        "/api/v1/machines/mill/jobs",
+        Some(gcode_job(&text)),
+    )
+    .await;
+    let first = job["id"].as_str().unwrap().to_string();
+    post(&s, &token, &format!("/api/v1/jobs/{first}/start"), None).await;
+    wait_state(&s, &token, &first, &["failed"]).await;
+    let path = format!("/api/v1/jobs/{first}/resume-from");
+    let (status, second) = post(&s, &token, &path, None).await;
+    assert_eq!(status, StatusCode::OK, "{second}");
+    let second = second["id"].as_str().unwrap().to_string();
+    post(&s, &token, &format!("/api/v1/jobs/{second}/start"), None).await;
+    let (held, asked) = wait_question(&s, &token, &second, "").await;
+    assert!(held["pause"]["plunge"].is_null(), "{held}");
+    let confirm = format!("/api/v1/jobs/{second}/confirm");
+    let (status, body) = post(&s, &token, &confirm, Some(json!({"question": asked}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (held, again) = wait_question(&s, &token, &second, &asked).await;
+    assert_eq!(held["pause"]["kind"], "resume", "{held}");
+    assert_eq!(held["pause"]["plunge"], true, "{held}");
+    assert!(held["pause"]["power_on"].is_null(), "{held}");
+    // the route of the programs does not answer it, and an answer has to name it
+    assert!(s.state.resume_job(&second).is_err());
+    refused(&s, &token, &confirm, None, "question_required").await;
+    refused(
+        &s,
+        &token,
+        &confirm,
+        Some(json!({"question": asked})),
+        "question_changed",
+    )
+    .await;
+    let (status, body) = post(&s, &token, &confirm, Some(json!({"question": again}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let end = wait_state(&s, &token, &second, &["done", "failed"]).await;
+    assert_eq!(end["state"], "failed", "{end}");
+}
+
+#[tokio::test]
 async fn a_resumed_job_asks_apart_before_the_laser_goes_on_and_takes_only_the_named_answer() {
     let s = server("resume-power-on");
     let token = admin(&s).await;

@@ -4,6 +4,7 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **A job that goes on after a stop asks apart before the tool goes down into the work (safety, changes what a client has to answer):** with the head over the point and the spindle the program had on already turning, every G-code machine not said to carry a laser waits once more before the `G1 Z` of the resume sequence, with its own question (`pause.plunge`; without the name it is refused, whatever `answer_needs_question` says). It looks at the controller once more after the answer, and cancelling there stops the machine without going down. The `Pause` of the API document also lists `power_on` and `plunge`. Tried on the simulator only, not on a machine.
 - The test counts of the eight READMEs include the new test of the number format of the drill layers.
 
 - **A drill file that does not declare its number format is refused until the request names one (safety, changes what is accepted):** drilling plans from files and the `drill` job of the CAM service no longer read a machine file without a header or an `INCH` header alone by supposing it. Send `drill_format` (`params.drill_format` for the CAM service): `mils` gives the old reading of the plans; `inch-2.4-tz`, `inch-2.4-lz`, `metric-3.3-tz`, `metric-3.3-lz`. The clients do not offer the choice yet.

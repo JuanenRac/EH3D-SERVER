@@ -37,6 +37,8 @@ pub enum Hold {
     Resume,
     /// The sequence of a job that goes on is about to switch the spindle or the laser on again: a person confirms that apart.
     PowerOn,
+    /// The tool is over the point and the sequence of a job that goes on is about to take it down into the work: a person confirms that apart.
+    Plunge,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,6 +83,8 @@ pub struct RunOptions {
     pub spindle_wait: Duration,
     /// The entry that switches the spindle or the laser on again, when a person has to confirm it before it goes out.
     pub power_on_hold: Option<usize>,
+    /// The entry that takes the tool down into the work again, which a person confirms before it goes out.
+    pub plunge_hold: Option<usize>,
     /// How long a machine that is stopped may take to say that it stands still.
     pub stop_wait: Duration,
     /// A pause also stops the spindle and the coolant of a GRBL machine (the safety door); off by default.
@@ -96,6 +100,7 @@ impl Default for RunOptions {
             spindle_wait_after: None,
             spindle_wait: Duration::from_secs(3),
             power_on_hold: None,
+            plunge_hold: None,
             stop_wait: Duration::from_secs(3),
             stop_spindle_on_pause: false,
             expected_mm: None,
@@ -357,7 +362,10 @@ impl GcodeRun {
             }
         }
         // the confirmation counts only for a job that waits for it: one given early must not skip the check of a job that goes on after a stop
-        if matches!(self.state(), GState::Held(Hold::Resume | Hold::PowerOn)) {
+        if matches!(
+            self.state(),
+            GState::Held(Hold::Resume | Hold::PowerOn | Hold::Plunge)
+        ) {
             self.shared.confirm.store(true, Ordering::SeqCst);
         }
     }
@@ -532,12 +540,14 @@ fn resume_ready(
     Ok(())
 }
 
-/// Before the sequence of a job that goes on switches the spindle or the laser on again: waits for the machine to be still, then for the person,
-/// and looks once more that it is idle where it stood. `Ok(false)` when the job was cancelled meanwhile.
-fn power_on_confirmed(
+/// Before a line of the sequence of a job that goes on that a person confirms apart (the power of the spindle or the laser, the way down into
+/// the work): waits for the machine to be still, then for the person, and looks once more that it is idle where it stood. `Ok(false)` when the
+/// job was cancelled meanwhile.
+fn confirmed_apart(
     c: &mut dyn Controller,
     shared: &Shared,
     still_wait: Duration,
+    ask: Hold,
 ) -> Result<bool, String> {
     let mut limit = Instant::now() + still_wait;
     let at = loop {
@@ -564,7 +574,7 @@ fn power_on_confirmed(
         }
         thread::sleep(Duration::from_millis(50));
     };
-    if !wait_held(shared, Hold::PowerOn) {
+    if !wait_held(shared, ask) {
         return Ok(false);
     }
     resume_ready(c, shared, Some([at[0], at[1], at[2]]))?;
@@ -625,7 +635,9 @@ fn wait_held(shared: &Shared, hold: Hold) -> bool {
         let released = match hold {
             // a pause ends when the operator takes the hold off; a resume check ends with the confirmation
             Hold::Operator => !shared.hold.load(Ordering::SeqCst),
-            Hold::Resume | Hold::PowerOn => shared.confirm.swap(false, Ordering::SeqCst),
+            Hold::Resume | Hold::PowerOn | Hold::Plunge => {
+                shared.confirm.swap(false, Ordering::SeqCst)
+            }
         };
         if released {
             shared.confirm.store(false, Ordering::SeqCst);
@@ -680,8 +692,15 @@ fn drive(
         if shared.cancel.load(Ordering::SeqCst) {
             return cancelled(c.as_mut(), shared);
         }
-        if shared.options.power_on_hold == Some(i) {
-            match power_on_confirmed(c.as_mut(), shared, finish_wait) {
+        let ask = if shared.options.power_on_hold == Some(i) {
+            Some(Hold::PowerOn)
+        } else if shared.options.plunge_hold == Some(i) {
+            Some(Hold::Plunge)
+        } else {
+            None
+        };
+        if let Some(ask) = ask {
+            match confirmed_apart(c.as_mut(), shared, finish_wait, ask) {
                 Ok(true) => shared.set(GState::Running),
                 Ok(false) => return cancelled(c.as_mut(), shared),
                 Err(_) if shared.cancel.load(Ordering::SeqCst) => {
@@ -1274,6 +1293,7 @@ mod tests {
             spindle_wait_after: program.spindle_wait_after,
             spindle_wait: Duration::from_millis(50),
             power_on_hold: program.power_on_at,
+            plunge_hold: None,
             stop_wait: Duration::from_millis(300),
             stop_spindle_on_pause: false,
             expected_mm: Some(WAS_AT),
@@ -1340,6 +1360,89 @@ mod tests {
         assert!(!all.iter().any(|l| l.starts_with("M3")), "{all:?}");
     }
 
+    /// A job that goes on from the fifth line and asks before it takes the tool down, on a mill that asks only that apart.
+    fn resumed_plunging() -> Resumed {
+        let mut program = gcode::parse(PROGRAM, 5, false).unwrap();
+        let point = gcode::resume_point(PROGRAM, 5).unwrap();
+        gcode::with_resume_sequence(&mut program, &point, Default::default(), false);
+        let shared = Arc::new(Shared::with(RunOptions {
+            spindle_wait_after: program.spindle_wait_after,
+            spindle_wait: Duration::from_millis(50),
+            plunge_hold: program.plunge_at,
+            stop_wait: Duration::from_millis(300),
+            expected_mm: Some(WAS_AT),
+            ..Default::default()
+        }));
+        let told = Arc::new(Told::default());
+        *told.at.lock().unwrap() = WAS_AT;
+        let machine = Scripted {
+            inner: SimController::new(),
+            told: told.clone(),
+        };
+        let worker = shared.clone();
+        let handle = thread::spawn(move || {
+            let end = drive(
+                Box::new(machine),
+                &program.entries,
+                program.preamble,
+                program.resume,
+                Duration::from_secs(10),
+                &worker,
+            );
+            settle(&worker);
+            end
+        });
+        (shared, told, handle)
+    }
+
+    fn confirm_up_to_the_plunge(shared: &Shared) {
+        waiting(shared);
+        shared.confirm.store(true, Ordering::SeqCst);
+        until("the job did not ask before it went down", || {
+            *shared.state.locked() == GState::Held(Hold::Plunge)
+        });
+    }
+
+    const BEFORE_THE_PLUNGE: [&str; 4] = ["G21 G90", "G0 Z5", "M3 S9000", "G0 X30 Y20"];
+
+    #[test]
+    fn the_tool_goes_down_into_the_work_only_after_a_confirmation_of_its_own() {
+        let (shared, told, handle) = resumed_plunging();
+        confirm_up_to_the_plunge(&shared);
+        thread::sleep(Duration::from_millis(200));
+        // the spindle turns and the head is over the point; nothing has gone down
+        assert_eq!(said(&told), BEFORE_THE_PLUNGE);
+        shared.confirm.store(true, Ordering::SeqCst);
+        assert_eq!(handle.join().unwrap(), Ok(GState::Done));
+        let all = said(&told);
+        assert_eq!(all[BEFORE_THE_PLUNGE.len()], "G1 Z-1.5 F100", "{all:?}");
+    }
+
+    #[test]
+    fn a_job_cancelled_at_the_question_of_the_plunge_never_goes_down() {
+        let (shared, told, handle) = resumed_plunging();
+        confirm_up_to_the_plunge(&shared);
+        shared.cancel.store(true, Ordering::SeqCst);
+        assert_eq!(handle.join().unwrap(), Ok(GState::Cancelled));
+        let all = said(&told);
+        assert!(!all.iter().any(|l| l.starts_with("G1 Z")), "{all:?}");
+    }
+
+    #[test]
+    fn a_machine_moved_while_the_plunge_was_asked_does_not_go_down() {
+        let (shared, told, handle) = resumed_plunging();
+        confirm_up_to_the_plunge(&shared);
+        *told.at.lock().unwrap() = [WAS_AT[0] + 1.0, WAS_AT[1], WAS_AT[2]];
+        shared.confirm.store(true, Ordering::SeqCst);
+        let end = handle.join().unwrap();
+        assert!(
+            end.as_ref().is_err_and(|e| e.contains("not resumed")),
+            "{end:?}"
+        );
+        let all = said(&told);
+        assert!(!all.iter().any(|l| l.starts_with("G1 Z")), "{all:?}");
+    }
+
     /// A job that goes on from the fifth line, on a machine that stands where the stopped job left it unless `set` says otherwise.
     fn resumed(spindle_wait: Duration, set: impl Fn(&Told)) -> Resumed {
         let mut program = gcode::parse(PROGRAM, 5, false).unwrap();
@@ -1349,6 +1452,7 @@ mod tests {
             spindle_wait_after: program.spindle_wait_after,
             spindle_wait,
             power_on_hold: None,
+            plunge_hold: None,
             stop_wait: Duration::from_millis(300),
             stop_spindle_on_pause: false,
             expected_mm: Some(WAS_AT),
