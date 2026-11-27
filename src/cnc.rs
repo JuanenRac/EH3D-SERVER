@@ -231,11 +231,15 @@ pub fn analyze(entries: &[Entry], start: [f64; 3], cfg: &CncConfig) -> Result<An
     let mut pos = start;
     let (mut absolute, mut scale, mut motion) = (true, 1.0f64, 0i32);
     let (mut feed, mut rpm) = (0.0f64, 0.0f64);
+    // arcs are followed in the XY plane only (G17)
+    let mut flat = true;
     for e in entries {
         let line_no = e.raw + 1;
         let words = gcode::words(&e.text);
         let mut target: [Option<f64>; 3] = [None; 3];
         let (mut ij, mut radius) = ((None, None), None);
+        // the unit of a line counts for all its words, wherever the G20 or the G21 stands
+        scale = gcode::unit_of(&words).unwrap_or(scale);
         for &(letter, v) in &words {
             match letter {
                 'G' => match (v * 10.0).round() as i32 {
@@ -243,8 +247,8 @@ pub fn analyze(entries: &[Entry], start: [f64; 3], cfg: &CncConfig) -> Result<An
                     10 => motion = 1,
                     20 => motion = 2,
                     30 => motion = 3,
-                    200 => scale = 25.4,
-                    210 => scale = 1.0,
+                    170 => flat = true,
+                    180 | 190 => flat = false,
                     900 => absolute = true,
                     910 => absolute = false,
                     280 | 300 | 100 | 920..=923 => {
@@ -296,6 +300,12 @@ pub fn analyze(entries: &[Entry], start: [f64; 3], cfg: &CncConfig) -> Result<An
         if moved {
             let mut seen: Vec<[f64; 3]> = vec![to];
             if motion >= 2 {
+                if !flat {
+                    return fail(
+                        "bad_gcode",
+                        format!("line {line_no}: an arc outside the XY plane (after G18 or G19) is not followed by the server"),
+                    );
+                }
                 a.arcs += 1;
                 let clockwise = motion == 2;
                 let center = match (ij, radius) {

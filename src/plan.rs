@@ -658,6 +658,16 @@ fn plan_gcode(machine: &MachineRecord, req: &GcodeRequest) -> Result<Planned, Pl
                 detail: e.detail,
             }
         })?;
+    // the operator is asked to come to the machine: the spindle has to be off by then
+    if let Some(raw) = crate::gcode::pause_with_spindle_on(&all.entries) {
+        return fail(
+            "bad_gcode",
+            format!(
+                "line {}: the program waits for the operator (M0, M1) with the spindle on; stop it (M5) before",
+                raw + 1
+            ),
+        );
+    }
     let rapid = guard
         .as_ref()
         .map_or(crate::gcode::DEFAULT_RAPID_MM_MIN, |g| {

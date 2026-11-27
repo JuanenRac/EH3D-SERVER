@@ -25,7 +25,7 @@ pub const ALL: &[(&str, u16, &str)] = &[
     ("bad_design_request", 422, "The request to run the design program does not fit: the kind is not one of check, bom, fabpack or panel, the board file is missing, or the options are not accepted for the kind."),
     ("bad_feed", 422, "The feed of a jog is not a number above 0 and up to jog_max_feed of the machine."),
     ("bad_filename", 422, "The name of a file is not safe: empty, absolute, with .. or a drive, with control characters, a reserved name of Windows, too long, or the same as another in other letter case."),
-    ("bad_gcode", 422, "A line of the G-code program cannot be sent (control characters, a $ line that is not allowed, a line too long)."),
+    ("bad_gcode", 422, "A line of the G-code program cannot be sent or cannot be judged (control characters, a command of the controller, a $ line that is not allowed, a line too long or one that cannot be read for certain)."),
     ("bad_gerber", 422, "A Gerber or Excellon file cannot be read: the format, a coordinate or a command is wrong, or the file holds no data."),
     ("bad_heater", 422, "The heater is not hotend, bed or chamber."),
     ("bad_hole", 422, "A hole has a coordinate that is not a number."),

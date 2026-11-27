@@ -4,6 +4,8 @@
 //! What it does when something goes wrong: a line the controller refuses, an alarm or a link that fails ends the job as failed and, as far as the
 //! controller lets, stops it (the queue is cleared and the spindle goes off), because nobody is at the screen to decide.
 //!
+//! A program that ends with the spindle or the coolant on and does not say `M5`, `M9`, `M2` or `M30` is given them after its last line.
+//!
 //! A stop holds the movement, waits until the controller says that the machine stands still and only then resets it; when the controller does not
 //! say so in time the reset goes all the same and the job is left with a position that is not known. A job that goes on after a stop first looks at
 //! the controller (idle, and where the stopped job left the machine), then waits for a person, looks again, and only then runs the sequence that
@@ -620,6 +622,23 @@ fn drive(
             }
         }
     }
+    // a program that ends with the spindle or the coolant on, without M5, M9, M2 or M30: nobody else would switch them off
+    let (spindle, coolant) = crate::gcode::left_on(lines);
+    for (on, off) in [(spindle, "M5"), (coolant, "M9")] {
+        if !on {
+            continue;
+        }
+        if shared.cancel.load(Ordering::SeqCst) {
+            return cancelled(c.as_mut(), shared);
+        }
+        if let Err(e) = c.send_line(off) {
+            if shared.cancel.load(Ordering::SeqCst) {
+                return cancelled(c.as_mut(), shared);
+            }
+            let why = format!("{off} after the program: {e}");
+            return Err(stop_after(c.as_mut(), shared, why));
+        }
+    }
     // the controller takes lines ahead of the movement: the job is done when the machine is still
     let mut limit = Instant::now() + finish_wait;
     loop {
@@ -940,7 +959,7 @@ mod tests {
         assert!(end.is_err(), "{end:?}");
         assert_eq!(
             told.lock().unwrap().as_slice(),
-            ["M3 S9000", "G0 X1", "stop"]
+            ["M3 S9000", "G0 X1", "M5", "stop"]
         );
     }
 
@@ -1011,6 +1030,36 @@ mod tests {
                 .err()
                 .unwrap();
             assert!(e.contains("serial"), "{e}");
+        }
+    }
+
+    #[test]
+    fn a_program_that_ends_with_the_spindle_or_the_coolant_on_has_them_switched_off() {
+        let cases: [(&str, &[&str]); 3] = [
+            (
+                "M3 S9000\nM8\nG0 X1\n",
+                &["M3 S9000", "M8", "G0 X1", "M5", "M9"],
+            ),
+            ("M3 S9000\nG0 X1\nM5\n", &["M3 S9000", "G0 X1", "M5"]),
+            ("M4 S1\nG0 X1\nM30\n", &["M4 S1", "G0 X1", "M30"]),
+        ];
+        for (text, expected) in cases {
+            let told = Arc::new(Told::default());
+            let machine = Scripted {
+                inner: SimController::new(),
+                told: told.clone(),
+            };
+            let p = gcode::parse(text, 0, false).unwrap();
+            let end = drive(
+                Box::new(machine),
+                &p.entries,
+                p.preamble,
+                p.resume,
+                Duration::from_secs(10),
+                &Shared::new(),
+            );
+            assert_eq!(end, Ok(GState::Done), "{text:?}");
+            assert_eq!(said(&told), expected, "{text:?}");
         }
     }
 
@@ -1142,7 +1191,8 @@ mod tests {
                 "G1 Z-1.5 F100",
                 "G0",
                 "F300",
-                "G1 X40"
+                "G1 X40",
+                "M5"
             ]
         );
         let lines = told.lines.lock().unwrap();

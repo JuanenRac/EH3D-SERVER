@@ -94,7 +94,7 @@ fn a_command_of_the_controller_is_refused_wherever_it_stands() {
         "N1 $RST=*",
         "G0 X1\u{18}",
         "G1 X1\u{e9}0 F10",
-        "G0 X1\u{85}",
+        "G0\u{85}X1",
         "/G0 X1",
     ] {
         refused(text, "line 1");

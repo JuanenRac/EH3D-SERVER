@@ -66,7 +66,7 @@ jobs:
         with:
           persist-credentials: false
           repository: JuanenRac/EH3D-CORE-LIBS
-          ref: v0.0.9
+          ref: adc2390f4c48f46e663d757968d1a5fb58c4707f
           path: EH3D-CORE-LIBS
       - name: Rust toolchain
         shell: bash
