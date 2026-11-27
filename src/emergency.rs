@@ -55,6 +55,8 @@ pub struct StopHandle<T: LineTransport> {
     stopped: Arc<AtomicBool>,
     /// A homing cycle went out and has not been answered.
     homing: Arc<AtomicBool>,
+    /// The feed hold of the stop is on the wire.
+    held: AtomicBool,
     /// How the stop ended: the reset goes out once, whoever asks for it.
     ended: Mutex<Option<StopRecord>>,
 }
@@ -74,6 +76,7 @@ pub fn share<T: LineTransport>(transport: T) -> (SharedLink<T>, StopHandle<T>) {
             inner,
             stopped,
             homing,
+            held: AtomicBool::new(false),
             ended: Mutex::new(None),
         },
     )
@@ -92,25 +95,38 @@ impl<T: LineTransport> StopHandle<T> {
 
     /// The first step of a stop: the feed hold goes out at once, no line can follow it and the thread that waits for an answer stops waiting.
     pub fn begin(&self) -> io::Result<()> {
-        if self.stopped.swap(true, Ordering::SeqCst) {
+        self.stopped.store(true, Ordering::SeqCst);
+        if self.held.load(Ordering::SeqCst) {
             return Ok(());
         }
         // a stop must reach the machine even if a thread panicked while it held the link
         let mut port = self.inner.locked();
-        port.write_all(&REAL_TIME_HOLD)
+        self.hold_once(&mut *port)
+    }
+
+    /// Writes the feed hold of the stop unless it is already out. Only with the port in hand: whoever asks for the state afterwards knows that the
+    /// hold went first, also when another thread was about to write it.
+    fn hold_once(&self, port: &mut T) -> io::Result<()> {
+        if self.held.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        port.write_all(&REAL_TIME_HOLD)?;
+        self.held.store(true, Ordering::SeqCst);
+        Ok(())
     }
 
     /// The second step: waits at most `limit` for the controller to say that the machine stands still and then writes the soft reset. Whoever asks
     /// again gets the same answer and nothing more is written.
     pub fn finish(&self, limit: Duration) -> StopRecord {
-        // the feed hold goes first also when `begin` was not called
-        let held = self.begin();
+        self.stopped.store(true, Ordering::SeqCst);
         let mut ended = self.ended.locked();
         if let Some(record) = ended.as_ref() {
             return record.clone();
         }
         // the port stays in the hands of the stop until the reset is out: nobody else may take the answers
         let mut port = self.inner.locked();
+        // the feed hold goes first also when `begin` was not called, or has not got to the port yet
+        let held = self.hold_once(&mut *port);
         let mut record = if self.homing.load(Ordering::SeqCst) {
             StopRecord::unknown(
                 "a homing cycle was running, which a feed hold does not stop: it was reset at once and the position is not known",
@@ -463,6 +479,19 @@ mod tests {
         drop(held);
         assert!(writer.join().unwrap(), "the line is refused");
         assert_eq!(written.lock().unwrap().as_slice(), &REAL_TIME_HOLD);
+    }
+
+    #[test]
+    fn the_hold_goes_out_before_the_state_is_asked_even_when_the_first_step_has_not_got_to_the_port(
+    ) {
+        let (port, written) = reports(&["<Idle|MPos:0,0,0>"], &[]);
+        let (_link, handle) = share(port);
+        // what another thread leaves between saying that it stops and writing the hold
+        handle.stopped.store(true, Ordering::SeqCst);
+        assert!(handle.finish(LIMIT).known);
+        assert_eq!(written.lock().unwrap().as_slice(), b"!?\x18");
+        handle.begin().unwrap();
+        assert_eq!(written.lock().unwrap().as_slice(), b"!?\x18");
     }
 
     #[test]
