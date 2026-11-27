@@ -113,8 +113,8 @@ pub struct ServerConfig {
     pub resume_plunge_feed_mm_min: u64,
     /// How far, in micrometres, each axis may be from where a stopped job left the machine for the job to go on by itself.
     pub resume_position_tolerance_um: u64,
-    /// `confirm` and `resume` of a job must name the question they answer (`pause.question`). Off: an answer without it is taken, as the clients
-    /// published before it send it; one that names another question is refused either way.
+    /// `confirm` and `resume` of a job must name the question they answer (`pause.question`), the default. Off: an answer without it is taken, as
+    /// programs from before it send it; one that names another question is refused either way.
     pub answer_needs_question: bool,
     /// How many wrong passwords in a row, with any names, block an address (the one of the socket) for a while; 0 turns it off.
     pub login_ip_limit: u32,
@@ -328,7 +328,7 @@ impl Default for ServerConfig {
             resume_spindle_wait_s: 3,
             resume_plunge_feed_mm_min: 100,
             resume_position_tolerance_um: 50,
-            answer_needs_question: false,
+            answer_needs_question: true,
             login_ip_limit: 10,
             url_token: false,
             local_until_setup: false,
@@ -912,7 +912,13 @@ mod tests {
     #[test]
     fn the_margin_of_a_resumed_gcode_job_is_a_setting() {
         assert_eq!(parse("").unwrap().resume_margin_lines, 16);
-        assert!(!parse("").unwrap().answer_needs_question);
+        // an answer to a job names its question unless the file turns that off
+        assert!(parse("").unwrap().answer_needs_question);
+        assert!(
+            !parse("answer_needs_question = false\n")
+                .unwrap()
+                .answer_needs_question
+        );
         // the pause that stops the spindle is off unless the file asks for it
         assert!(!parse("").unwrap().grbl_spindle_stop_on_pause);
         assert!(

@@ -2434,7 +2434,7 @@
       "key": "answer_needs_question",
       "group": "machines",
       "type": "boolean",
-      "default": false,
+      "default": true,
       "apply": "restart",
       "write": {
         "via": "file",
