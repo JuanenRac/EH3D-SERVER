@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- The test counts of the eight READMEs include the new test of the number format of the drill layers.
+
 - **A drill file that does not declare its number format is refused until the request names one (safety, changes what is accepted):** drilling plans from files and the `drill` job of the CAM service no longer read a machine file without a header or an `INCH` header alone by supposing it. Send `drill_format` (`params.drill_format` for the CAM service): `mils` gives the old reading of the plans; `inch-2.4-tz`, `inch-2.4-lz`, `metric-3.3-tz`, `metric-3.3-lz`. The clients do not offer the choice yet.
 - **The drill reader of the layers follows what the file declares:** `TZ` and `LZ` were applied the wrong way round (a file with `INCH,TZ` and numbers without a point was placed a hundred times off), and `FILE_FORMAT` and a number mask were not looked at.
 
