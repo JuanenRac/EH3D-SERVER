@@ -407,6 +407,7 @@ impl AppState {
             spindle_wait: Duration::from_secs(self.cfg.resume_spindle_wait_s),
             power_on_hold: program.power_on_at.filter(|_| machine.confirms_power_on()),
             stop_wait: Duration::from_secs(self.cfg.grbl_stop_wait_s),
+            stop_spindle_on_pause: self.cfg.grbl_spindle_stop_on_pause,
             expected_mm: resume_at_mm.filter(|_| program.resume),
             tolerance_mm: self.cfg.resume_position_tolerance_um as f64 / 1000.0,
         };
