@@ -83,6 +83,8 @@ pub struct AppState {
     pub plugins: crate::plugins::Registry,
     /// The machines of the plugins, the generic queue of jobs and the notifications.
     pub work: crate::work::Work,
+    /// The phones that get notices (`src/push.rs`).
+    pub push_devices: crate::push::Devices,
     /// The events of the common services, with their numbers, for the stream and for the clients that reconnect.
     pub feed: crate::feed::Feed,
     /// The updates of the installed services, when the settings give the folder for them.
@@ -209,6 +211,7 @@ impl AppState {
         let pstore = crate::pstore::ProjectStore::open(&cfg)?;
         let catalogs = crate::catalogs::Catalogs::open(&cfg)?;
         let work = crate::work::Work::open(&cfg)?;
+        let push_devices = crate::push::Devices::open(&cfg.data_dir);
         let feed = crate::feed::Feed::new(cfg.events_queue, cfg.events_clients_max);
         let audit = crate::audit::Audit::new(&cfg.data_dir, cfg.audit_file, cfg.log_max_kb);
         let job_log = crate::audit::LogFile::new(
@@ -240,6 +243,7 @@ impl AppState {
             catalogs,
             plugins: crate::plugins::Registry::standard(),
             work,
+            push_devices,
             feed,
             updates,
             inspections: Mutex::new(HashMap::new()),

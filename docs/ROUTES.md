@@ -111,6 +111,8 @@ Every route of the router, with the method, who may call it and what it does. Th
 | `/api/v1/projects/:id/revisions` | POST | operator + `projects:write` | Add a revision |
 | `/api/v1/projects/:id/shares` | POST | operator + `projects:write` | Share a project with one person or token |
 | `/api/v1/projects/:id/shares/:who` | DELETE | operator + `projects:write` | Take a sharing back |
+| `/api/v1/push/devices` | POST | operator | Register the phone of the person for notices |
+| `/api/v1/push/devices` | DELETE | operator | Take a phone away from the notices |
 | `/api/v1/session` | GET | any login or token | Say who is logged in |
 | `/api/v1/settings/contract` | GET | admin + `admin:policy` | The contract of the settings and their values |
 | `/api/v1/settings/values` | GET | viewer | The values in force of the settings, light and read only |

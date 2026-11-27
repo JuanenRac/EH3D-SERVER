@@ -3140,6 +3140,107 @@
       }
     },
     {
+      "key": "push_enabled",
+      "group": "network",
+      "type": "boolean",
+      "default": false,
+      "apply": "now",
+      "write": {
+        "via": "policy",
+        "method": "PUT",
+        "path": "/api/v1/auth/policy",
+        "body": {
+          "key": "push_enabled",
+          "value": "<value>",
+          "confirm_weak": "<true when the new value is looser than recommended>"
+        }
+      },
+      "role": "admin",
+      "scope": "admin:policy",
+      "confirm_when_looser": true,
+      "secret": false,
+      "risk": "exposure",
+      "label": {
+        "en": "Notices on the phone",
+        "es": "Avisos en el móvil",
+        "de": "Benachrichtigungen aufs Telefon",
+        "fr": "Notifications sur le téléphone",
+        "it": "Avvisi sul telefono",
+        "ja": "スマートフォンへの通知",
+        "zh": "手机通知",
+        "pt": "Avisos no telemóvel"
+      },
+      "help": {
+        "en": "Send registered phones a notice through Google (Firebase) with no names in it; off: nothing is sent.",
+        "es": "Envía a los móviles registrados un aviso sin nombres a través de Google (Firebase); apagado: no se envía nada.",
+        "de": "Registrierten Telefonen über Google (Firebase) eine Nachricht ohne Namen senden; aus: nichts wird gesendet.",
+        "fr": "Envoie aux téléphones inscrits un avis sans noms via Google (Firebase) ; désactivé : rien n'est envoyé.",
+        "it": "Invia ai telefoni registrati un avviso senza nomi tramite Google (Firebase); spento: non si invia nulla.",
+        "ja": "登録した端末に Google (Firebase) 経由で名称を含まない通知を送ります。オフなら何も送りません。",
+        "zh": "通过 Google (Firebase) 向已登记的手机发送不含名称的通知；关闭则不发送。",
+        "pt": "Envia aos telemóveis registados um aviso sem nomes através da Google (Firebase); desligado: nada é enviado."
+      },
+      "warning": {
+        "en": "Takes effect at once. Turning it on makes the server, or a feature of it, reachable from outside or lets it run a program.",
+        "es": "Se aplica al instante. Activarlo hace accesible el servidor, o una función suya, desde fuera o le permite ejecutar un programa.",
+        "de": "Wirkt sofort. Aktiviert, ist der Server oder eine Funktion von außen erreichbar oder führt ein Programm aus.",
+        "fr": "Prend effet immédiatement. Activé, il rend le serveur, ou une fonction, joignable de l'extérieur ou lui fait exécuter un programme.",
+        "it": "Ha effetto subito. Attivandolo il server, o una sua funzione, diventa raggiungibile dall'esterno o può eseguire un programma.",
+        "ja": "すぐに反映されます。有効にすると、サーバーまたはその機能が外部から到達可能になるか、プログラムを実行します。",
+        "zh": "立即生效。开启后，服务器或其某项功能可从外部访问，或会运行外部程序。",
+        "pt": "Aplica-se de imediato. Ativado, torna o servidor, ou uma função dele, acessível a partir do exterior ou deixa-o executar um programa."
+      }
+    },
+    {
+      "key": "push_service_account_file",
+      "group": "network",
+      "type": "string",
+      "format": "path",
+      "default": "push-service-account.json",
+      "apply": "restart",
+      "write": {
+        "via": "file",
+        "method": null,
+        "path": null,
+        "file": "server.cfg"
+      },
+      "role": null,
+      "scope": null,
+      "confirm_when_looser": false,
+      "secret": false,
+      "risk": "exposure",
+      "label": {
+        "en": "Firebase account file",
+        "es": "Fichero de la cuenta de Firebase",
+        "de": "Firebase-Kontodatei",
+        "fr": "Fichier du compte Firebase",
+        "it": "File dell'account Firebase",
+        "ja": "Firebase アカウントファイル",
+        "zh": "Firebase 账户文件",
+        "pt": "Ficheiro da conta Firebase"
+      },
+      "help": {
+        "en": "The service account file of your own Firebase project, on this computer; it holds a private key.",
+        "es": "El fichero de cuenta de servicio de tu proyecto Firebase, en este equipo; contiene una clave privada.",
+        "de": "Die Dienstkontodatei des eigenen Firebase-Projekts auf diesem Rechner; sie enthält einen privaten Schlüssel.",
+        "fr": "Le fichier du compte de service de votre projet Firebase, sur cet ordinateur ; il contient une clé privée.",
+        "it": "Il file dell'account di servizio del tuo progetto Firebase, su questo computer; contiene una chiave privata.",
+        "ja": "このコンピューター上の自分の Firebase プロジェクトのサービスアカウントファイル。秘密鍵を含みます。",
+        "zh": "本机上您自己的 Firebase 项目的服务账号文件；其中含有私钥。",
+        "pt": "O ficheiro da conta de serviço do seu projeto Firebase, neste computador; contém uma chave privada."
+      },
+      "warning": {
+        "en": "Set in server.cfg; it takes effect after the server restarts. Turning it on makes the server, or a feature of it, reachable from outside or lets it run a program.",
+        "es": "Se fija en server.cfg; se aplica tras reiniciar el servidor. Activarlo hace accesible el servidor, o una función suya, desde fuera o le permite ejecutar un programa.",
+        "de": "Wird in server.cfg gesetzt und wirkt nach einem Neustart des Servers. Aktiviert, ist der Server oder eine Funktion von außen erreichbar oder führt ein Programm aus.",
+        "fr": "Défini dans server.cfg ; effectif après le redémarrage du serveur. Activé, il rend le serveur, ou une fonction, joignable de l'extérieur ou lui fait exécuter un programme.",
+        "it": "Si imposta in server.cfg; ha effetto dopo il riavvio del server. Attivandolo il server, o una sua funzione, diventa raggiungibile dall'esterno o può eseguire un programma.",
+        "ja": "server.cfg で設定し、サーバーの再起動後に反映されます。有効にすると、サーバーまたはその機能が外部から到達可能になるか、プログラムを実行します。",
+        "zh": "在 server.cfg 中设置；服务器重启后生效。开启后，服务器或其某项功能可从外部访问，或会运行外部程序。",
+        "pt": "Define-se em server.cfg; aplica-se após reiniciar o servidor. Ativado, torna o servidor, ou uma função dele, acessível a partir do exterior ou deixa-o executar um programa."
+      }
+    },
+    {
       "key": "bambu_lan_port",
       "group": "printers",
       "type": "integer",

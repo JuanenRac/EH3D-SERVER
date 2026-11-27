@@ -18,6 +18,7 @@ const ROUTER_FILES: [&str; 12] = [
     "api_pstore.rs",
     "api_catalogs.rs",
     "api_work.rs",
+    "api_push.rs",
     "api_slice.rs",
     "api_auth.rs",
     "design.rs",
