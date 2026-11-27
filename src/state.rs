@@ -406,6 +406,7 @@ impl AppState {
             spindle_wait_after: program.spindle_wait_after,
             spindle_wait: Duration::from_secs(self.cfg.resume_spindle_wait_s),
             power_on_hold: program.power_on_at.filter(|_| machine.confirms_power_on()),
+            plunge_hold: program.plunge_at,
             stop_wait: Duration::from_secs(self.cfg.grbl_stop_wait_s),
             stop_spindle_on_pause: self.cfg.grbl_spindle_stop_on_pause,
             expected_mm: resume_at_mm.filter(|_| program.resume),
@@ -446,12 +447,13 @@ impl AppState {
                     Some(PauseView {
                         kind: match hold {
                             Hold::Operator => "hold",
-                            Hold::Resume | Hold::PowerOn => "resume",
+                            Hold::Resume | Hold::PowerOn | Hold::Plunge => "resume",
                         }
                         .into(),
                         tool: None,
                         question: String::new(),
                         power_on: hold == Hold::PowerOn,
+                        plunge: hold == Hold::Plunge,
                     }),
                 ),
                 GState::Done => (JobState::Done, String::new(), None),
@@ -546,8 +548,8 @@ impl AppState {
             .gcode_in(id, JobState::WaitingOperator)
             .map_err(AnswerError::Pause)?;
         let mut open = self.questions.locked();
-        // a confirmation sent twice, or late, by a program that names no question must not switch the spindle or the laser on
-        if question.is_none() && run.state() == GState::Held(Hold::PowerOn) {
+        // a confirmation sent twice, or late, by a program that names no question must not switch the spindle or the laser on, nor take the tool down
+        if question.is_none() && matches!(run.state(), GState::Held(Hold::PowerOn | Hold::Plunge)) {
             return Err(AnswerError::QuestionRequired);
         }
         if !self.take_question(&mut open, id, question)? {
@@ -611,12 +613,14 @@ impl AppState {
                             tool: Some(tool),
                             question: String::new(),
                             power_on: false,
+                            plunge: false,
                         },
                         Pause::SpindleStart => PauseView {
                             kind: "spindle_start".into(),
                             tool: None,
                             question: String::new(),
                             power_on: false,
+                            plunge: false,
                         },
                     }),
                 ),
