@@ -2406,7 +2406,7 @@
         "fr": "Les réponses doivent nommer la question",
         "it": "Le risposte devono nominare la domanda",
         "ja": "回答に質問の指定を必須にする",
-        "zh": "回答必须指明所答问题",
+        "zh": "回答必须指明所答的提问",
         "pt": "As respostas têm de nomear a pergunta"
       },
       "help": {
@@ -2416,7 +2416,7 @@
         "fr": "Refuse une confirmation ou reprise sans la question visée ; désactivé : les clients publiés fonctionnent encore.",
         "it": "Rifiuta conferma o ripresa senza indicare la domanda; spento: i client pubblicati funzionano ancora.",
         "ja": "どの質問への回答かを示さない確認や再開を拒否します。オフなら公開済みクライアントもそのまま使えます。",
-        "zh": "拒绝未指明所答问题的确认或继续；关闭则已发布的客户端照常工作。",
+        "zh": "拒绝未指明所答提问的确认或继续；关闭则旧版客户端照常工作。",
         "pt": "Recusa confirmar ou retomar sem dizer a que pergunta responde; desligado: os clientes publicados continuam a funcionar."
       },
       "warning": {
