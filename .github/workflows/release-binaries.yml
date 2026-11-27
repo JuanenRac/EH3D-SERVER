@@ -100,7 +100,7 @@ jobs:
       - name: Check out the siblings (path dependencies)
         shell: bash
         run: |
-          git clone --depth 1 --branch v0.3.6 https://github.com/JuanenRac/EH3D-COMMON.git ../EH3D-COMMON
+          git clone --depth 1 --branch v0.3.9 https://github.com/JuanenRac/EH3D-COMMON.git ../EH3D-COMMON
           git clone --depth 1 --branch v0.2.4 https://github.com/JuanenRac/EH3D-DRILLPRO.git ../EH3D-DRILLPRO
           git init -q ../EH3D-ROUTEPRO && git -C ../EH3D-ROUTEPRO fetch -q --depth 1 https://github.com/JuanenRac/EH3D-ROUTEPRO.git 2aafa6ab6a3d0eec8540ab632d668193d6d61b57 && git -C ../EH3D-ROUTEPRO checkout -q FETCH_HEAD
           git init -q ../EH3D-CORE-LIBS && git -C ../EH3D-CORE-LIBS fetch -q --depth 1 https://github.com/JuanenRac/EH3D-CORE-LIBS.git adc2390f4c48f46e663d757968d1a5fb58c4707f && git -C ../EH3D-CORE-LIBS checkout -q FETCH_HEAD

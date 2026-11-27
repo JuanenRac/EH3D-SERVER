@@ -4,6 +4,9 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **A pause can stop the spindle, off by default (not tried on a machine):** with `grbl_spindle_stop_on_pause` the pause of a job on a GRBL machine also sends the safety door byte (`0x84`), which stops the spindle and the coolant until the job goes on. The setting is in `server.cfg` and in the settings contract with its help in eight languages. A pause whose door state is not confirmed stops the job. The server takes EH3D-COMMON v0.3.9.
+- **A pause given while a line waits for its `ok` can be resumed:** the job counts as held and the resume is written to the port at once; before, a controller that does not answer lines while held left the job shown as running, with nothing but a cancel to end the wait (seen by reading the code, not on a machine).
+
 - **A job that goes on after a stop asks apart before the spindle or the laser goes on (safety):** the `M3` or `M4` of the resume sequence is sent only after a second confirmation that names its own question (`pause.power_on`; without the name it is refused, whatever `answer_needs_question` says). The new machine member `tool_head` (`laser`, `spindle` or empty) says what the machine carries: on a laser the head is back over the point before the beam goes on; a machine said to carry a spindle, or that names its spindle (`original`, `vfd`) and says nothing, asks once as before; a machine that says neither asks twice. 3 new tests. Simulator only.
 
 - **A job file that would be planned only in part is refused (safety):** a drilling file with slots or routed moves was planned from its holes alone, and a plot with a number that cannot be read or a coordinate with no pair was planned with its points moved. The job is now refused, with `bad_ncd` and the line, or `bad_path` and what the shared plot reader tells. A job that was accepted before may be refused now. 1 test. Checked with the planner only; not tried on a machine.

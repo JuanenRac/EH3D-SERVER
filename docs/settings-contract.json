@@ -2230,6 +2230,54 @@
       }
     },
     {
+      "key": "grbl_spindle_stop_on_pause",
+      "group": "machines",
+      "type": "boolean",
+      "default": false,
+      "apply": "restart",
+      "write": {
+        "via": "file",
+        "method": null,
+        "path": null,
+        "file": "server.cfg"
+      },
+      "role": null,
+      "scope": null,
+      "confirm_when_looser": false,
+      "secret": false,
+      "risk": "machine",
+      "label": {
+        "en": "Stop the spindle on pause",
+        "es": "Parar el husillo al pausar",
+        "de": "Spindel bei Pause stoppen",
+        "fr": "Arrêter la broche en pause",
+        "it": "Fermare il mandrino in pausa",
+        "ja": "一時停止で主軸を止める",
+        "zh": "暂停时停止主轴",
+        "pt": "Parar o fuso na pausa"
+      },
+      "help": {
+        "en": "A GRBL pause also stops spindle and coolant (safety door, 0x84) until the job goes on. Off; not tried on a machine.",
+        "es": "La pausa en GRBL para también husillo y refrigerante (puerta, 0x84) hasta seguir. Apagada; sin probar en máquina.",
+        "de": "Eine GRBL-Pause stoppt auch Spindel und Kühlmittel (Sicherheitstür, 0x84). Aus; nicht an einer Maschine erprobt.",
+        "fr": "La pause GRBL arrête aussi broche et arrosage (porte de sécurité, 0x84). Désactivé ; non essayé sur machine.",
+        "it": "La pausa GRBL ferma anche mandrino e refrigerante (porta di sicurezza, 0x84). Spenta; non provata su macchina.",
+        "ja": "GRBL の一時停止で主軸とクーラントも止めます（安全ドア 0x84）。再開で再始動。既定はオフ、実機では未確認です。",
+        "zh": "GRBL 暂停时同时停止主轴和冷却液（安全门 0x84），继续后重新启动。默认关闭；未在实机上试过。",
+        "pt": "A pausa em GRBL para também o fuso e o refrigerante (porta, 0x84) até continuar. Desligada; não testada em máquina."
+      },
+      "warning": {
+        "en": "Set in server.cfg; it takes effect after the server restarts. A wrong value can stop a job on a real machine or leave it held; try it on the simulator first.",
+        "es": "Se fija en server.cfg; se aplica tras reiniciar el servidor. Un valor erróneo puede detener un trabajo en una máquina real o dejarla retenida; probar antes en el simulador.",
+        "de": "Wird in server.cfg gesetzt und wirkt nach einem Neustart des Servers. Ein falscher Wert kann einen Auftrag an einer echten Maschine stoppen oder sie angehalten lassen; zuerst im Simulator testen.",
+        "fr": "Défini dans server.cfg ; effectif après le redémarrage du serveur. Une mauvaise valeur peut arrêter un travail sur une vraie machine ou la laisser retenue ; essayer d'abord sur le simulateur.",
+        "it": "Si imposta in server.cfg; ha effetto dopo il riavvio del server. Un valore sbagliato può fermare un lavoro su una macchina reale o lasciarla bloccata; provare prima sul simulatore.",
+        "ja": "server.cfg で設定し、サーバーの再起動後に反映されます。誤った値は実機のジョブを止めたり機械を保留状態にしたりします。先にシミュレーターで試してください。",
+        "zh": "在 server.cfg 中设置；服务器重启后生效。错误的值可能使真实机床上的作业中止或停在保持状态；请先在模拟器上试用。",
+        "pt": "Define-se em server.cfg; aplica-se após reiniciar o servidor. Um valor errado pode parar um trabalho numa máquina real ou deixá-la retida; experimentar primeiro no simulador."
+      }
+    },
+    {
       "key": "resume_safe_z_mm",
       "group": "machines",
       "type": "integer",

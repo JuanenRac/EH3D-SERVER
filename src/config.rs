@@ -102,6 +102,9 @@ pub struct ServerConfig {
     pub resume_margin_lines: usize,
     /// How long, in seconds, a GRBL machine that is stopped may take to say that it stands still before the reset goes all the same (the position is then not known).
     pub grbl_stop_wait_s: u64,
+    /// A pause of a GRBL machine also stops the spindle and the coolant (the safety door of the firmware, `0x84`), which start again when the
+    /// job goes on. Off by default. Not tried on a real machine.
+    pub grbl_spindle_stop_on_pause: bool,
     /// The height, in mm of the work coordinates, a resumed G-code job goes up to before the spindle starts and before it crosses.
     pub resume_safe_z_mm: u64,
     /// How long, in seconds, a resumed G-code job gives the spindle to reach its speed.
@@ -320,6 +323,7 @@ impl Default for ServerConfig {
             grbl_jog_timeout_s: 60,
             resume_margin_lines: 16,
             grbl_stop_wait_s: 3,
+            grbl_spindle_stop_on_pause: false,
             resume_safe_z_mm: 5,
             resume_spindle_wait_s: 3,
             resume_plunge_feed_mm_min: 100,
@@ -493,6 +497,9 @@ pub fn parse(text: &str) -> Result<ServerConfig, String> {
                 c.login_ip_limit = number(&key, value, 0, 1_000).map_err(at)? as u32
             }
             "grbl_stop_wait_s" => c.grbl_stop_wait_s = number(&key, value, 1, 60).map_err(at)?,
+            "grbl_spindle_stop_on_pause" => {
+                c.grbl_spindle_stop_on_pause = flag(&key, value).map_err(at)?
+            }
             "resume_safe_z_mm" => c.resume_safe_z_mm = number(&key, value, 0, 500).map_err(at)?,
             "resume_spindle_wait_s" => {
                 c.resume_spindle_wait_s = number(&key, value, 0, 120).map_err(at)?
@@ -906,6 +913,14 @@ mod tests {
     fn the_margin_of_a_resumed_gcode_job_is_a_setting() {
         assert_eq!(parse("").unwrap().resume_margin_lines, 16);
         assert!(!parse("").unwrap().answer_needs_question);
+        // the pause that stops the spindle is off unless the file asks for it
+        assert!(!parse("").unwrap().grbl_spindle_stop_on_pause);
+        assert!(
+            parse("grbl_spindle_stop_on_pause = on\n")
+                .unwrap()
+                .grbl_spindle_stop_on_pause
+        );
+        assert!(parse("grbl_spindle_stop_on_pause = perhaps\n").is_err());
         assert!(
             parse("answer_needs_question = true\n")
                 .unwrap()
