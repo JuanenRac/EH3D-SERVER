@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.2.8] - Confirm the plunge and the power on when a job resumes, drill files need their format and the spindle can stop on pause (not tried on a machine)
+
 - **Third-party notices in every package (`docs/THIRD_PARTY_NOTICES`):** the packages of the releases now carry the copyright notices and licence texts of the Rust crates and of the data the program is built with, and the CI fails when a new dependency or licence is not in the file.
 
 - **A job that goes on after a stop asks apart before the tool goes down into the work (safety, changes what a client has to answer):** with the head over the point and the spindle the program had on already turning, every G-code machine not said to carry a laser waits once more before the `G1 Z` of the resume sequence, with its own question (`pause.plunge`; without the name it is refused, whatever `answer_needs_question` says). It looks at the controller once more after the answer, and cancelling there stops the machine without going down. The `Pause` of the API document also lists `power_on` and `plunge`. Tried on the simulator only, not on a machine.
