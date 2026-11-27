@@ -149,7 +149,9 @@ SCHEMAS: dict[str, dict] = {
     }, ["kind", "gcode"]),
     "JobRequest": {"oneOf": [ref("DrillRequest"), ref("RouteRequest"), ref("GcodeRequest")], "discriminator": {"propertyName": "kind"}},
     "Pause": obj({"kind": {"type": "string", "enum": ["tool_change", "spindle_start", "hold", "resume"]}, "tool": I,
-                  "question": s("Identifies this question: a new one every time the job stops to ask. Send it back with `confirm` or `resume`.")}, ["kind"]),
+                  "question": s("Identifies this question: a new one every time the job stops to ask. Send it back with `confirm` or `resume`."),
+                  "power_on": {"type": "boolean", "description": "Confirming switches the spindle or the laser on again."},
+                  "plunge": {"type": "boolean", "description": "Confirming takes the tool down into the work."}}, ["kind"]),
     "JobView": obj({
         "kind": s(), "name": s(), "tools": arr({"type": "object"}), "holes": arr({"type": "object"}), "paths": arr({"type": "object"}),
         "bounds_mm": arr(N), "items": I, "hole_ends": arr(I), "estimate_s": N, "travel_mm": N, "skipped_tools": arr(I), "skipped": I,

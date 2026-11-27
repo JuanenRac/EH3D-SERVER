@@ -56,6 +56,10 @@ pub struct PauseView {
     /// is taken only when it names its question.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub power_on: bool,
+    /// The sequence of a job that goes on is about to take the tool down into the work, with the head over the point (`kind` stays `resume`): this
+    /// answer is its own and is taken only when it names its question.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub plunge: bool,
 }
 
 /// What is known of a machine once its G-code job has ended.

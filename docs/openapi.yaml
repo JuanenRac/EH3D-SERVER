@@ -13019,6 +13019,12 @@ components:
         question:
           type: string
           description: "Identifies this question: a new one every time the job stops to ask. Send it back with `confirm` or `resume`."
+        power_on:
+          type: boolean
+          description: Confirming switches the spindle or the laser on again.
+        plunge:
+          type: boolean
+          description: Confirming takes the tool down into the work.
       required:
         - kind
       additionalProperties: false
