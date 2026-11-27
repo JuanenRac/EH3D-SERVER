@@ -492,7 +492,7 @@ dependencies = [
 
 [[package]]
 name = "eh3d-server"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "argon2",
  "axum",

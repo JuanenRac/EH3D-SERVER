@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.2.9] - A laser job takes its power mode and an answer to a job names its question (not tried on a machine)
+
 - **An answer to a job names its question (safety, changes what is accepted):** `answer_needs_question` is now on unless the configuration turns it off, so a `confirm` or `resume` that does not say which question it answers is refused (`409 question_required`). The published Studio, Android and iOS apps and the touch screens send it; a program of an earlier version needs the setting off.
 - **A vector job of a laser takes `laser_mode` and no longer leaves anything out in silence (safety, changes what is accepted):** the program of a `vector` request was always written with `M4`. With `laser_mode: "m3"` it is now written with constant power, the beam at `S0` before every rapid move and every stop and a run-up and a run-out with the laser off (new machine setting `m3_run_up_mm`, 2 mm); a run-up that leaves the bed is `422 outside_course`. `m4` stays the default and any other value is refused. A request that asks for kerf, tabs or bridges, perforation, hatch or sub-layers, or an operation with an unknown member, is now `422 bad_operation`, because the server does not apply them. 4 new tests. Simulator only.
 
