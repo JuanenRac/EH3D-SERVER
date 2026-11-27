@@ -398,12 +398,14 @@ impl AppState {
             let moves = crate::gcode::ResumeMoves {
                 safe_z_mm: self.cfg.resume_safe_z_mm as f64,
                 plunge_feed_mm_min: self.cfg.resume_plunge_feed_mm_min as f64,
+                laser: machine.is_laser(),
             };
             crate::gcode::with_resume_sequence(&mut program, &point, moves, restore_outputs);
         }
         let options = RunOptions {
             spindle_wait_after: program.spindle_wait_after,
             spindle_wait: Duration::from_secs(self.cfg.resume_spindle_wait_s),
+            power_on_hold: program.power_on_at.filter(|_| machine.confirms_power_on()),
             stop_wait: Duration::from_secs(self.cfg.grbl_stop_wait_s),
             expected_mm: resume_at_mm.filter(|_| program.resume),
             tolerance_mm: self.cfg.resume_position_tolerance_um as f64 / 1000.0,
@@ -443,11 +445,12 @@ impl AppState {
                     Some(PauseView {
                         kind: match hold {
                             Hold::Operator => "hold",
-                            Hold::Resume => "resume",
+                            Hold::Resume | Hold::PowerOn => "resume",
                         }
                         .into(),
                         tool: None,
                         question: String::new(),
+                        power_on: hold == Hold::PowerOn,
                     }),
                 ),
                 GState::Done => (JobState::Done, String::new(), None),
@@ -542,6 +545,10 @@ impl AppState {
             .gcode_in(id, JobState::WaitingOperator)
             .map_err(AnswerError::Pause)?;
         let mut open = self.questions.locked();
+        // a confirmation sent twice, or late, by a program that names no question must not switch the spindle or the laser on
+        if question.is_none() && run.state() == GState::Held(Hold::PowerOn) {
+            return Err(AnswerError::QuestionRequired);
+        }
         if !self.take_question(&mut open, id, question)? {
             return Err(AnswerError::Pause(PauseError::NotInState));
         }
@@ -602,11 +609,13 @@ impl AppState {
                             kind: "tool_change".into(),
                             tool: Some(tool),
                             question: String::new(),
+                            power_on: false,
                         },
                         Pause::SpindleStart => PauseView {
                             kind: "spindle_start".into(),
                             tool: None,
                             question: String::new(),
+                            power_on: false,
                         },
                     }),
                 ),

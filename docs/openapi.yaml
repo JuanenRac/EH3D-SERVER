@@ -12704,6 +12704,8 @@ components:
           type: object
         allow_dollar:
           type: boolean
+        tool_head:
+          type: string
       required:
         - id
         - name

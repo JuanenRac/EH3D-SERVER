@@ -104,7 +104,7 @@ SCHEMAS: dict[str, dict] = {
         "id": s("Lowercase letters, digits and hyphens, up to 32."), "name": s(), "model": s(), "station": s("The bench, room or workshop; empty when none."),
         "connection": ref("Connection"), "dcf": s("The text of DRILLPRO.DCF."), "rcf": s("The text of ROUTEPRO.RCF."),
         "cfg": s("The tuning text of the machine; keys that hold secrets are shown empty."),
-        "spindle": s(), "spindle_guard": s(), "spindle_original": {"type": "object"}, "spindle_vfd": {"type": "object"}, "allow_dollar": B,
+        "spindle": s(), "spindle_guard": s(), "spindle_original": {"type": "object"}, "spindle_vfd": {"type": "object"}, "allow_dollar": B, "tool_head": s(),
     }, ["id", "name", "connection"], extra=True),
     "FleetJob": obj({"id": s(), "percent": N, "items_done": I, "items_total": I, "pause": nullable({"type": "object"}), "tool": nullable(I)}, extra=True),
     "Fleet": obj({

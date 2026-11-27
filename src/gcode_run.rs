@@ -35,6 +35,8 @@ pub enum Hold {
     Operator,
     /// The job goes on after a stop: the operator looks at the machine (the tool, the spindle) before the first move.
     Resume,
+    /// The sequence of a job that goes on is about to switch the spindle or the laser on again: a person confirms that apart.
+    PowerOn,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,6 +79,8 @@ pub struct RunOptions {
     /// The entry after which the spindle is given `spindle_wait` to reach its speed.
     pub spindle_wait_after: Option<usize>,
     pub spindle_wait: Duration,
+    /// The entry that switches the spindle or the laser on again, when a person has to confirm it before it goes out.
+    pub power_on_hold: Option<usize>,
     /// How long a machine that is stopped may take to say that it stands still.
     pub stop_wait: Duration,
     /// A job that goes on by itself: where the machine has to be, in mm, and how far from it each axis may be.
@@ -89,6 +93,7 @@ impl Default for RunOptions {
         RunOptions {
             spindle_wait_after: None,
             spindle_wait: Duration::from_secs(3),
+            power_on_hold: None,
             stop_wait: Duration::from_secs(3),
             expected_mm: None,
             tolerance_mm: 0.05,
@@ -310,7 +315,7 @@ impl GcodeRun {
     pub fn resume(&self) {
         self.shared.hold.store(false, Ordering::SeqCst);
         // the confirmation counts only for a job that waits for it: one given early must not skip the check of a job that goes on after a stop
-        if self.state() == GState::Held(Hold::Resume) {
+        if matches!(self.state(), GState::Held(Hold::Resume | Hold::PowerOn)) {
             self.shared.confirm.store(true, Ordering::SeqCst);
         }
     }
@@ -446,7 +451,11 @@ fn stop_after(c: &mut dyn Controller, shared: &Shared, why: String) -> String {
 
 /// Whether a job that goes on may move this machine: the controller is idle and, for a job that goes on by itself, the machine is where the
 /// stopped job left it. Nothing is sent to find out but the request of the state.
-fn resume_ready(c: &mut dyn Controller, shared: &Shared) -> Result<(), String> {
+fn resume_ready(
+    c: &mut dyn Controller,
+    shared: &Shared,
+    expected: Option<[f64; 3]>,
+) -> Result<(), String> {
     const REFUSED: &str = "the job is not resumed";
     let status = c
         .status()
@@ -465,7 +474,7 @@ fn resume_ready(c: &mut dyn Controller, shared: &Shared) -> Result<(), String> {
             ))
         }
     }
-    if let Some(expected) = shared.options.expected_mm {
+    if let Some(expected) = expected {
         let at = status.machine_mm;
         let moved = (0..3).any(|i| {
             let apart = (at[i] - expected[i]).abs();
@@ -479,6 +488,45 @@ fn resume_ready(c: &mut dyn Controller, shared: &Shared) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Before the sequence of a job that goes on switches the spindle or the laser on again: waits for the machine to be still, then for the person,
+/// and looks once more that it is idle where it stood. `Ok(false)` when the job was cancelled meanwhile.
+fn power_on_confirmed(
+    c: &mut dyn Controller,
+    shared: &Shared,
+    still_wait: Duration,
+) -> Result<bool, String> {
+    let mut limit = Instant::now() + still_wait;
+    let at = loop {
+        if shared.cancel.load(Ordering::SeqCst) {
+            return Ok(false);
+        }
+        if hold_pending(shared) {
+            if !operator_pause(c, shared)? {
+                return Ok(false);
+            }
+            limit = Instant::now() + still_wait;
+        }
+        let status = c.status().map_err(|e| e.to_string())?;
+        match status.state {
+            State::Idle => break status.machine_mm,
+            State::Alarm => return Err("the controller is in alarm".into()),
+            _ => {}
+        }
+        if Instant::now() >= limit {
+            return Err(format!(
+                "the machine was not still {} s after the moves of the sequence",
+                still_wait.as_secs()
+            ));
+        }
+        thread::sleep(Duration::from_millis(50));
+    };
+    if !wait_held(shared, Hold::PowerOn) {
+        return Ok(false);
+    }
+    resume_ready(c, shared, Some([at[0], at[1], at[2]]))?;
+    Ok(true)
 }
 
 /// Gives the spindle its time to reach its speed. A pause holds the machine and the time starts again afterwards; `Ok(false)` when the job was
@@ -523,6 +571,8 @@ fn operator_pause(c: &mut dyn Controller, shared: &Shared) -> Result<bool, Strin
 
 /// Waits while the job is held. `Ok(true)` when it can go on, `Ok(false)` when it was cancelled.
 fn wait_held(shared: &Shared, hold: Hold) -> bool {
+    // a confirmation given before this question was asked does not answer it
+    shared.confirm.store(false, Ordering::SeqCst);
     shared.set(GState::Held(hold));
     loop {
         if shared.cancel.load(Ordering::SeqCst) {
@@ -531,7 +581,7 @@ fn wait_held(shared: &Shared, hold: Hold) -> bool {
         let released = match hold {
             // a pause ends when the operator takes the hold off; a resume check ends with the confirmation
             Hold::Operator => !shared.hold.load(Ordering::SeqCst),
-            Hold::Resume => shared.confirm.swap(false, Ordering::SeqCst),
+            Hold::Resume | Hold::PowerOn => shared.confirm.swap(false, Ordering::SeqCst),
         };
         if released {
             shared.confirm.store(false, Ordering::SeqCst);
@@ -573,11 +623,11 @@ fn drive(
 ) -> Result<GState, String> {
     if resume {
         // looked at before a person is asked, and again after the answer: the machine may have been touched meanwhile
-        resume_ready(c.as_mut(), shared)?;
+        resume_ready(c.as_mut(), shared, shared.options.expected_mm)?;
         if !wait_held(shared, Hold::Resume) {
             return cancelled(c.as_mut(), shared);
         }
-        resume_ready(c.as_mut(), shared)?;
+        resume_ready(c.as_mut(), shared, shared.options.expected_mm)?;
     } else {
         alarm_of(c.as_mut())?;
     }
@@ -585,6 +635,16 @@ fn drive(
     for (i, entry) in lines.iter().enumerate() {
         if shared.cancel.load(Ordering::SeqCst) {
             return cancelled(c.as_mut(), shared);
+        }
+        if shared.options.power_on_hold == Some(i) {
+            match power_on_confirmed(c.as_mut(), shared, finish_wait) {
+                Ok(true) => shared.set(GState::Running),
+                Ok(false) => return cancelled(c.as_mut(), shared),
+                Err(_) if shared.cancel.load(Ordering::SeqCst) => {
+                    return cancelled(c.as_mut(), shared)
+                }
+                Err(why) => return Err(stop_after(c.as_mut(), shared, why)),
+            }
         }
         if hold_pending(shared) {
             match operator_pause(c.as_mut(), shared) {
@@ -1120,6 +1180,84 @@ mod tests {
 
     type Resumed = (Arc<Shared>, Arc<Told>, JoinHandle<Result<GState, String>>);
 
+    /// Like [`resumed`], on a machine that asks apart before it switches the spindle or the laser on again.
+    fn resumed_asking(laser: bool) -> Resumed {
+        let mut program = gcode::parse(PROGRAM, 5, false).unwrap();
+        let point = gcode::resume_point(PROGRAM, 5).unwrap();
+        let moves = gcode::ResumeMoves {
+            laser,
+            ..Default::default()
+        };
+        gcode::with_resume_sequence(&mut program, &point, moves, false);
+        let shared = Arc::new(Shared::with(RunOptions {
+            spindle_wait_after: program.spindle_wait_after,
+            spindle_wait: Duration::from_millis(50),
+            power_on_hold: program.power_on_at,
+            stop_wait: Duration::from_millis(300),
+            expected_mm: Some(WAS_AT),
+            tolerance_mm: 0.05,
+        }));
+        let told = Arc::new(Told::default());
+        *told.at.lock().unwrap() = WAS_AT;
+        let machine = Scripted {
+            inner: SimController::new(),
+            told: told.clone(),
+        };
+        let worker = shared.clone();
+        let handle = thread::spawn(move || {
+            let end = drive(
+                Box::new(machine),
+                &program.entries,
+                program.preamble,
+                program.resume,
+                Duration::from_secs(10),
+                &worker,
+            );
+            settle(&worker);
+            end
+        });
+        (shared, told, handle)
+    }
+
+    fn confirm_the_first_question(shared: &Shared) {
+        waiting(shared);
+        shared.confirm.store(true, Ordering::SeqCst);
+        until("the job did not ask before the power", || {
+            *shared.state.locked() == GState::Held(Hold::PowerOn)
+        });
+    }
+
+    #[test]
+    fn the_spindle_or_the_laser_goes_on_only_after_a_confirmation_of_its_own() {
+        for (laser, before) in [
+            (false, vec!["G21 G90", "G0 Z5"]),
+            (
+                true,
+                vec!["G21 G90", "G0 Z5", "G0 X30 Y20", "G1 Z-1.5 F100"],
+            ),
+        ] {
+            let (shared, told, handle) = resumed_asking(laser);
+            confirm_the_first_question(&shared);
+            thread::sleep(Duration::from_millis(200));
+            assert_eq!(said(&told), before, "laser {laser}");
+            shared.confirm.store(true, Ordering::SeqCst);
+            assert_eq!(handle.join().unwrap(), Ok(GState::Done));
+            let all = said(&told);
+            assert_eq!(all[before.len()], "M3 S9000", "{all:?}");
+            assert_eq!(all.iter().filter(|l| l.starts_with("M3")).count(), 1);
+        }
+    }
+
+    #[test]
+    fn a_job_cancelled_at_the_question_of_the_power_never_switches_it_on() {
+        let (shared, told, handle) = resumed_asking(true);
+        confirm_the_first_question(&shared);
+        shared.cancel.store(true, Ordering::SeqCst);
+        assert_eq!(handle.join().unwrap(), Ok(GState::Cancelled));
+        let all = said(&told);
+        assert!(!all.iter().any(|l| l.starts_with("M3")), "{all:?}");
+    }
+
     /// A job that goes on from the fifth line, on a machine that stands where the stopped job left it unless `set` says otherwise.
     fn resumed(spindle_wait: Duration, set: impl Fn(&Told)) -> Resumed {
         let mut program = gcode::parse(PROGRAM, 5, false).unwrap();
@@ -1128,6 +1266,7 @@ mod tests {
         let shared = Arc::new(Shared::with(RunOptions {
             spindle_wait_after: program.spindle_wait_after,
             spindle_wait,
+            power_on_hold: None,
             stop_wait: Duration::from_millis(300),
             expected_mm: Some(WAS_AT),
             tolerance_mm: 0.05,

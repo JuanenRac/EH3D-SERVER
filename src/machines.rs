@@ -72,6 +72,11 @@ pub struct MachineRecord {
     /// Whether free G-code jobs on this machine may carry the `$` lines of GRBL (`$H` and the like). Off by default; only an administrator turns it on.
     #[serde(default)]
     pub allow_dollar: bool,
+    /// What the machine carries for a G-code job: `laser`, `spindle`, or empty when it is not said. A job that goes on after a stop does not switch
+    /// it on again (`M3`, `M4`) until a person confirms that apart, unless this says `spindle`, or says nothing and `spindle` names the one the
+    /// machine carries.
+    #[serde(default)]
+    pub tool_head: String,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -264,7 +269,24 @@ impl MachineRecord {
         })
     }
 
+    /// Whether the machine is said to carry a laser.
+    pub fn is_laser(&self) -> bool {
+        self.tool_head == "laser"
+    }
+
+    /// Whether a job that goes on after a stop asks a person apart before it switches the spindle or the laser on again.
+    pub fn confirms_power_on(&self) -> bool {
+        match self.tool_head.as_str() {
+            "laser" => true,
+            "spindle" => false,
+            _ => self.spindle.is_empty(),
+        }
+    }
+
     fn spindle_check(&self) -> Result<(), MachineError> {
+        if !matches!(self.tool_head.as_str(), "" | "spindle" | "laser") {
+            return Err(MachineError::BadSpindle);
+        }
         if !self.spindle.is_empty() && !spindle::IDS.contains(&self.spindle.as_str()) {
             return Err(MachineError::BadSpindle);
         }
@@ -312,6 +334,7 @@ impl MachineRecord {
             "spindle": self.spindle, "spindle_guard": self.spindle_guard,
             "spindle_original": self.spindle_original, "spindle_vfd": self.spindle_vfd,
             "allow_dollar": self.allow_dollar,
+            "tool_head": self.tool_head,
         })
     }
 }
@@ -421,6 +444,7 @@ mod tests {
             spindle_original: None,
             spindle_vfd: None,
             allow_dollar: false,
+            tool_head: String::new(),
         }
     }
 

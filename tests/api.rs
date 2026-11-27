@@ -2881,6 +2881,89 @@ async fn a_resumed_job_waits_takes_one_confirmation_and_refuses_a_second_one() {
 }
 
 #[tokio::test]
+async fn a_resumed_job_asks_apart_before_the_laser_goes_on_and_takes_only_the_named_answer() {
+    let s = server("resume-power-on");
+    let token = admin(&s).await;
+    for (id, tool_head, asks) in [
+        ("laser", "laser", true),
+        ("unsaid", "", true),
+        ("mill", "spindle", false),
+    ] {
+        let (status, body) = call(
+            &s,
+            Method::POST,
+            "/api/v1/machines",
+            Some(&token),
+            Some(json!({"id": id, "name": id, "connection": {"kind": "demo"}, "tool_head": tool_head})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let text = format!(
+            "G21 G90\nM3 S900\n{}G2 X5 I1\nG0 X9\n",
+            "G0 X1\n".repeat(20)
+        );
+        let (_, job) = post(
+            &s,
+            &token,
+            &format!("/api/v1/machines/{id}/jobs"),
+            Some(gcode_job(&text)),
+        )
+        .await;
+        let first = job["id"].as_str().unwrap().to_string();
+        post(&s, &token, &format!("/api/v1/jobs/{first}/start"), None).await;
+        wait_state(&s, &token, &first, &["failed"]).await;
+        let path = format!("/api/v1/jobs/{first}/resume-from");
+        let (status, second) = post(&s, &token, &path, None).await;
+        assert_eq!(status, StatusCode::OK, "{second}");
+        let second = second["id"].as_str().unwrap().to_string();
+        post(&s, &token, &format!("/api/v1/jobs/{second}/start"), None).await;
+        let held = wait_state(&s, &token, &second, &["waiting_operator"]).await;
+        assert!(held["pause"]["power_on"].is_null(), "{held}");
+        let asked = held["pause"]["question"].as_str().unwrap().to_string();
+        let confirm = format!("/api/v1/jobs/{second}/confirm");
+        let (status, body) = post(&s, &token, &confirm, Some(json!({"question": asked}))).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        if !asks {
+            wait_state(&s, &token, &second, &["done", "failed"]).await;
+            continue;
+        }
+        let held = wait_state(&s, &token, &second, &["waiting_operator", "done", "failed"]).await;
+        assert_eq!(held["state"], "waiting_operator", "{held}");
+        assert_eq!(held["pause"]["kind"], "resume");
+        assert_eq!(held["pause"]["power_on"], true, "{held}");
+        let again = held["pause"]["question"].as_str().unwrap().to_string();
+        assert_ne!(again, asked);
+        for (body, code) in [
+            (None, "question_required"),
+            (Some(json!({"question": asked})), "question_changed"),
+        ] {
+            let (status, answer) = post(&s, &token, &confirm, body).await;
+            assert_eq!(
+                (status, answer["error"].as_str()),
+                (StatusCode::CONFLICT, Some(code)),
+                "{answer}"
+            );
+        }
+        let (status, body) = post(&s, &token, &confirm, Some(json!({"question": again}))).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let end = wait_state(&s, &token, &second, &["done", "failed"]).await;
+        assert_eq!(end["state"], "failed", "{end}");
+    }
+    // a word that is none of the three is refused
+    let (status, body) = call(
+        &s,
+        Method::POST,
+        "/api/v1/machines",
+        Some(&token),
+        Some(
+            json!({"id": "x", "name": "x", "connection": {"kind": "demo"}, "tool_head": "plasma"}),
+        ),
+    )
+    .await;
+    assert!(!status.is_success(), "{body}");
+}
+
+#[tokio::test]
 async fn a_stopped_gcode_job_goes_back_by_the_margin_of_the_server() {
     use eh3d_server::jobs::JobState;
     let s = server("resume-margin");
