@@ -1310,16 +1310,8 @@ mod tests {
     #[test]
     fn a_drilling_job_from_files_uses_the_tool_table_and_the_sorting() {
         // a file that declares its whole mils needs no choice
-        let ncd = "M48
-;FILE_FORMAT=3:3
-INCH,TZ
-T1C0.8
-%
-T1
-X1000Y1000
-X2000Y1000
-X1000Y2000
-";
+        let ncd =
+            "M48\n;FILE_FORMAT=3:3\nINCH,TZ\nT1C0.8\n%\nT1\nX1000Y1000\nX2000Y1000\nX1000Y2000\n";
         let dtd = format!("{}1 0.0 1000 24000\n", "# comment\n".repeat(19));
         let request =
             serde_json::json!({"kind": "drill", "drill_format": "mils", "files": {"ncd": ncd, "dtd": dtd}, "sorting": "x"})
