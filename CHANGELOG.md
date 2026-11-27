@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.2.6] - Safer resume and stop of machine jobs, updated TLS library (not tried on a machine)
+
 - **TLS library updated (security):** rustls is at 0.23.46 (it was 0.23.28), for the advisories published against the earlier version.
 - **The server is built with the current drilling and routing engines (safety):** EH3D-DRILLPRO at v0.2.4 (it was v0.1.7), EH3D-ROUTEPRO with its latest tool changer fix (it was v0.1.6) and the shared repository EH3D-COMMON at v0.3.6 (it was v0.2.1), so the jobs the server runs have the waits, the stops and the tool changes of those programs. Checked by the tests against the simulator; not tried on a machine.
 - **Going on from a stopped G-code job is more careful (safety):** the motion in force (`G0` to `G3`) is given back with the other codes, the margin `resume_margin_lines` counts lines that move, and where the server cannot tell where to go on from (relative distances, offsets the controller loses, a job that ran on the tool changer) it says why and a person names the line.
