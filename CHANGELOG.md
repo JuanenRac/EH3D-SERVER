@@ -4,6 +4,7 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **The Chinese help of `grbl_spindle_stop_on_pause` is worded with characters the screens of the suite can draw.**
 - **A pause can stop the spindle, off by default (not tried on a machine):** with `grbl_spindle_stop_on_pause` the pause of a job on a GRBL machine also sends the safety door byte (`0x84`), which stops the spindle and the coolant until the job goes on. The setting is in `server.cfg` and in the settings contract with its help in eight languages. A pause whose door state is not confirmed stops the job. The server takes EH3D-COMMON v0.3.9.
 - **A pause given while a line waits for its `ok` can be resumed:** the job counts as held and the resume is written to the port at once; before, a controller that does not answer lines while held left the job shown as running, with nothing but a cancel to end the wait (seen by reading the code, not on a machine).
 
