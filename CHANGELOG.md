@@ -5,6 +5,7 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 - **A job file that would be planned only in part is refused (safety):** a drilling file with slots or routed moves was planned from its holes alone, and a plot with a number that cannot be read or a coordinate with no pair was planned with its points moved. The job is now refused, with `bad_ncd` and the line, or `bad_path` and what the shared plot reader tells. A job that was accepted before may be refused now. 1 test. Checked with the planner only; not tried on a machine.
+- **An answer names the question it answers (safety):** while a job waits, `pause.question` identifies what it asks, with a new identifier every time. `POST /jobs/:id/confirm` and `/resume` take `{"question": ...}` and answer `409 question_changed` when the job asks something else by then, so a screen or a person cannot answer a question they have not seen (the start of the spindle that follows a tool change). Each question is answered once, also by clients that send no identifier. New setting `answer_needs_question` (off, so that published clients keep working; on: an answer without the identifier is `409 question_required`; 106 settings now). The resume of the work queue and of the compatibility routes only lets go a job an operator held. Checked against the simulator; not tried on a machine.
 
 ## [0.2.7] - Limits that a spaced number could skip, real-time characters refused and a prudent stop and resume (not tried on a machine)
 

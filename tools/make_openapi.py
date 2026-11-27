@@ -148,7 +148,8 @@ SCHEMAS: dict[str, dict] = {
         "skip": I, "restore_outputs": B,
     }, ["kind", "gcode"]),
     "JobRequest": {"oneOf": [ref("DrillRequest"), ref("RouteRequest"), ref("GcodeRequest")], "discriminator": {"propertyName": "kind"}},
-    "Pause": obj({"kind": {"type": "string", "enum": ["tool_change", "spindle_start", "hold", "resume"]}, "tool": I}, ["kind"]),
+    "Pause": obj({"kind": {"type": "string", "enum": ["tool_change", "spindle_start", "hold", "resume"]}, "tool": I,
+                  "question": s("Identifies this question: a new one every time the job stops to ask. Send it back with `confirm` or `resume`.")}, ["kind"]),
     "JobView": obj({
         "kind": s(), "name": s(), "tools": arr({"type": "object"}), "holes": arr({"type": "object"}), "paths": arr({"type": "object"}),
         "bounds_mm": arr(N), "items": I, "hole_ends": arr(I), "estimate_s": N, "travel_mm": N, "skipped_tools": arr(I), "skipped": I,
@@ -167,6 +168,7 @@ SCHEMAS: dict[str, dict] = {
     "JobRequestRecord": obj({
         "id": s(), "machine": s(), "kind": s(), "name": s(), "state": s(), "resumed_from": s(), "next_skip": nullable(I), "request": ref("JobRequest"),
     }, ["id", "request"], extra=True),
+    "Answer": obj({"question": s("The `pause.question` of the job being answered. Optional unless the setting `answer_needs_question` is on.")}),
     "ResumeFrom": obj({"skip": I, "skip_tools": arr(I), "restore_outputs": B, "name": s()}),
     "StopResult": obj({"ok": B, "stopped": B, "job": nullable(S)}, ["ok", "stopped"]),
     "Spindle": obj({
@@ -376,10 +378,12 @@ op("DELETE", "/jobs/{id}", "jobs", "operator", "Remove a job that is not running
 op("POST", "/jobs/{id}/start", "jobs", "operator", "Plan again and run the job", scope="jobs:start", ok=(200, "Job", "application/json"),
    errors=JOB_ERR + ["not_ready", "machine_busy"] + PLAN_ERR[1:],
    desc="One job at a time on a machine. A person starts it; the machine's constants of this moment are used.")
-op("POST", "/jobs/{id}/confirm", "jobs", "operator", "Answer the dialog the job waits at", scope="jobs:confirm", errors=JOB_ERR + ["not_running"])
+op("POST", "/jobs/{id}/confirm", "jobs", "operator", "Answer the dialog the job waits at", scope="jobs:confirm", body="Answer", body_required=False,
+   errors=JOB_ERR + ["not_running", "question_changed", "question_required"])
 op("POST", "/jobs/{id}/cancel", "jobs", "operator", "Stop a running job or cancel a ready one", scope="jobs:cancel", errors=JOB_ERR + ["not_cancellable"])
 op("POST", "/jobs/{id}/pause", "jobs", "operator", "Hold a running G-code job", scope="jobs:start", errors=JOB_ERR + ["not_pausable", "not_in_state"])
-op("POST", "/jobs/{id}/resume", "jobs", "operator", "Let a held G-code job go on", scope="jobs:start", errors=JOB_ERR + ["not_in_state"])
+op("POST", "/jobs/{id}/resume", "jobs", "operator", "Let a held G-code job go on", scope="jobs:start", body="Answer", body_required=False,
+   errors=JOB_ERR + ["not_in_state", "question_changed", "question_required"])
 op("GET", "/jobs/{id}/request", "jobs", "operator", "Read what was asked of the job, as it came", scope="machines:view", ok=(200, "JobRequestRecord", "application/json"), errors=JOB_ERR)
 op("POST", "/jobs/{id}/resume-from", "jobs", "operator", "Make a new ready job from a cancelled or failed one", scope="jobs:prepare", body="ResumeFrom", body_required=False,
    ok=(200, "Job", "application/json"), errors=JOB_ERR + ["not_stopped", "no_work"],

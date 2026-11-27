@@ -590,6 +590,16 @@
     "status": 507
   },
   {
+    "code": "question_changed",
+    "description": "The question named in the answer is not the one the job asks now: read the job again.",
+    "status": 409
+  },
+  {
+    "code": "question_required",
+    "description": "The answer to a job names no question and the setting answer_needs_question asks for it.",
+    "status": 409
+  },
+  {
     "code": "queue_full",
     "description": "As many tasks are waiting or running as the server accepts (max_tasks).",
     "status": 429
