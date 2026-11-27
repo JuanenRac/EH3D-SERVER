@@ -42,6 +42,12 @@ const MOST_OLD_LINES: usize = 64;
 /// The feed hold alone: the machine stops moving but keeps its state, and the job can go on after it.
 pub const REAL_TIME_HOLD: [u8; 1] = *b"!";
 
+/// The safety door of GRBL: after a feed hold it stops the spindle and the coolant too, and a resume starts them again.
+pub const REAL_TIME_DOOR: [u8; 1] = [0x84];
+
+/// Goes on after a feed hold or a safety door.
+pub const REAL_TIME_RESUME: [u8; 1] = *b"~";
+
 /// The link the thread of the job uses.
 pub struct SharedLink<T: LineTransport> {
     inner: Arc<Mutex<T>>,
@@ -91,6 +97,26 @@ impl<T: LineTransport> StopHandle<T> {
         }
         let mut port = self.inner.locked();
         port.write_all(&REAL_TIME_HOLD)
+    }
+
+    /// As [`StopHandle::hold`], followed by the safety door byte, which stops the spindle and the coolant as well.
+    pub fn hold_with_door(&self) -> io::Result<()> {
+        if self.stopped.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        let mut port = self.inner.locked();
+        port.write_all(&REAL_TIME_HOLD)?;
+        port.write_all(&REAL_TIME_DOOR)
+    }
+
+    /// Writes the real-time resume only, at once: for a hold that the thread of the job has not seen, because it waits for the answer to a
+    /// line that a held controller does not give. A stop that has begun is never undone.
+    pub fn resume(&self) -> io::Result<()> {
+        let mut port = self.inner.locked();
+        if self.stopped.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        port.write_all(&REAL_TIME_RESUME)
     }
 
     /// The first step of a stop: the feed hold goes out at once, no line can follow it and the thread that waits for an answer stops waiting.
@@ -273,6 +299,22 @@ mod tests {
             std::thread::sleep(timeout);
             Ok(None)
         }
+    }
+
+    #[test]
+    fn a_hold_with_the_door_and_a_resume_are_the_bytes_of_grbl_and_a_stop_is_never_undone() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let (_link, handle) = share(Silent {
+            written: written.clone(),
+        });
+        handle.hold_with_door().unwrap();
+        handle.resume().unwrap();
+        assert_eq!(written.lock().unwrap().as_slice(), [b'!', 0x84, b'~']);
+        written.lock().unwrap().clear();
+        handle.begin().unwrap();
+        handle.resume().unwrap();
+        handle.hold_with_door().unwrap();
+        assert_eq!(written.lock().unwrap().as_slice(), b"!");
     }
 
     /// A port that answers each request of the state with the next of its reports (the last one for ever).

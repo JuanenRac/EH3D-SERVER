@@ -83,6 +83,8 @@ pub struct RunOptions {
     pub power_on_hold: Option<usize>,
     /// How long a machine that is stopped may take to say that it stands still.
     pub stop_wait: Duration,
+    /// A pause also stops the spindle and the coolant of a GRBL machine (the safety door); off by default.
+    pub stop_spindle_on_pause: bool,
     /// A job that goes on by itself: where the machine has to be, in mm, and how far from it each axis may be.
     pub expected_mm: Option<[f64; 3]>,
     pub tolerance_mm: f64,
@@ -95,6 +97,7 @@ impl Default for RunOptions {
             spindle_wait: Duration::from_secs(3),
             power_on_hold: None,
             stop_wait: Duration::from_secs(3),
+            stop_spindle_on_pause: false,
             expected_mm: None,
             tolerance_mm: 0.05,
         }
@@ -116,6 +119,11 @@ struct Shared {
     hold_now: Mutex<Option<HoldFn>>,
     /// The real-time feed hold went out: the thread of the job has to take over the pause (and the resume) even if it was already lifted.
     hold_sent: AtomicBool,
+    /// Writes the real-time resume to the port from any thread (a GRBL machine only).
+    resume_now: Mutex<Option<HoldFn>>,
+    /// The machine is held by the real-time byte and the thread of the job has not taken over: it may be waiting for the answer to a line,
+    /// which a held controller does not give. The job counts as held meanwhile and a resume goes to the port at once.
+    held_outside: AtomicBool,
     options: RunOptions,
     /// A line of the job went out to the controller.
     sent: AtomicBool,
@@ -143,6 +151,8 @@ impl Shared {
             stopper: Mutex::new(None),
             hold_now: Mutex::new(None),
             hold_sent: AtomicBool::new(false),
+            resume_now: Mutex::new(None),
+            held_outside: AtomicBool::new(false),
         }
     }
 
@@ -192,9 +202,22 @@ fn open_grbl(
     let (link, handle) = crate::emergency::share(transport);
     let handle = Arc::new(handle);
     let for_hold = handle.clone();
-    *shared.hold_now.locked() = Some(Box::new(move || for_hold.hold()));
+    let door = shared.options.stop_spindle_on_pause;
+    *shared.hold_now.locked() = Some(Box::new(move || {
+        if door {
+            for_hold.hold_with_door()
+        } else {
+            for_hold.hold()
+        }
+    }));
+    let for_resume = handle.clone();
+    *shared.resume_now.locked() = Some(Box::new(move || for_resume.resume()));
     *shared.stopper.locked() = Some(handle);
-    Ok(Box::new(GrblController::new(link).with_timeouts(timeouts)))
+    Ok(Box::new(
+        GrblController::new(link)
+            .with_timeouts(timeouts)
+            .with_spindle_stop_on_pause(door),
+    ))
 }
 
 #[cfg(not(feature = "serial"))]
@@ -275,7 +298,11 @@ impl GcodeRun {
     }
 
     pub fn state(&self) -> GState {
-        self.shared.state.locked().clone()
+        let state = self.shared.state.locked().clone();
+        if state == GState::Running && self.shared.held_outside.load(Ordering::SeqCst) {
+            return GState::Held(Hold::Operator);
+        }
+        state
     }
 
     /// How many lines of the program itself the controller has taken, and how many the program has.
@@ -297,7 +324,8 @@ impl GcodeRun {
     }
 
     /// Holds the job where it is; it stays held until [`GcodeRun::resume`]. On a GRBL machine the feed hold is written to the port at once, from
-    /// this thread, so that the machine stops moving even while the thread of the job waits for the end of a line or for the last moves.
+    /// this thread, so that the machine stops moving even while the thread of the job waits for the end of a line or for the last moves (with
+    /// `stop_spindle_on_pause`, the safety door byte follows it, so the spindle and the coolant stop too).
     pub fn pause(&self) {
         self.shared.hold.store(true, Ordering::SeqCst);
         let sent = self
@@ -308,12 +336,26 @@ impl GcodeRun {
             .map(|hold| hold().is_ok());
         if sent == Some(true) {
             self.shared.hold_sent.store(true, Ordering::SeqCst);
+            self.shared.held_outside.store(true, Ordering::SeqCst);
         }
     }
 
     /// Lets a held job go on.
     pub fn resume(&self) {
         self.shared.hold.store(false, Ordering::SeqCst);
+        // a hold the thread of the job has not taken over: it cannot end it (it may be waiting for a line the held machine does not
+        // answer), so the resume goes to the port from here
+        if self.shared.held_outside.swap(false, Ordering::SeqCst) {
+            let sent = self
+                .shared
+                .resume_now
+                .locked()
+                .as_ref()
+                .map(|resume| resume().is_ok());
+            if sent == Some(true) {
+                self.shared.hold_sent.store(false, Ordering::SeqCst);
+            }
+        }
         // the confirmation counts only for a job that waits for it: one given early must not skip the check of a job that goes on after a stop
         if matches!(self.state(), GState::Held(Hold::Resume | Hold::PowerOn)) {
             self.shared.confirm.store(true, Ordering::SeqCst);
@@ -574,6 +616,8 @@ fn wait_held(shared: &Shared, hold: Hold) -> bool {
     // a confirmation given before this question was asked does not answer it
     shared.confirm.store(false, Ordering::SeqCst);
     shared.set(GState::Held(hold));
+    // from here on the thread of the job holds the pause and ends it
+    shared.held_outside.store(false, Ordering::SeqCst);
     loop {
         if shared.cancel.load(Ordering::SeqCst) {
             return false;
@@ -1045,6 +1089,43 @@ mod tests {
     }
 
     #[test]
+    fn a_pause_while_a_line_waits_counts_as_held_and_the_resume_goes_to_the_port_at_once() {
+        let shared = Arc::new(Shared::new());
+        shared.set(GState::Running);
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let holds = written.clone();
+        *shared.hold_now.locked() = Some(Box::new(move || {
+            holds.lock().unwrap().push("hold");
+            Ok(())
+        }));
+        let resumes = written.clone();
+        *shared.resume_now.locked() = Some(Box::new(move || {
+            resumes.lock().unwrap().push("resume");
+            Ok(())
+        }));
+        // no thread of a job: it stands for one that waits for the answer to a line
+        let run = GcodeRun {
+            shared: shared.clone(),
+            handle: Mutex::new(None),
+            preamble: 0,
+            raws: vec![0],
+            raw_total: 1,
+        };
+        run.pause();
+        assert_eq!(run.state(), GState::Held(Hold::Operator));
+        run.resume();
+        assert_eq!(run.state(), GState::Running);
+        assert!(
+            !hold_pending(&shared),
+            "nothing is left for the thread to do"
+        );
+        assert_eq!(written.lock().unwrap().as_slice(), ["hold", "resume"]);
+        // a resume with nothing held writes nothing
+        run.resume();
+        assert_eq!(written.lock().unwrap().len(), 2);
+    }
+
+    #[test]
     fn a_pause_on_the_simulator_holds_the_job_and_needs_no_port() {
         let text: String = (0..400).map(|i| format!("G0 X{}\n", i % 100)).collect();
         let run = start(&text, 0);
@@ -1194,6 +1275,7 @@ mod tests {
             spindle_wait: Duration::from_millis(50),
             power_on_hold: program.power_on_at,
             stop_wait: Duration::from_millis(300),
+            stop_spindle_on_pause: false,
             expected_mm: Some(WAS_AT),
             tolerance_mm: 0.05,
         }));
@@ -1268,6 +1350,7 @@ mod tests {
             spindle_wait,
             power_on_hold: None,
             stop_wait: Duration::from_millis(300),
+            stop_spindle_on_pause: false,
             expected_mm: Some(WAS_AT),
             tolerance_mm: 0.05,
         }));

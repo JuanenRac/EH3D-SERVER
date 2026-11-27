@@ -48,7 +48,7 @@ jobs:
         with:
           persist-credentials: false
           repository: JuanenRac/EH3D-COMMON
-          ref: 503c8bca82a8e74d801a8cd0d9b9fac7a460eba2
+          ref: 9adcc37d724675fdf84948cd3e1727bcccd48b35
           path: EH3D-COMMON
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

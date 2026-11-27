@@ -85,6 +85,9 @@ resume_margin_lines = 16
 # How long, in seconds, a GRBL machine that is stopped may take to say that it stands still (1 to 60). The feed hold goes at once and the reset, which stops the spindle, goes when the machine says it stands still.
 # When it does not say so in time the reset goes all the same, the position of the machine is written down as not known and the job does not go on by itself.
 grbl_stop_wait_s = 3
+# A pause of a job on a GRBL machine is the feed hold, which leaves the spindle turning. With this on, the pause also sends the safety door byte (0x84): the firmware stops the spindle and the coolant and starts them
+# again when the job goes on. A job whose pause is not confirmed with the door state is stopped. Off by default; not tried on a real machine.
+grbl_spindle_stop_on_pause = false
 # A G-code job that goes on after a stop waits for a person and then goes up to this height of the work (mm, 0 to 500), starts the spindle the program had on, gives it its time (seconds, 0 to 120),
 # crosses to the point where it was and goes down at no more than this feed (mm/min).
 resume_safe_z_mm = 5
