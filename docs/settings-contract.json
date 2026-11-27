@@ -2263,7 +2263,7 @@
         "fr": "La pause GRBL arrête aussi broche et arrosage (porte de sécurité, 0x84). Désactivé ; non essayé sur machine.",
         "it": "La pausa GRBL ferma anche mandrino e refrigerante (porta di sicurezza, 0x84). Spenta; non provata su macchina.",
         "ja": "GRBL の一時停止で主軸とクーラントも止めます（安全ドア 0x84）。再開で再始動。既定はオフ、実機では未確認です。",
-        "zh": "GRBL 暂停时同时停止主轴和冷却液（安全门 0x84），继续后重新启动。默认关闭；未在实机上试过。",
+        "zh": "GRBL 暂停时主轴停止，切削辅助输出也关闭（0x84），继续后重新启动。默认关闭；未在实机上试过。",
         "pt": "A pausa em GRBL para também o fuso e o refrigerante (porta, 0x84) até continuar. Desligada; não testada em máquina."
       },
       "warning": {

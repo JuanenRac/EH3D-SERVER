@@ -100,9 +100,9 @@ jobs:
       - name: Check out the siblings (path dependencies)
         shell: bash
         run: |
-          git clone --depth 1 --branch v0.3.9 https://github.com/JuanenRac/EH3D-COMMON.git ../EH3D-COMMON
-          git clone --depth 1 --branch v0.2.4 https://github.com/JuanenRac/EH3D-DRILLPRO.git ../EH3D-DRILLPRO
-          git init -q ../EH3D-ROUTEPRO && git -C ../EH3D-ROUTEPRO fetch -q --depth 1 https://github.com/JuanenRac/EH3D-ROUTEPRO.git 2aafa6ab6a3d0eec8540ab632d668193d6d61b57 && git -C ../EH3D-ROUTEPRO checkout -q FETCH_HEAD
+          git init -q ../EH3D-COMMON && git -C ../EH3D-COMMON fetch -q --depth 1 https://github.com/JuanenRac/EH3D-COMMON.git 6e3c7b0d71f9c93c6fe77ed3c1fc0e02c7c6f7dd && git -C ../EH3D-COMMON checkout -q FETCH_HEAD
+          git init -q ../EH3D-DRILLPRO && git -C ../EH3D-DRILLPRO fetch -q --depth 1 https://github.com/JuanenRac/EH3D-DRILLPRO.git 4e2f2863e6bb98622fa7a38f8d0f8bfb88b2a13c && git -C ../EH3D-DRILLPRO checkout -q FETCH_HEAD
+          git init -q ../EH3D-ROUTEPRO && git -C ../EH3D-ROUTEPRO fetch -q --depth 1 https://github.com/JuanenRac/EH3D-ROUTEPRO.git ee675bde8c41dd56937c9027196c3bf360238794 && git -C ../EH3D-ROUTEPRO checkout -q FETCH_HEAD
           git init -q ../EH3D-CORE-LIBS && git -C ../EH3D-CORE-LIBS fetch -q --depth 1 https://github.com/JuanenRac/EH3D-CORE-LIBS.git adc2390f4c48f46e663d757968d1a5fb58c4707f && git -C ../EH3D-CORE-LIBS checkout -q FETCH_HEAD
       - name: Rust toolchain
         shell: bash

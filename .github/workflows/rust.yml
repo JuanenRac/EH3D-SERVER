@@ -48,13 +48,13 @@ jobs:
         with:
           persist-credentials: false
           repository: JuanenRac/EH3D-COMMON
-          ref: 9adcc37d724675fdf84948cd3e1727bcccd48b35
+          ref: 6e3c7b0d71f9c93c6fe77ed3c1fc0e02c7c6f7dd
           path: EH3D-COMMON
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           repository: JuanenRac/EH3D-DRILLPRO
-          ref: 397955617eff63dd34b09cf2b17f69a873afd14b
+          ref: 4e2f2863e6bb98622fa7a38f8d0f8bfb88b2a13c
           path: EH3D-DRILLPRO
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
