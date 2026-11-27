@@ -125,6 +125,8 @@ pub const ALL: &[(&str, u16, &str)] = &[
     ("printers_off", 501, "The list of the printers is switched off on this server (printers_enabled)."),
     ("program_over_limit", 422, "A program for a 3D printer asks for a temperature or a feed over a limit of the machine, so the whole program is refused."),
     ("project_quota", 507, "The project, the application or the store would pass its limit (project_max_mb, project_max_files, project_max_projects)."),
+    ("question_changed", 409, "The question named in the answer is not the one the job asks now: read the job again."),
+    ("question_required", 409, "The answer to a job names no question and the setting answer_needs_question asks for it."),
     ("queue_full", 429, "As many tasks are waiting or running as the server accepts (max_tasks)."),
     ("quota", 429, "The caller already has as many tasks waiting or running as one user may (tasks_per_user)."),
     ("sensor_fault", 409, "A heater reads below min_temp_c, which is a broken sensor: the printer was stopped and the machine is latched until an administrator releases it."),

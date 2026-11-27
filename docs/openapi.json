@@ -3456,9 +3456,12 @@
         "x-role": "operator",
         "x-scope": "jobs:confirm",
         "x-error-codes": [
+          "bad_request",
           "forbidden",
           "forbidden_scope",
           "not_running",
+          "question_changed",
+          "question_required",
           "unauthorized",
           "unknown_job"
         ],
@@ -3473,6 +3476,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Answer"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Done.",
@@ -3483,6 +3496,20 @@
                 },
                 "example": {
                   "ok": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused with `bad_request`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_request",
+                  "detail": ""
                 }
               }
             }
@@ -3530,7 +3557,7 @@
             }
           },
           "409": {
-            "description": "Refused with `not_running`.",
+            "description": "Refused with `not_running`, `question_changed`, `question_required`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3760,9 +3787,12 @@
         "x-role": "operator",
         "x-scope": "jobs:start",
         "x-error-codes": [
+          "bad_request",
           "forbidden",
           "forbidden_scope",
           "not_in_state",
+          "question_changed",
+          "question_required",
           "unauthorized",
           "unknown_job"
         ],
@@ -3777,6 +3807,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Answer"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Done.",
@@ -3787,6 +3827,20 @@
                 },
                 "example": {
                   "ok": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused with `bad_request`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "example": {
+                  "error": "bad_request",
+                  "detail": ""
                 }
               }
             }
@@ -3834,7 +3888,7 @@
             }
           },
           "409": {
-            "description": "Refused with `not_in_state`.",
+            "description": "Refused with `not_in_state`, `question_changed`, `question_required`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -19448,6 +19502,10 @@
           },
           "tool": {
             "type": "integer"
+          },
+          "question": {
+            "type": "string",
+            "description": "Identifies this question: a new one every time the job stops to ask. Send it back with `confirm` or `resume`."
           }
         },
         "required": [
@@ -19700,6 +19758,16 @@
           "id",
           "request"
         ]
+      },
+      "Answer": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "The `pause.question` of the job being answered. Optional unless the setting `answer_needs_question` is on."
+          }
+        },
+        "additionalProperties": false
       },
       "ResumeFrom": {
         "type": "object",

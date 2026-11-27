@@ -92,6 +92,9 @@ resume_spindle_wait_s = 3
 resume_plunge_feed_mm_min = 100
 # How far, in micrometres, each axis may be from where the stopped job left the machine for the job to go on by itself (1 to 10000). Farther than that it is refused: the machine was moved or lost its position.
 resume_position_tolerance_um = 50
+# Whether the answer to a question of a job (confirm, resume) must name the question it answers (`pause.question` of the job). Off: an answer without it is taken, as the clients published before it send
+# it. Turn it on when every screen and program that answers sends it. An answer that names a question the job no longer asks is refused either way.
+answer_needs_question = false
 # How many wrong passwords in a row, with any names, block the address they come from for a while (0 to 1000; 0 turns it off). The address is the one of the connection: behind a reverse proxy it is the proxy's, so turn it off there.
 login_ip_limit = 10
 # Accept the token of the session in the address of the camera and of the websocket (the first versions of the clients sent it there). Off by default: the clients ask for a ticket (POST /api/v1/tickets), good for one use within 30 seconds.

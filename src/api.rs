@@ -23,7 +23,7 @@ use crate::inspect::{self, InspectError};
 use crate::jobs::{new_id, now, JobRecord, JobState};
 use crate::machines::{MachineError, MachineRecord};
 use crate::plan::{self, JobRequest};
-use crate::state::{AppState, PauseError, StartError};
+use crate::state::{AnswerError, AppState, PauseError, StartError};
 use crate::sync::Locked;
 
 pub type Shared = Arc<AppState>;
@@ -1679,22 +1679,62 @@ async fn start_job(
     }
 }
 
+/// What `confirm` and `resume` may carry. The body is optional.
+#[derive(Deserialize, Default)]
+struct AnswerBody {
+    /// The `pause.question` of the job the person was looking at.
+    question: Option<String>,
+}
+
+fn question_error(e: AnswerError) -> ApiError {
+    match e {
+        AnswerError::QuestionRequired => ApiError::new(
+            StatusCode::CONFLICT,
+            "question_required",
+            "name the question you answer: send `question` with the `pause.question` of the job",
+        ),
+        AnswerError::QuestionChanged => ApiError::new(
+            StatusCode::CONFLICT,
+            "question_changed",
+            "the job no longer asks that question: read the job again and answer what it asks now",
+        ),
+        AnswerError::Pause(e) => pause_error(e),
+    }
+}
+
+/// Hands an answer to the job on a thread that may wait: the answer lasts until the run has left the question.
+async fn answer(
+    s: &Shared,
+    id: &str,
+    body: &[u8],
+    give: fn(&AppState, &str, Option<&str>) -> Result<(), AnswerError>,
+) -> Result<Result<(), AnswerError>, ApiError> {
+    let b: AnswerBody = optional_object(body)?;
+    let (state, job) = (s.clone(), id.to_string());
+    tokio::task::spawn_blocking(move || give(&state, &job, b.question.as_deref()))
+        .await
+        .map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", ""))
+}
+
 async fn confirm_job(
     State(s): State<Shared>,
     Authed(who, _): Authed,
     Path(id): Path<String>,
+    body: axum::body::Bytes,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
     need_scope(&who, "jobs:confirm")?;
-    if s.confirm_job(&id) {
-        note(&s, "job_confirm", &who, &[("job", &id)]);
-        Ok(Json(json!({ "ok": true })))
-    } else {
-        Err(ApiError::new(
+    match answer(&s, &id, &body, AppState::confirm_job).await? {
+        Ok(()) => {
+            note(&s, "job_confirm", &who, &[("job", &id)]);
+            Ok(Json(json!({ "ok": true })))
+        }
+        Err(AnswerError::Pause(_)) => Err(ApiError::new(
             StatusCode::CONFLICT,
             "not_running",
             "the job is not running",
-        ))
+        )),
+        Err(e) => Err(question_error(e)),
     }
 }
 
@@ -1773,10 +1813,13 @@ async fn resume_job(
     State(s): State<Shared>,
     Authed(who, _): Authed,
     Path(id): Path<String>,
+    body: axum::body::Bytes,
 ) -> ApiResult {
     need(&who, Role::Operator)?;
     need_scope(&who, "jobs:start")?;
-    s.resume_job(&id).map_err(pause_error)?;
+    answer(&s, &id, &body, AppState::answer_resume)
+        .await?
+        .map_err(question_error)?;
     note(&s, "job_resume", &who, &[("job", &id)]);
     Ok(Json(json!({ "ok": true })))
 }

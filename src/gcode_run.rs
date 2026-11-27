@@ -535,6 +535,8 @@ fn wait_held(shared: &Shared, hold: Hold) -> bool {
         };
         if released {
             shared.confirm.store(false, Ordering::SeqCst);
+            // the wait is over from now on: what is done before the next line goes out must not show as the same question still being asked
+            shared.set(GState::Running);
             return true;
         }
         thread::sleep(Duration::from_millis(50));

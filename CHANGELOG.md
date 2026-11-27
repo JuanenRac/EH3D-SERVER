@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+- **An answer names the question it answers (safety):** while a job waits, `pause.question` identifies what it asks, with a new identifier every time. `POST /jobs/:id/confirm` and `/resume` take `{"question": ...}` and answer `409 question_changed` when the job asks something else by then, so a screen or a person cannot answer a question they have not seen (the start of the spindle that follows a tool change). Each question is answered once, also by clients that send no identifier. New setting `answer_needs_question` (off, so that published clients keep working; on: an answer without the identifier is `409 question_required`; 106 settings now). The resume of the work queue and of the compatibility routes only lets go a job an operator held. Checked against the simulator; not tried on a machine.
+
 ## [0.2.7] - Limits that a spaced number could skip, real-time characters refused and a prudent stop and resume (not tried on a machine)
 
 - **Blanks no longer hide a speed or a feed from the limits (safety):** the lines of a program are read with the G-code reader of the suite at a later commit, which reads them as GRBL does (`S1 000` is `S1000`, `F1 000` is `F1000`). Before, the findings `rpm_over_limit` and `feed_over_limit` and the limits of the spindle could be passed that way. The cut of the `S` words (spindle switch on `warn`) takes the number the same way, the unit a line sets counts for all its words, the feed of a jog is judged, and the CAM verification judges feeds in inches and moves that do not name their motion.

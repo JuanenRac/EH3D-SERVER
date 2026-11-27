@@ -42,6 +42,23 @@ fn server(name: &str) -> Server {
     }
 }
 
+/// A server that asks every answer to a job to name its question.
+fn server_needing_question(name: &str) -> Server {
+    let dir = std::env::temp_dir().join(format!("eh3d-server-api-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let cfg = ServerConfig {
+        data_dir: dir.clone(),
+        answer_needs_question: true,
+        ..ServerConfig::default()
+    };
+    let state = AppState::open(cfg).unwrap();
+    Server {
+        app: router(state.clone()),
+        state,
+        dir,
+    }
+}
+
 /// A server that keeps its logins on the disk (it is off by default).
 fn server_persisting(name: &str) -> Server {
     let dir = std::env::temp_dir().join(format!("eh3d-server-api-{name}-{}", std::process::id()));
@@ -3685,4 +3702,98 @@ async fn the_health_check_tells_the_switches_of_the_server() {
         f["persist_sessions"], false,
         "the logins are not kept on the disk by default"
     );
+}
+
+/// Waits until the job asks a question that is not `before`: the job and the identifier of the question.
+async fn wait_question(s: &Server, token: &str, job: &str, before: &str) -> (Value, String) {
+    let limit = Instant::now() + Duration::from_secs(60);
+    loop {
+        let (_, body) = get(s, token, &format!("/api/v1/jobs/{job}")).await;
+        let question = body["pause"]["question"].as_str().unwrap_or("").to_string();
+        if body["state"] == "waiting_operator" && !question.is_empty() && question != before {
+            return (body, question);
+        }
+        assert!(Instant::now() < limit, "no new question: {body}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+async fn refused(s: &Server, token: &str, path: &str, body: Option<Value>, code: &str) {
+    let (status, answer) = post(s, token, path, body).await;
+    assert_eq!(
+        (status, answer["error"].as_str()),
+        (StatusCode::CONFLICT, Some(code)),
+        "{answer}"
+    );
+}
+
+#[tokio::test]
+async fn an_answer_that_names_another_question_than_the_one_asked_is_refused() {
+    let s = server("question-changed");
+    let token = admin(&s).await;
+    demo_machine(&s, &token, "m1").await;
+    let (_, job) = post(&s, &token, "/api/v1/machines/m1/jobs", Some(drill_job())).await;
+    let id = job["id"].as_str().unwrap().to_string();
+    post(&s, &token, &format!("/api/v1/jobs/{id}/start"), None).await;
+    let confirm = format!("/api/v1/jobs/{id}/confirm");
+    let (first_job, first) = wait_question(&s, &token, &id, "").await;
+    refused(
+        &s,
+        &token,
+        &confirm,
+        Some(json!({"question": "q00000000"})),
+        "question_changed",
+    )
+    .await;
+    // nothing was answered: the job asks the same
+    let (still, same) = wait_question(&s, &token, &id, "").await;
+    assert_eq!((&still["pause"], &same), (&first_job["pause"], &first));
+    let (status, body) = post(&s, &token, &confirm, Some(json!({"question": first}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    // the next thing the job asks has an identifier of its own, and the old answer does not reach it
+    let (_, second) = wait_question(&s, &token, &id, &first).await;
+    refused(
+        &s,
+        &token,
+        &confirm,
+        Some(json!({"question": first})),
+        "question_changed",
+    )
+    .await;
+    let (status, body) = post(&s, &token, &confirm, Some(json!({"question": second}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    // a client published before the identifier goes on as it did
+    wait_for(&s, &token, &id, &["done"], true).await;
+}
+
+#[tokio::test]
+async fn with_the_setting_on_an_answer_has_to_name_the_question() {
+    let s = server_needing_question("question-required");
+    let token = admin(&s).await;
+    demo_machine(&s, &token, "m1").await;
+    let id = failed_gcode_job(&s, &token).await;
+    let (status, second) = post(&s, &token, &format!("/api/v1/jobs/{id}/resume-from"), None).await;
+    assert_eq!(status, StatusCode::OK, "{second}");
+    let second = second["id"].as_str().unwrap().to_string();
+    post(&s, &token, &format!("/api/v1/jobs/{second}/start"), None).await;
+    let (job, question) = wait_question(&s, &token, &second, "").await;
+    assert_eq!(job["pause"]["kind"], "resume", "{job}");
+    let resume = format!("/api/v1/jobs/{second}/resume");
+    let confirm = format!("/api/v1/jobs/{second}/confirm");
+    refused(&s, &token, &resume, None, "question_required").await;
+    refused(&s, &token, &confirm, Some(json!({})), "question_required").await;
+    refused(
+        &s,
+        &token,
+        &resume,
+        Some(json!({"question": ""})),
+        "question_changed",
+    )
+    .await;
+    // the way of the programs does not answer the wait of a job that goes on after a stop
+    assert!(s.state.resume_job(&second).is_err());
+    let (status, body) = post(&s, &token, &resume, Some(json!({"question": question}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let end = wait_state(&s, &token, &second, &["done", "failed"]).await;
+    assert_eq!(end["state"], "failed", "{end}");
 }

@@ -2383,6 +2383,54 @@
       }
     },
     {
+      "key": "answer_needs_question",
+      "group": "machines",
+      "type": "boolean",
+      "default": false,
+      "apply": "restart",
+      "write": {
+        "via": "file",
+        "method": null,
+        "path": null,
+        "file": "server.cfg"
+      },
+      "role": null,
+      "scope": null,
+      "confirm_when_looser": false,
+      "secret": false,
+      "risk": "machine",
+      "label": {
+        "en": "Answers must name the question",
+        "es": "Las respuestas deben nombrar la pregunta",
+        "de": "Antworten müssen die Frage nennen",
+        "fr": "Les réponses doivent nommer la question",
+        "it": "Le risposte devono nominare la domanda",
+        "ja": "回答に質問の指定を必須にする",
+        "zh": "回答必须指明所答问题",
+        "pt": "As respostas têm de nomear a pergunta"
+      },
+      "help": {
+        "en": "Refuse a confirmation or resume that does not say which question it answers; off: published clients keep working.",
+        "es": "Rechaza confirmar o reanudar sin decir qué pregunta se contesta; apagado: los clientes publicados siguen funcionando.",
+        "de": "Bestätigen oder Fortsetzen ohne Angabe der Frage ablehnen; aus: veröffentlichte Clients laufen weiter.",
+        "fr": "Refuse une confirmation ou reprise sans la question visée ; désactivé : les clients publiés fonctionnent encore.",
+        "it": "Rifiuta conferma o ripresa senza indicare la domanda; spento: i client pubblicati funzionano ancora.",
+        "ja": "どの質問への回答かを示さない確認や再開を拒否します。オフなら公開済みクライアントもそのまま使えます。",
+        "zh": "拒绝未指明所答问题的确认或继续；关闭则已发布的客户端照常工作。",
+        "pt": "Recusa confirmar ou retomar sem dizer a que pergunta responde; desligado: os clientes publicados continuam a funcionar."
+      },
+      "warning": {
+        "en": "Set in server.cfg; it takes effect after the server restarts. A wrong value can stop a job on a real machine or leave it held; try it on the simulator first.",
+        "es": "Se fija en server.cfg; se aplica tras reiniciar el servidor. Un valor erróneo puede detener un trabajo en una máquina real o dejarla retenida; probar antes en el simulador.",
+        "de": "Wird in server.cfg gesetzt und wirkt nach einem Neustart des Servers. Ein falscher Wert kann einen Auftrag an einer echten Maschine stoppen oder sie angehalten lassen; zuerst im Simulator testen.",
+        "fr": "Défini dans server.cfg ; effectif après le redémarrage du serveur. Une mauvaise valeur peut arrêter un travail sur une vraie machine ou la laisser retenue ; essayer d'abord sur le simulateur.",
+        "it": "Si imposta in server.cfg; ha effetto dopo il riavvio del server. Un valore sbagliato può fermare un lavoro su una macchina reale o lasciarla bloccata; provare prima sul simulatore.",
+        "ja": "server.cfg で設定し、サーバーの再起動後に反映されます。誤った値は実機のジョブを止めたり機械を保留状態にしたりします。先にシミュレーターで試してください。",
+        "zh": "在 server.cfg 中设置；服务器重启后生效。错误的值可能使真实机床上的作业中止或停在保持状态；请先在模拟器上试用。",
+        "pt": "Define-se em server.cfg; aplica-se após reiniciar o servidor. Um valor errado pode parar um trabalho numa máquina real ou deixá-la retida; experimentar primeiro no simulador."
+      }
+    },
+    {
       "key": "resume_position_tolerance_um",
       "group": "machines",
       "type": "integer",
