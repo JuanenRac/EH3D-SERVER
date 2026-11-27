@@ -1240,6 +1240,7 @@ mod tests {
             spindle_original: None,
             spindle_vfd: None,
             allow_dollar: false,
+            tool_head: String::new(),
         }
     }
 

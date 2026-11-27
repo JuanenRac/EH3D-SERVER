@@ -10,6 +10,12 @@ the server; it does not keep a list of its own.
 | Every setting and switch, with its texts | `docs/settings-contract.json` (`eh3d.settings.contract/1`) | `python tools/gen_settings_contract.py` (`--check` in the CI) | that its copy is the file of the server and that every key it shows is in it |
 | Every route | `docs/openapi.json` | `python tools/make_openapi.py` (`--check` in the CI) | that every route it calls is in the document |
 
+## A job that goes on after a stop: the second question
+
+A G-code job that goes on may wait twice, both times with `pause.kind = "resume"`. The second time `pause.power_on` is `true`: confirming switches the spindle or the laser on again. A
+client says so on the screen, sends back the `pause.question` it shows (an answer without it is refused with `409 question_required`, whatever `answer_needs_question` says) and never
+answers it by itself. A client that edits machines offers the member `tool_head` (`laser`, `spindle` or empty) and, not sending it, leaves it as it was.
+
 ## The contract of the settings
 
 `docs/settings-contract.json` lists every key of `server.cfg` (106 today): its group, type (`boolean`, `integer`, `string`, `list`), range, default and unit, whether a change is in

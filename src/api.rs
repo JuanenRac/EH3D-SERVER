@@ -1159,6 +1159,9 @@ async fn put_machine(
         if !sent("allow_dollar") {
             record.allow_dollar = old.allow_dollar;
         }
+        if !sent("tool_head") {
+            record.tool_head = old.tool_head.clone();
+        }
     }
     let shown = record.public();
     s.machines.locked().replace(record)?;

@@ -43,6 +43,8 @@ pub struct Program {
     pub resume: bool,
     /// The entry after which the spindle is given its time to reach its speed.
     pub spindle_wait_after: Option<usize>,
+    /// The entry of the sequence of a job that goes on that switches the spindle or the laser on again (`M3`, `M4`).
+    pub power_on_at: Option<usize>,
     /// The most the spindle of the machine may be asked to turn (a machine whose spindle switch is on `warn`).
     pub speed_limit: Option<f64>,
 }
@@ -75,6 +77,8 @@ pub struct ResumeMoves {
     pub safe_z_mm: f64,
     /// The most the tool goes down at, in mm/min, back to where the program had it.
     pub plunge_feed_mm_min: f64,
+    /// The machine carries a laser: it is switched on once the head is back over the point, and there is no speed to wait for.
+    pub laser: bool,
 }
 
 impl Default for ResumeMoves {
@@ -82,6 +86,7 @@ impl Default for ResumeMoves {
         ResumeMoves {
             safe_z_mm: 5.0,
             plunge_feed_mm_min: 100.0,
+            laser: false,
         }
     }
 }
@@ -267,15 +272,24 @@ pub fn with_resume_sequence(
     }
     let lift = z.map_or(moves.safe_z_mm, |z| z.max(moves.safe_z_mm));
     lines.push(format!("G0 Z{}", number(lift)));
+    let power_on = match point.spindle {
+        Some(m @ (3 | 4)) => {
+            let limit = program.speed_limit.unwrap_or(f64::INFINITY);
+            let speed = point
+                .speed
+                .map(|s| format!(" S{}", number(s.min(limit))))
+                .unwrap_or_default();
+            Some(format!("M{m}{speed}"))
+        }
+        _ => None,
+    };
+    // a spindle turns before the tool goes back into the work; a laser is switched on only once the head is there
     let mut spindle_wait_after = None;
-    if let Some(m @ (3 | 4)) = point.spindle {
+    let mut power_on_at = None;
+    if let Some(line) = power_on.as_ref().filter(|_| !moves.laser) {
         spindle_wait_after = Some(lines.len());
-        let limit = program.speed_limit.unwrap_or(f64::INFINITY);
-        let speed = point
-            .speed
-            .map(|s| format!(" S{}", number(s.min(limit))))
-            .unwrap_or_default();
-        lines.push(format!("M{m}{speed}"));
+        power_on_at = Some(lines.len());
+        lines.push(line.clone());
     }
     if restore_outputs {
         if let Some(m @ (7 | 8)) = point.coolant {
@@ -298,6 +312,10 @@ pub fn with_resume_sequence(
         });
         lines.push(format!("G1 Z{} F{}", number(z), number(feed)));
     }
+    if let Some(line) = power_on.filter(|_| moves.laser) {
+        power_on_at = Some(lines.len());
+        lines.push(line);
+    }
     // the first line of the program that moves is given its motion again: until then the controller is in rapid, as after a reset
     lines.push("G0".to_string());
     if point.inches {
@@ -318,6 +336,7 @@ pub fn with_resume_sequence(
     program.preamble = program.entries.len();
     program.entries.extend(first);
     program.spindle_wait_after = spindle_wait_after;
+    program.power_on_at = power_on_at;
 }
 
 impl Program {
@@ -769,6 +788,7 @@ pub fn parse_with(
         raw_total: raw.len(),
         resume: skip > 0,
         spindle_wait_after: None,
+        power_on_at: None,
         speed_limit: None,
     })
 }
