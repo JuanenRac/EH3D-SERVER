@@ -47,7 +47,8 @@ pub const SETTINGS_HELP: &[(&str, &str)] = &[
     ("focus_check", "no job while the focus input says the head is not focused (true by default; a test fire does not need it)"),
     ("focused", "the input of the focus: true when the head is focused (true by default)"),
     ("latch_on_door_open", "the enclosure opened while a job runs ends the job and latches the machine (true by default)"),
-    ("sim_rate", "how many times faster than real time the simulated machine works, 0 to 100000 (1 by default; 0 is no waiting)"),
+    ("m3_run_up_mm", "the run-up and run-out with the laser off of a vector job with laser_mode m3, 0.1 to 50 mm (2 by default)"),
+    ("sim_rate","how many times faster than real time the simulated machine works, 0 to 100000 (1 by default; 0 is no waiting)"),
 ];
 
 /// How the machine takes a program that asks for more power than its limit.
@@ -77,6 +78,7 @@ pub struct LaserConfig {
     pub focus_check: bool,
     pub focused: bool,
     pub latch_on_door_open: bool,
+    pub m3_run_up: f64,
     pub sim_rate: f64,
 }
 
@@ -100,6 +102,7 @@ impl Default for LaserConfig {
             focus_check: true,
             focused: true,
             latch_on_door_open: true,
+            m3_run_up: 2.0,
             sim_rate: 1.0,
         }
     }
@@ -149,6 +152,9 @@ impl LaserConfig {
         }
         if let Some(n) = number_in(settings, "test_fire_max_pct", 0.0, 10.0)? {
             cfg.test_fire_max_pct = n;
+        }
+        if let Some(n) = number_in(settings, "m3_run_up_mm", 0.1, 50.0)? {
+            cfg.m3_run_up = n;
         }
         if let Some(n) = number_in(settings, "sim_rate", 0.0, 100_000.0)? {
             cfg.sim_rate = n;
@@ -802,9 +808,171 @@ pub fn analyze(
 /// The most points a vector job may have.
 pub const MAX_POINTS: usize = 100_000;
 
+/// The members of an operation of a vector job that the server applies.
+const OPERATION_MEMBERS: [&str; 5] = ["layer", "mode", "power_pct", "speed", "passes"];
+
+/// What PHOENIX-LASER can do to a layer and the server does not: a vector request that asks for one of these is refused, never cut without it.
+const NOT_APPLIED: [&str; 14] = [
+    "kerf",
+    "kerf_mm",
+    "tabs",
+    "tab_width",
+    "tab_width_mm",
+    "bridges",
+    "bridge_mm",
+    "perforation",
+    "perf_cut",
+    "perf_cut_mm",
+    "hatch_spacing",
+    "hatch_spacing_mm",
+    "sublayers",
+    "overscan_mm",
+];
+
+/// Whether a member asks for something: `null`, `false`, zero and an empty text, list or object do not.
+fn asks(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::Bool(b) => *b,
+        Value::Number(n) => n.as_f64() != Some(0.0),
+        Value::String(s) => !s.is_empty(),
+        Value::Array(a) => !a.is_empty(),
+        Value::Object(o) => !o.is_empty(),
+    }
+}
+
+fn not_applied(name: &str) -> LaserError {
+    LaserError {
+        code: "bad_operation",
+        detail: format!(
+            "`{name}` is not applied by the server to a vector job: write the program with it and send it as a gcode job"
+        ),
+    }
+}
+
+/// Refuses the request, a path or an operation that asks for something that would be left out in silence.
+fn nothing_left_out(
+    levels: &[&Value],
+    paths: &[Value],
+    operations: &[Value],
+) -> Result<(), LaserError> {
+    for object in levels.iter().copied().chain(paths).chain(operations) {
+        for name in NOT_APPLIED {
+            if object.get(name).is_some_and(asks) {
+                return Err(not_applied(name));
+            }
+        }
+    }
+    for operation in operations.iter().filter_map(Value::as_object) {
+        for (name, value) in operation {
+            if !OPERATION_MEMBERS.contains(&name.as_str()) && asks(value) {
+                return Err(not_applied(name));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The cosine under which two moves one after the other turn back on themselves.
+const TURNS_BACK: f64 = -0.99;
+/// Points closer than this (mm) are one point: the way between them has no direction.
+const SAME_POINT_MM: f64 = 1e-3;
+
+/// One pass over a path in constant power (`M3`): the beam is at `S0` before the rapid move and before every stop, with a run-up and a run-out with the laser off, `lead` mm
+/// long, before and after the burn and where the path turns back on itself. The corners inside the path are left as they are: the head slows there and burns more.
+fn constant_pass(
+    text: &mut String,
+    points: &[(f64, f64)],
+    closed: bool,
+    power: f64,
+    speed: f64,
+    cfg: &LaserConfig,
+) -> Result<(), LaserError> {
+    let wrong = |code: &'static str, detail: String| LaserError { code, detail };
+    let mut way: Vec<(f64, f64)> = Vec::with_capacity(points.len() + 1);
+    for &(x, y) in points.iter().chain(points.first().filter(|_| closed)) {
+        if way
+            .last()
+            .is_none_or(|&(a, b)| (x - a).hypot(y - b) >= SAME_POINT_MM)
+        {
+            way.push((x, y));
+        }
+    }
+    if way.len() < 2 {
+        return Err(wrong(
+            "bad_operation",
+            "a path of no length cannot be burnt with laser_mode m3".to_string(),
+        ));
+    }
+    let lead = cfg.m3_run_up;
+    let direction = |i: usize| {
+        let (dx, dy) = (way[i + 1].0 - way[i].0, way[i + 1].1 - way[i].1);
+        let l = dx.hypot(dy);
+        (dx / l, dy / l)
+    };
+    let beside = |p: (f64, f64), d: (f64, f64), mm: f64| {
+        let q = (p.0 + d.0 * mm, p.1 + d.1 * mm);
+        if cfg_inside(cfg, q) {
+            Ok(q)
+        } else {
+            Err(wrong(
+                "outside_course",
+                format!(
+                    "laser_mode m3 needs a run-up of {} mm with the laser off (m3_run_up_mm) and it leaves the bed: move the drawing inwards or use m4",
+                    num(lead)
+                ),
+            ))
+        }
+    };
+    let xy = |p: (f64, f64)| format!("X{} Y{}", num(p.0), num(p.1));
+    let first = way[0];
+    let start = beside(first, direction(0), -lead)?;
+    text.push_str(&format!(
+        "G0 {}\nM3 S0\nG1 {} S0 F{}\n",
+        xy(start),
+        xy(first),
+        num(speed)
+    ));
+    let last = way.len() - 2;
+    let mut burning = false;
+    for i in 0..=last {
+        let end = way[i + 1];
+        text.push_str(&format!("G1 {}", xy(end)));
+        if !burning {
+            text.push_str(&format!(" S{}", num(power)));
+            burning = true;
+        }
+        text.push('\n');
+        let d = direction(i);
+        if i == last {
+            text.push_str(&format!("G1 {} S0\n", xy(beside(end, d, lead)?)));
+        } else {
+            let next = direction(i + 1);
+            if d.0 * next.0 + d.1 * next.1 < TURNS_BACK {
+                let out = xy(beside(end, d, lead)?);
+                let back = xy(beside(end, next, -lead)?);
+                text.push_str(&format!("G1 {out} S0\n"));
+                if back != out {
+                    text.push_str(&format!("G1 {back} S0\n"));
+                }
+                text.push_str(&format!("G1 {} S0\n", xy(end)));
+                burning = false;
+            }
+        }
+    }
+    text.push_str("M5\n");
+    Ok(())
+}
+
+fn cfg_inside(cfg: &LaserConfig, point: (f64, f64)) -> bool {
+    Limits::of(cfg).inside(point.0, point.1)
+}
+
 /// G-code from the paths and the operations of a vector request: `paths` are `{layer, points: [[x, y], ...], closed}` and each operation is `{layer, mode: cut|engrave,
-/// power_pct, speed (mm/min), passes}`. The paths come in the request or, as the same JSON, in the text of the artifact it names. The program goes through the same reading
-/// as any other (the power limit, the feed limit, the bed), so a vector job is never looser than a G-code one.
+/// power_pct, speed (mm/min), passes}`. The paths come in the request or, as the same JSON, in the text of the artifact it names. `laser_mode` is `m4` (the default,
+/// dynamic power) or `m3` (constant power); any other value is refused, and so is a request that asks for kerf, bridges, perforation, hatch or sub-layers, which the
+/// server does not apply. The program goes through the same reading as any other (the power limit, the feed limit, the bed), so a vector job is never looser than a
+/// G-code one.
 pub fn vector_program(request: &Value, cfg: &LaserConfig) -> Result<String, LaserError> {
     let wrong = |code: &'static str, why: &str| LaserError {
         code,
@@ -843,6 +1011,22 @@ pub fn vector_program(request: &Value, cfg: &LaserConfig) -> Result<String, Lase
                 "operations is a list of 1 to 64 operations",
             )
         })?;
+    let in_artifact = from_artifact.as_ref();
+    let asked = request.get("laser_mode");
+    let kept = in_artifact.and_then(|a| a.get("laser_mode"));
+    if asked.zip(kept).is_some_and(|(a, b)| a != b) {
+        return Err(wrong(
+            "bad_operation",
+            "the request and its artifact name different values of laser_mode",
+        ));
+    }
+    let constant = match asked.or(kept).map(Value::as_str) {
+        None | Some(Some("m4")) => false,
+        Some(Some("m3")) => true,
+        Some(_) => return Err(wrong("bad_operation", "laser_mode is `m4` or `m3`")),
+    };
+    let levels: Vec<&Value> = std::iter::once(request).chain(in_artifact).collect();
+    nothing_left_out(&levels, paths, operations)?;
     let mut text = String::from("G21\nG90\n");
     let mut points = 0usize;
     for op in operations {
@@ -910,6 +1094,11 @@ pub fn vector_program(request: &Value, cfg: &LaserConfig) -> Result<String, Lase
                 ));
             }
             for _ in 0..passes {
+                if constant {
+                    let power = cfg.max_s * pct / 100.0;
+                    constant_pass(&mut text, &pts, closed, power, speed, cfg)?;
+                    continue;
+                }
                 text.push_str(&format!(
                     "G0 X{} Y{}\nM4 S{}\n",
                     num(pts[0].0),
@@ -1945,6 +2134,117 @@ mod tests {
         assert_eq!(
             vector_program(&junk, &cfg).unwrap_err().code,
             "bad_operation"
+        );
+    }
+
+    /// A vector request of one path with one cut at 10 % and 600 mm/min.
+    fn one_cut(points: Value, closed: bool, mode: &str) -> Value {
+        json!({
+            "kind": "vector",
+            "laser_mode": mode,
+            "paths": [{"layer": "a", "points": points, "closed": closed}],
+            "operations": [{"layer": "a", "mode": "cut", "power_pct": 10, "speed": 600}],
+        })
+    }
+
+    #[test]
+    fn m4_is_the_default_and_m3_runs_up_and_out_with_the_laser_off() {
+        let cfg = engine_cfg();
+        let line = json!([[10, 10], [20, 10], [20, 20]]);
+        let dynamic = vector_program(&one_cut(line.clone(), false, "m4"), &cfg).unwrap();
+        let mut unsaid = one_cut(line.clone(), false, "m4");
+        unsaid.as_object_mut().unwrap().remove("laser_mode");
+        assert_eq!(vector_program(&unsaid, &cfg).unwrap(), dynamic);
+        assert!(dynamic.contains("M4 S100\n"), "{dynamic}");
+        let constant = vector_program(&one_cut(line, false, "m3"), &cfg).unwrap();
+        assert_eq!(
+            constant,
+            "G21\nG90\nG0 X8 Y10\nM3 S0\nG1 X10 Y10 S0 F600\nG1 X20 Y10 S100\nG1 X20 Y20\nG1 X20 Y22 S0\nM5\n"
+        );
+        // the program passes the reading of any job and burns the length of the path only
+        let read = analyze(&constant, &Limits::of(&cfg), (0.0, 0.0), 100.0).unwrap();
+        assert!((read.cut_mm - 20.0).abs() < 1e-6, "{}", read.cut_mm);
+    }
+
+    #[test]
+    fn m3_puts_the_beam_out_between_passes_and_where_a_path_turns_back() {
+        let cfg = LaserConfig {
+            m3_run_up: 3.0,
+            ..engine_cfg()
+        };
+        let mut back = one_cut(json!([[10, 10], [20, 10], [20, 10], [10, 10]]), false, "m3");
+        back["operations"][0]["passes"] = json!(2);
+        let program = vector_program(&back, &cfg).unwrap();
+        let pass = "G0 X7 Y10\nM3 S0\nG1 X10 Y10 S0 F600\nG1 X20 Y10 S100\nG1 X23 Y10 S0\nG1 X20 Y10 S0\nG1 X10 Y10 S100\nG1 X7 Y10 S0\nM5\n";
+        assert_eq!(program, format!("G21\nG90\n{pass}{pass}"));
+        // a closed path comes back to its start and runs out past it
+        let square = json!([[10, 10], [20, 10], [20, 20], [10, 20]]);
+        let closed = vector_program(&one_cut(square, true, "m3"), &cfg).unwrap();
+        assert!(
+            closed.ends_with("G1 X10 Y20\nG1 X10 Y10\nG1 X10 Y7 S0\nM5\n"),
+            "{closed}"
+        );
+    }
+
+    #[test]
+    fn m3_that_cannot_be_written_and_a_laser_mode_that_is_not_known_are_refused() {
+        let cfg = engine_cfg();
+        // no room on the bed for the run-up, though the drawing itself fits
+        let edge = json!([[0, 10], [20, 10]]);
+        assert!(vector_program(&one_cut(edge.clone(), false, "m4"), &cfg).is_ok());
+        let e = vector_program(&one_cut(edge, false, "m3"), &cfg).unwrap_err();
+        assert_eq!(e.code, "outside_course", "{}", e.detail);
+        let dot = json!([[5, 5], [5, 5]]);
+        let e = vector_program(&one_cut(dot, false, "m3"), &cfg).unwrap_err();
+        assert_eq!(e.code, "bad_operation");
+        for value in [json!("m5"), json!("M3"), json!(""), json!(3), Value::Null] {
+            let mut r = one_cut(json!([[10, 10], [20, 10]]), false, "m4");
+            r["laser_mode"] = value.clone();
+            let e = vector_program(&r, &cfg).unwrap_err();
+            assert_eq!(e.code, "bad_operation", "{value}");
+        }
+        // an artifact may name the mode; it may not contradict the request
+        let kept = one_cut(json!([[10, 10], [20, 10]]), false, "m3").to_string();
+        let from = json!({"kind": "vector", "artifact_text": kept});
+        assert!(vector_program(&from, &cfg).unwrap().contains("M3 S0\n"));
+        let both = json!({"kind": "vector", "laser_mode": "m4", "artifact_text": kept});
+        assert_eq!(
+            vector_program(&both, &cfg).unwrap_err().code,
+            "bad_operation"
+        );
+    }
+
+    #[test]
+    fn kerf_bridges_and_perforation_are_refused_and_never_left_out() {
+        let cfg = engine_cfg();
+        let plain = one_cut(json!([[10, 10], [20, 10]]), false, "m4");
+        for (place, name, value) in [
+            ("op", "kerf_mm", json!(0.2)),
+            ("op", "tabs", json!(2)),
+            ("op", "perf_cut_mm", json!(1)),
+            ("op", "something_else", json!("x")),
+            ("path", "bridges", json!([[1, 1]])),
+            ("request", "kerf", json!(0.1)),
+            ("request", "perforation", json!(true)),
+        ] {
+            let mut r = plain.clone();
+            match place {
+                "op" => r["operations"][0][name] = value,
+                "path" => r["paths"][0][name] = value,
+                _ => r[name] = value,
+            }
+            let e = vector_program(&r, &cfg).unwrap_err();
+            assert_eq!(e.code, "bad_operation", "{place} {name}");
+            assert!(e.detail.contains(name), "{}", e.detail);
+        }
+        // a member that asks for nothing is no request
+        let mut none = plain.clone();
+        none["operations"][0]["kerf_mm"] = json!(0);
+        none["operations"][0]["tabs"] = json!(0);
+        none["kerf"] = Value::Null;
+        assert_eq!(
+            vector_program(&none, &cfg).unwrap(),
+            vector_program(&plain, &cfg).unwrap()
         );
     }
 
