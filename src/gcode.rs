@@ -314,7 +314,7 @@ pub fn with_resume_sequence(
             f.min(moves.plunge_feed_mm_min)
         });
         // a laser head going down cuts nothing: it is the power that is asked about there
-        plunge_at = Some(lines.len()).filter(|_| !moves.laser);
+        plunge_at = (!moves.laser).then_some(lines.len());
         lines.push(format!("G1 Z{} F{}", number(z), number(feed)));
     }
     if let Some(line) = power_on.filter(|_| moves.laser) {
