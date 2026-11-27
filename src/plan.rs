@@ -758,6 +758,16 @@ fn plan_drill(machine: &MachineRecord, req: &DrillRequest) -> Result<Planned, Pl
                 code: "bad_ncd",
                 detail: format!("{e:?}"),
             })?;
+            // a slot or a routed move is not part of the holes: planning the rest would make another job
+            if let Some(first) = file.ignored.first() {
+                return fail(
+                    "bad_ncd",
+                    format!(
+                        "line {} is not a hole (a slot or a routed move): {}",
+                        first.line, first.text
+                    ),
+                );
+            }
             units_supposed = !declares_unit(&files.ncd);
             let unit = settings.as_ref().map_or(MIL_MM, |m| m.unit.mm());
             let scale = settings.as_ref().map_or((1.0, 1.0), |m| m.scale);
@@ -1004,6 +1014,10 @@ fn plan_route(machine: &MachineRecord, req: &RouteRequest) -> Result<Planned, Pl
     let mut tool_rows: Vec<route_tools::Tool> = Vec::new();
     match (&req.files, &req.paths) {
         (Some(files), None) => {
+            // what the reader drops or does not follow would move or leave out part of the work
+            if let Some(problem) = hpgl::diagnose(&files.plt).first() {
+                return fail("bad_path", problem.to_string());
+            }
             paths = hpgl::parse(&files.plt).paths;
             if let Some(rtd) = &files.rtd {
                 tool_rows = route_tools::parse(rtd);
@@ -1923,5 +1937,33 @@ X2000Y1000
         );
         assert_eq!(planned.items.len(), plain.items.len());
         assert_eq!(planned.view.hole_ends, plain.view.hole_ends);
+    }
+
+    #[test]
+    fn a_file_that_would_be_planned_only_in_part_is_refused() {
+        let dtd = format!("{}1 0.0 1000 24000\n", "# comment\n".repeat(19));
+        let code = |request: serde_json::Value| {
+            plan(&machine(), &serde_json::from_value(request).unwrap())
+                .err()
+                .map(|e| e.code)
+        };
+        // a slot beside a hole: a job of the hole alone is another job
+        let slot =
+            "M48\nINCH\nT1C0.8\n%\nT1\nX1000Y1000\nG00X2000Y2000\nM15\nG01X3000Y2000\nM16\nM30\n";
+        assert_eq!(
+            code(serde_json::json!({"kind": "drill", "files": {"ncd": slot, "dtd": dtd}})),
+            Some("bad_ncd")
+        );
+        // a coordinate that cannot be read, and one with no pair
+        for plt in [
+            "SP1;PU1000,1000;PD1400,x,1400,1800,1000,1000;",
+            "SP1;PU1000,1000;PD1400,1000,7;",
+        ] {
+            assert_eq!(
+                code(serde_json::json!({"kind": "route", "files": {"plt": plt}})),
+                Some("bad_path"),
+                "{plt}"
+            );
+        }
     }
 }
