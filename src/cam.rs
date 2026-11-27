@@ -763,13 +763,20 @@ fn make_verify(text: &str, params: &Value, cfg: &CamConfig) -> PluginResult<Made
     };
     let (mut spindle_on, mut tool_changes, mut ended) = (false, 0usize, false);
     let mut z = f64::NAN;
+    // the motion and the unit in force: a line need not name them
+    let (mut motion, mut unit) = (0i32, 1.0f64);
     for (n, e) in program.entries.iter().enumerate() {
         let line = e.raw + 1;
         let words = gcode::words(&e.text);
-        let g0 = words.iter().any(|&(l, v)| l == 'G' && v == 0.0);
-        let cutting = words
-            .iter()
-            .any(|&(l, v)| l == 'G' && (1.0..=3.0).contains(&v));
+        unit = gcode::unit_of(&words).unwrap_or(unit);
+        for &(l, v) in &words {
+            if l == 'G' && v.fract() == 0.0 && (0.0..=3.0).contains(&v) {
+                motion = v as i32;
+            }
+        }
+        let moves = words.iter().any(|&(l, _)| matches!(l, 'X' | 'Y' | 'Z'));
+        let g0 = moves && motion == 0;
+        let cutting = moves && motion != 0;
         for &(l, v) in &words {
             match (l, v as i64) {
                 ('M', 3 | 4) => spindle_on = true,
@@ -784,7 +791,7 @@ fn make_verify(text: &str, params: &Value, cfg: &CamConfig) -> PluginResult<Made
             let f = words
                 .iter()
                 .filter(|w| w.0 == 'F')
-                .map(|w| w.1)
+                .map(|w| w.1 * unit)
                 .fold(0.0, f64::max);
             if f > cfg.max_feed {
                 note(

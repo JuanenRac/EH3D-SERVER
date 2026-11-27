@@ -516,11 +516,29 @@ pub fn analyze(
     let mut lines: Vec<String> = Vec::new();
     let mut steps: Vec<Step> = Vec::new();
     let (mut max_seen, mut clamped) = (0.0f64, 0usize);
+    // the line where the program ends (M2, M30)
+    let mut ended: Option<usize> = None;
     for (index, line) in raw.iter().enumerate() {
         let n = index + 1;
+        let line = match crate::gcode::whole_line(index, line) {
+            Ok(line) => line,
+            Err(e) => return fail("bad_gcode", e.detail),
+        };
+        if crate::gcode::comment_left_open(line) {
+            return fail(
+                "bad_gcode",
+                format!("line {n}: a comment in parentheses is not closed"),
+            );
+        }
         let code = strip(line);
         if code.is_empty() || code == "%" {
             continue;
+        }
+        if let Some(end) = ended {
+            return fail(
+                "bad_gcode",
+                format!("line {n}: code after the end of the program (line {end})"),
+            );
         }
         if code.chars().any(char::is_control) {
             return fail(
@@ -578,6 +596,19 @@ pub fn analyze(
                 }
             }
         }
+        let twice = words
+            .iter()
+            .enumerate()
+            .any(|(i, (l, _))| !matches!(l, 'G' | 'M') && words[..i].iter().any(|w| w.0 == *l));
+        if twice
+            || gs.iter().filter(|g| (0..=3).contains(*g)).count() > 1
+            || ms.iter().filter(|m| (3..=5).contains(*m)).count() > 1
+        {
+            return fail(
+                "bad_gcode",
+                format!("line {n}: a word, or two codes of one group, written twice"),
+            );
+        }
         let mut dwell = false;
         for g in gs {
             match g {
@@ -596,14 +627,13 @@ pub fn analyze(
                 }
             }
         }
-        let mut finish = false;
         for m in ms {
             match m {
                 3 => rd.beam = Beam::Constant,
                 4 => rd.beam = Beam::Dynamic,
                 5 => rd.beam = Beam::Off,
                 8 | 9 => {}
-                2 | 30 => finish = true,
+                2 | 30 => ended = Some(n),
                 _ => {
                     return fail(
                         "bad_gcode",
@@ -741,9 +771,6 @@ pub fn analyze(
             beam: rd.firing(),
             t: rd.time,
         });
-        if finish {
-            break;
-        }
     }
     if lines.is_empty() {
         return fail("no_work", "the program has no line of code to send".into());
@@ -1470,8 +1497,10 @@ mod tests {
         assert!(a.beam_off_added);
         assert_eq!(a.lines.last().unwrap(), "M5");
         assert!(!a.steps.last().unwrap().beam);
-        let b = ok("M4 S100\nG1 X10 F600\nM2\nG1 X20");
+        let b = ok("M4 S100\nG1 X10 F600\nM2\n(done)\n");
         assert_eq!(b.lines, vec!["M4 S100", "G1 X10 F600", "M2", "M5"]);
+        // nothing is left out in silence
+        assert_eq!(err("M4 S100\nG1 X10 F600\nM2\nG1 X20").code, "bad_gcode");
     }
 
     #[test]

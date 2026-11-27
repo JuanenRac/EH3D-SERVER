@@ -3,9 +3,16 @@
 //! the lines that take the machine back there. Nothing here touches a machine.
 //!
 //! The lines that are sent are the code without its comments; blank lines and `%` are dropped. A line that is not G-code (`$` settings of GRBL, its
-//! real-time characters, control characters) is refused: a job must not change the controller's settings or unlock it. A machine whose administrator
-//! switched `allow_dollar` on takes the `$` lines of GRBL (`$H`, `$X`, `$G`, `$J=...`, settings), except `$RST`, which wipes the controller's memory;
-//! the real-time characters are refused always.
+//! real-time characters, control characters, characters outside ASCII) is refused wherever in the line it stands: a job must not change the
+//! controller's settings or unlock it. A machine whose administrator switched `allow_dollar` on takes the `$` lines of GRBL (`$H`, `$X`, `$G`, `$J=...`,
+//! settings), except `$RST`, which wipes the controller's memory; the real-time characters are refused always.
+//!
+//! What the controller would read in another way than the server did is refused too, with the line and the reason: a line the reader of the suite
+//! cannot read whole (its diagnostic is part of the reason), a comment that is not closed, a carriage return inside a line, code after `M2`/`M30`.
+//!
+//! A program for a 3D printer is not for GRBL: [`parse_printer`] splits it, and `printer3d` judges what it asks.
+
+use eh3d_parser_gcode::{codes, Dialect, Severity};
 
 /// The most lines a program may carry.
 pub const MAX_LINES: usize = 1_000_000;
@@ -90,11 +97,11 @@ pub fn resume_point(text: &str, skip: usize) -> Result<ResumePoint, String> {
     let mut shifted: Option<usize> = None;
     let (mut tool_length, mut cycle): (Option<usize>, Option<usize>) = (None, None);
     for (n, line) in text.lines().take(skip).enumerate() {
-        let code = strip(line);
+        let code = strip(line.trim_start_matches('\u{feff}'));
         let number_of_line = n + 1;
-        if let Some(rest) = code.strip_prefix('$') {
+        if code.starts_with('$') {
             // a homing cycle or a jog moves the machine in a way the words of the program do not follow
-            let rest = rest.to_ascii_uppercase();
+            let rest = &dollar_command(&code)[1..];
             for (axis, letter) in AXIS.iter().enumerate() {
                 if rest.starts_with('H') || (rest.starts_with("J=") && rest.contains(*letter)) {
                     lost[axis] = Some(number_of_line);
@@ -284,10 +291,8 @@ pub fn with_resume_sequence(
     }
     if let Some(z) = z.filter(|z| *z < lift) {
         let scale = if point.inches { 25.4 } else { 1.0 };
-        let own = point
-            .feed
-            .filter(|f| point.feed_mode != Some(95) && *f > 0.0)
-            .map(|f| f * scale);
+        // a program in G95 is refused before it gets here: F is in mm/min or in/min
+        let own = point.feed.filter(|f| *f > 0.0).map(|f| f * scale);
         let feed = own.map_or(moves.plunge_feed_mm_min, |f| {
             f.min(moves.plunge_feed_mm_min)
         });
@@ -297,9 +302,6 @@ pub fn with_resume_sequence(
     lines.push("G0".to_string());
     if point.inches {
         lines.push("G20".to_string());
-    }
-    if point.feed_mode == Some(95) {
-        lines.push("G95".to_string());
     }
     if let Some(f) = point.feed {
         lines.push(format!("F{}", number(f)));
@@ -354,9 +356,15 @@ pub fn strip(line: &str) -> String {
     out.trim().to_string()
 }
 
-/// The words of a line of code: a letter and its number, as the reader of G-code of the suite (EH3D-CORE-LIBS) reads them. A line it cannot make a block of (a `$` line) has none.
+/// The words of a line of code: a letter and its number, as the reader of G-code of the suite (EH3D-CORE-LIBS) reads them for GRBL, where blanks
+/// count for nothing (`S1 000` is `S1000`). A line it cannot make a block of (a `$` line) has none. The reading says nothing of what was left out:
+/// a line that is sent has been through [`parse`] first.
 pub fn words(code: &str) -> Vec<(char, f64)> {
-    eh3d_parser_gcode::parse(code, eh3d_parser_gcode::Dialect::Grbl)
+    block_words(code, Dialect::Grbl)
+}
+
+fn block_words(code: &str, dialect: Dialect) -> Vec<(char, f64)> {
+    eh3d_parser_gcode::parse(code, dialect)
         .blocks
         .into_iter()
         .next()
@@ -364,51 +372,206 @@ pub fn words(code: &str) -> Vec<(char, f64)> {
         .unwrap_or_default()
 }
 
-/// A `$` line of GRBL that a machine with the switch on may take: `$` and then only letters, digits and the signs of a command or a setting.
-fn dollar_ok(code: &str) -> bool {
-    let rest = &code[1..];
-    !rest.to_ascii_uppercase().starts_with("RST")
-        && rest
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || " =.-+#$".contains(c))
+/// A `$` line as GRBL reads it: without blanks and in capitals.
+fn dollar_command(code: &str) -> String {
+    code.chars()
+        .filter(|c| !matches!(c, ' ' | '\t'))
+        .map(|c| c.to_ascii_uppercase())
+        .collect()
 }
 
-/// A line that can be sent: refuses what is not G-code.
+/// A `$` line of GRBL that a machine with the switch on may take: `$` and then only letters, digits and the signs of a command or a setting. A second
+/// `$` is taken only in `$$`, and the wipe of the memory never, however it is spelled.
+fn dollar_ok(code: &str) -> bool {
+    let command = dollar_command(code);
+    let rest = &command[1..];
+    !rest.starts_with("RST")
+        && (rest == "$"
+            || rest
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "=.-+#".contains(c)))
+}
+
+/// The diagnostics of the walk through a line that say the controller refuses it, or reads it in a way the server cannot judge.
+const NOT_JUDGED: [&str; 10] = [
+    codes::WORD_REPEATED,
+    codes::FEED_MODE_UNSUPPORTED,
+    codes::UNKNOWN_G_CODE,
+    codes::UNKNOWN_M_CODE,
+    codes::UNKNOWN_WORD,
+    codes::NEGATIVE_FEED,
+    codes::NEGATIVE_SPINDLE,
+    codes::TOOL_NUMBER_INVALID,
+    codes::CANNED_CYCLE_UNSUPPORTED,
+    codes::CUTTER_COMPENSATION_UNSUPPORTED,
+];
+
+/// The first thing that the reader of the suite could not read or judge in a line: its code and what it says.
+fn unreadable(code: &str) -> Option<(&'static str, String)> {
+    let program = eh3d_parser_gcode::parse(code, Dialect::Grbl);
+    if let Some(d) = program
+        .diagnostics
+        .iter()
+        .find(|d| d.severity >= Severity::Error)
+    {
+        return Some((d.code, d.message.clone()));
+    }
+    eh3d_parser_gcode::interpret(&program)
+        .diagnostics
+        .into_iter()
+        .find(|d| d.severity >= Severity::Error && NOT_JUDGED.contains(&d.code))
+        .map(|d| (d.code, d.message))
+}
+
+fn refuse_line<T>(raw: usize, why: &str) -> Result<T, GcodeError> {
+    fail("bad_gcode", format!("line {}: {why}", raw + 1))
+}
+
+/// A line that can be sent: refuses what is not G-code, and what the controller would read in another way than the server.
 fn check_line(raw: usize, code: &str, allow_dollar: bool) -> Result<(), GcodeError> {
     if code.chars().any(|c| c.is_control() && c != '\t') {
-        return fail(
-            "bad_gcode",
-            format!("line {}: control characters are not G-code", raw + 1),
-        );
+        return refuse_line(raw, "control characters are not G-code");
+    }
+    // GRBL takes the bytes outside ASCII as commands of their own
+    if !code.is_ascii() {
+        return refuse_line(raw, "characters outside ASCII are not G-code");
+    }
+    if code.len() > MAX_LINE_LEN {
+        return refuse_line(raw, &format!("longer than {MAX_LINE_LEN} characters"));
     }
     if allow_dollar && code.starts_with('$') {
-        if dollar_ok(code) {
-            return Ok(());
+        if !dollar_ok(code) {
+            return refuse_line(
+                raw,
+                "this `$` command is not taken even by a machine that allows them",
+            );
         }
-        return fail(
-            "bad_gcode",
-            format!(
-                "line {}: this `$` command is not taken even by a machine that allows them",
-                raw + 1
-            ),
+        let command = dollar_command(code);
+        // the words of a jog are read like any others
+        return match command.strip_prefix("$J=").and_then(unreadable) {
+            Some((what, message)) => refuse_line(raw, &format!("{what}: {message}")),
+            None => Ok(()),
+        };
+    }
+    if code.contains(['$', '!', '~', '?']) {
+        return refuse_line(
+            raw,
+            "a settings or real-time command of the controller is not part of a job",
         );
     }
-    if code.starts_with(['$', '!', '~', '?']) {
-        return fail(
-            "bad_gcode",
-            format!(
-                "line {}: a settings or real-time command of the controller is not part of a job",
-                raw + 1
-            ),
+    if code.starts_with('/') {
+        return refuse_line(
+            raw,
+            "a block-delete line (`/`) is not taken by the controller",
         );
     }
-    if code.chars().count() > MAX_LINE_LEN {
-        return fail(
-            "bad_gcode",
-            format!("line {}: longer than {MAX_LINE_LEN} characters", raw + 1),
-        );
+    if let Some((what, message)) = unreadable(code) {
+        return refuse_line(raw, &format!("{what}: {message}"));
     }
     Ok(())
+}
+
+/// Whether a comment in parentheses of the line is left open, which would take the rest of the line with it.
+pub(crate) fn comment_left_open(line: &str) -> bool {
+    let mut open = false;
+    for c in line.chars() {
+        match c {
+            ';' if !open => return false,
+            '(' if !open => open = true,
+            ')' if open => open = false,
+            _ => {}
+        }
+    }
+    open
+}
+
+/// The line as written, without the byte order mark of the file and without the carriage return of its end. A carriage return left inside ends the
+/// line for a controller or a printer, also inside a comment: what follows it would not be what was read.
+pub(crate) fn whole_line(n: usize, line: &str) -> Result<&str, GcodeError> {
+    let line = if n == 0 {
+        line.trim_start_matches('\u{feff}')
+    } else {
+        line
+    };
+    let line = line.strip_suffix('\r').unwrap_or(line);
+    if line.contains('\r') {
+        return refuse_line(n, "a carriage return inside a line would end it there");
+    }
+    Ok(line)
+}
+
+/// Whether the spindle (`M3`, `M4`) and the coolant (`M7`, `M8`) are on after the words of a line.
+fn outputs_after(words: &[(char, f64)], outputs: &mut (bool, bool)) {
+    for &(_, v) in words.iter().filter(|w| w.0 == 'M') {
+        match v.round() as i32 {
+            3 | 4 => outputs.0 = true,
+            5 => outputs.0 = false,
+            7 | 8 => outputs.1 = true,
+            9 => outputs.1 = false,
+            2 | 30 => *outputs = (false, false),
+            _ => {}
+        }
+    }
+}
+
+/// Whether the lines leave the spindle and the coolant on at their end.
+pub fn left_on(entries: &[Entry]) -> (bool, bool) {
+    let mut outputs = (false, false);
+    for e in entries {
+        outputs_after(&words(&e.text), &mut outputs);
+    }
+    outputs
+}
+
+/// The first line (counted from 0 in the text) where the program waits for the operator (`M0`, `M1`) with the spindle on.
+pub fn pause_with_spindle_on(entries: &[Entry]) -> Option<usize> {
+    let mut outputs = (false, false);
+    for e in entries {
+        let ws = words(&e.text);
+        outputs_after(&ws, &mut outputs);
+        let waits = ws.iter().any(|&(l, v)| l == 'M' && (v == 0.0 || v == 1.0));
+        if waits && outputs.0 {
+            return Some(e.raw);
+        }
+    }
+    None
+}
+
+/// The text of a program for a 3D printer cut into its lines of code. The printer is given the text as it is, so no line may hold anything that
+/// ends it early, also in a comment; what the lines ask of the printer is judged by `printer3d`.
+pub fn parse_printer(text: &str) -> Result<Vec<Entry>, GcodeError> {
+    let raw: Vec<&str> = text.lines().collect();
+    if raw.len() > MAX_LINES {
+        return fail(
+            "too_big",
+            format!("a program may have {MAX_LINES} lines at the most"),
+        );
+    }
+    let mut entries = Vec::new();
+    for (n, line) in raw.iter().enumerate() {
+        let line = whole_line(n, line)?;
+        if line.chars().any(|c| c.is_control() && c != '\t') {
+            return refuse_line(n, "control characters are not G-code");
+        }
+        let code = strip(line);
+        if code.is_empty() || code == "%" {
+            continue;
+        }
+        if code.starts_with(['$', '!', '~', '?']) {
+            return refuse_line(
+                n,
+                "a settings or real-time command of the controller is not part of a job",
+            );
+        }
+        if code.chars().count() > MAX_LINE_LEN {
+            return refuse_line(n, &format!("longer than {MAX_LINE_LEN} characters"));
+        }
+        entries.push(Entry { raw: n, text: code });
+    }
+    if entries.is_empty() {
+        return fail("no_work", "the program has no line of code to send");
+    }
+    Ok(entries)
 }
 
 /// A number as short as it can be written.
@@ -552,12 +715,30 @@ pub fn parse_with(
     let mut modal = eh3d_parser_gcode::ModalState::default();
     let mut motion: Option<u8> = None;
     let mut entries: Vec<Entry> = Vec::new();
+    // the line where the program ends (M2, M30): a controller runs whatever is sent after it
+    let mut ended: Option<usize> = None;
     for (n, line) in raw.iter().enumerate() {
+        let line = whole_line(n, line)?;
+        if comment_left_open(line) {
+            return refuse_line(n, "a comment in parentheses is not closed");
+        }
         let code = strip(line);
         if code.is_empty() || code == "%" {
             continue;
         }
         check_line(n, &code, allow_dollar)?;
+        if let Some(end) = ended {
+            return refuse_line(
+                n,
+                &format!("code after the end of the program (line {end})"),
+            );
+        }
+        if words(&code)
+            .iter()
+            .any(|&(l, v)| l == 'M' && (v == 2.0 || v == 30.0))
+        {
+            ended = Some(n + 1);
+        }
         if n < skip {
             let ws = words(&code);
             if let Some(named) = motion_of(&ws) {
@@ -612,16 +793,27 @@ pub fn read(lines: &[Entry], rapid_mm_min: f64) -> Reading {
     let (mut pos, mut absolute, mut scale, mut motion) = ([0.0f64; 3], true, 1.0, 0i32);
     let mut feed = 0.0f64;
     for e in lines {
+        // a jog moves in its own distances: only its feed is taken, as it is the same thing the machine is asked
+        if e.text.starts_with('$') {
+            if let Some(jog) = dollar_command(&e.text).strip_prefix("$J=") {
+                let ws = words(jog);
+                let unit = unit_of(&ws).unwrap_or(scale);
+                for &(_, v) in ws.iter().filter(|w| w.0 == 'F') {
+                    r.max_feed_mm_min = r.max_feed_mm_min.max(v * unit);
+                }
+            }
+            continue;
+        }
         let ws = words(&e.text);
         let mut target = [None; 3];
         let mut machine_coords = false;
+        // the unit of a line counts for all its words, wherever the G20 or the G21 stands
+        scale = unit_of(&ws).unwrap_or(scale);
         for &(l, v) in &ws {
             match l {
                 'G' => match (v * 10.0).round() as i32 {
                     0 => motion = 0,
                     10 | 20 | 30 => motion = 1,
-                    200 => scale = 25.4,
-                    210 => scale = 1.0,
                     900 => absolute = true,
                     910 => absolute = false,
                     530 => machine_coords = true,
@@ -667,27 +859,47 @@ pub fn read(lines: &[Entry], rapid_mm_min: f64) -> Reading {
     r
 }
 
-/// The turns of every `S` word cut to `max` (for a machine whose spindle switch is on `warn`).
+/// The unit a line sets, as the millimetres of one of its distances (`G20`, `G21`).
+pub fn unit_of(words: &[(char, f64)]) -> Option<f64> {
+    g_codes(words)
+        .filter_map(|g| match g {
+            200 => Some(25.4),
+            210 => Some(1.0),
+            _ => None,
+        })
+        .last()
+}
+
+/// The turns of every `S` word cut to `max` (for a machine whose spindle switch is on `warn`). The number is taken as GRBL takes it, blanks and all
+/// (`S 3 0000` is `S30000`).
 pub fn cut_speed(code: &str, max: f64) -> String {
+    if code.starts_with('$') {
+        return code.to_string();
+    }
     let mut out = String::new();
     let chars: Vec<char> = code.chars().collect();
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
         if c.eq_ignore_ascii_case(&'S') {
-            let mut j = i + 1;
-            while j < chars.len() && (chars[j].is_ascii_digit() || chars[j] == '.') {
+            // `end` is after the last character of the number
+            let (mut j, mut end) = (i + 1, i + 1);
+            let mut digits = String::new();
+            while j < chars.len() && matches!(chars[j], '0'..='9' | '.' | '+' | '-' | ' ' | '\t') {
+                if !matches!(chars[j], ' ' | '\t') {
+                    digits.push(chars[j]);
+                    end = j + 1;
+                }
                 j += 1;
             }
-            let digits: String = chars[i + 1..j].iter().collect();
             match digits.parse::<f64>() {
                 Ok(v) if v > max => {
                     out.push('S');
                     out.push_str(&number(max));
                 }
-                _ => out.extend(&chars[i..j]),
+                _ => out.extend(&chars[i..end]),
             }
-            i = j;
+            i = end;
         } else {
             out.push(c);
             i += 1;
@@ -906,8 +1118,11 @@ mod tests {
             lines,
             ["G21 G90", "G18", "G0 Z5", "G0 X3 Y1", "G1 Z-2 F100", "G0"]
         );
-        // a feed for each turn is set aside while the tool is taken back, and given again
-        let (lines, _) = sequence("G95\nF0.1\nG0 X1 Z-1\nG1 X2\n", 3, false);
+        // a feed for each turn cannot be judged against the limits: such a program is not taken at all
+        let e = parse("G95\nF0.1\nG0 X1 Z-1\nG1 X2\n", 3, false).unwrap_err();
+        assert!(e.detail.contains("feed-mode-unsupported"), "{}", e.detail);
+        // the mode of the feed the program had set is given again
+        let (lines, _) = sequence("G94\nF100\nG0 X1 Z-1\nG1 X2\n", 3, false);
         assert_eq!(
             lines,
             [
@@ -917,8 +1132,7 @@ mod tests {
                 "G0 X1",
                 "G1 Z-1 F100",
                 "G0",
-                "G95",
-                "F0.1"
+                "F100"
             ]
         );
         // a machine whose spindle gives less starts it at what it gives
@@ -1083,10 +1297,25 @@ mod tests {
         "\u{1}",
     ];
 
+    /// Lines a controller takes, so that the made-up programs are not all refused.
+    const TAKEN: &[&str] = &[
+        "G21 G90",
+        "G0 X10",
+        "G1 Y-5.5 F300",
+        "M3 S12000",
+        "M5",
+        "M8",
+        "(note)",
+        "; tail ! ?",
+    ];
+
     fn program(rng: &mut Rng) -> String {
         let lines = 1 + rng.below(12);
         (0..lines)
             .map(|_| {
+                if rng.below(8) != 0 {
+                    return TAKEN[rng.below(TAKEN.len())].to_string();
+                }
                 (0..1 + rng.below(6))
                     .map(|_| PIECES[rng.below(PIECES.len())])
                     .collect::<Vec<_>>()

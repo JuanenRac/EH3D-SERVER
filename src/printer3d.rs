@@ -413,12 +413,75 @@ pub struct Scan {
     pub layer_starts: Vec<usize>,
 }
 
-/// Reads a program against the limits of the machine. A temperature over a limit, `M112`, a feed over the limit or a move past the bed refuses the whole program.
+/// The commands whose argument is a text: what stands in it asks nothing of the printer.
+const TEXT_COMMANDS: [i32; 8] = [23, 28, 29, 32, 117, 118, 550, 551];
+
+/// The commands that set a temperature.
+const HEAT_COMMANDS: [i32; 7] = [104, 109, 140, 190, 141, 191, 303];
+
+/// Whether words ask for a move, a temperature or a speed: what the limits of the machine are about.
+fn asks_something_limited(words: &[(char, f64)]) -> bool {
+    let has_m = words.iter().any(|w| w.0 == 'M');
+    words.iter().any(|&(l, v)| match l {
+        'G' => [0.0, 1.0, 2.0, 3.0].contains(&v),
+        'M' => HEAT_COMMANDS.iter().any(|&m| f64::from(m) == v),
+        'F' => !has_m,
+        _ => false,
+    })
+}
+
+/// The words of a line as the firmware of a printer reads them. A line that moves, heats or sets a speed is refused, with the reason, when it cannot be
+/// read whole, when it says a word twice or when it has parentheses (a firmware need not take them for a comment, and the program is given to the
+/// printer as it is). Other lines (texts, commands of one firmware with names and strings) are taken as they are.
+fn printer_words(written: &str, code: &str) -> Result<Vec<(char, f64)>, String> {
+    let program = eh3d_parser_gcode::parse(code, eh3d_parser_gcode::Dialect::Marlin);
+    let words: Vec<(char, f64)> = program
+        .blocks
+        .first()
+        .map(|b| b.words.iter().map(|w| (w.letter, w.value)).collect())
+        .unwrap_or_default();
+    // `G1`, `M 104`, `X10`: a letter and its number; a command with a name of its own is not one
+    let mut chars = code.chars();
+    let classic = chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && chars
+            .find(|c| !c.is_whitespace())
+            .is_some_and(|c| c.is_ascii_digit() || matches!(c, '-' | '+' | '.'));
+    let text_command = words
+        .iter()
+        .find(|w| w.0 == 'M')
+        .is_some_and(|w| TEXT_COMMANDS.iter().any(|&m| f64::from(m) == w.1));
+    if !classic || text_command {
+        return Ok(words);
+    }
+    if !asks_something_limited(&words) && !asks_something_limited(&gcode::words(code)) {
+        return Ok(words);
+    }
+    if let Some(d) = program
+        .diagnostics
+        .iter()
+        .find(|d| d.severity >= eh3d_parser_gcode::Severity::Error)
+    {
+        return Err(format!("{}: {}", d.code, d.message));
+    }
+    if written.split(';').next().unwrap_or("").contains(['(', ')']) {
+        return Err("parentheses in a line that moves or heats: the firmware need not take them for a comment".into());
+    }
+    for (i, (letter, _)) in words.iter().enumerate() {
+        if !matches!(letter, 'G' | 'M') && words[..i].iter().any(|w| w.0 == *letter) {
+            return Err(format!("the word {letter} is written twice"));
+        }
+    }
+    Ok(words)
+}
+
+/// Reads a program against the limits of the machine. A temperature over a limit, `M112`, a feed over the limit or a move past the bed refuses the whole program,
+/// as do a line that moves or heats and cannot be read for certain and the commands that write or start a file of the card (`M23`, `M28`, `M29`, `M32`).
 pub fn scan_program(text: &str, cfg: &PrinterConfig) -> Result<Scan, Fault> {
-    let program = gcode::parse(text, 0, false).map_err(|e| Fault {
+    let entries = gcode::parse_printer(text).map_err(|e| Fault {
         code: e.code,
         detail: e.detail,
     })?;
+    let written: Vec<&str> = text.lines().collect();
     let layers_marked: Vec<usize> = text
         .lines()
         .enumerate()
@@ -429,7 +492,7 @@ pub fn scan_program(text: &str, cfg: &PrinterConfig) -> Result<Scan, Fault> {
         .map(|(n, _)| n + 1)
         .collect();
     let mut scan = Scan {
-        lines: program.entries.len(),
+        lines: entries.len(),
         layers: layers_marked.len() as u64,
         max_hotend_c: 0.0,
         max_bed_c: 0.0,
@@ -440,13 +503,16 @@ pub fn scan_program(text: &str, cfg: &PrinterConfig) -> Result<Scan, Fault> {
     };
     let (mut pos, mut absolute, mut scale, mut feed) = ([0.0f64; 3], true, 1.0f64, 0.0f64);
     let mut next_layer = 0usize;
-    for (index, e) in program.entries.iter().enumerate() {
+    for (index, e) in entries.iter().enumerate() {
         while next_layer < layers_marked.len() && layers_marked[next_layer] <= e.raw + 1 {
             scan.layer_starts.push(index);
             next_layer += 1;
         }
-        let words = gcode::words(&e.text);
         let line = e.raw + 1;
+        let words = match printer_words(written.get(e.raw).copied().unwrap_or(""), &e.text) {
+            Ok(words) => words,
+            Err(why) => return fail("bad_gcode", format!("line {line}: {why}")),
+        };
         let code = |letter: char| words.iter().find(|w| w.0 == letter).map(|w| w.1);
         let g = code('G').map(|v| (v * 10.0).round() as i32);
         let m = code('M').map(|v| v as i32);
@@ -456,11 +522,25 @@ pub fn scan_program(text: &str, cfg: &PrinterConfig) -> Result<Scan, Fault> {
                 format!("line {line}: M112 is the emergency stop of the printer and is not accepted in a program: the stop is a route"),
             );
         }
-        if let (Some(m), Some(s)) = (m, code('S')) {
+        if let Some(m @ (23 | 28 | 29 | 32)) = m.filter(|_| g.is_none()) {
+            return fail(
+                "bad_gcode",
+                format!("line {line}: M{m} writes or starts a file of the card of the printer, which the server cannot judge"),
+            );
+        }
+        // `R` of M109, M190 and M191 is a temperature too (wait until it is there, also when cooling)
+        let asked = code('S')
+            .into_iter()
+            .chain(code('R').filter(|_| matches!(m, Some(109 | 190 | 191))));
+        for s in asked {
+            let Some(m) = m else { break };
             let (heater, name) = match m {
                 104 | 109 => (0, "hotend"),
                 140 | 190 => (1, "bed"),
                 141 | 191 => (2, "chamber"),
+                // the tuning of a heater (M303) heats it: `E-1` is the bed
+                303 if code('E').is_some_and(|e| e < 0.0) => (1, "bed"),
+                303 => (0, "hotend"),
                 _ => (9, ""),
             };
             if heater < 3 {
@@ -504,7 +584,9 @@ pub fn scan_program(text: &str, cfg: &PrinterConfig) -> Result<Scan, Fault> {
         }
         if let Some(f) = code('F') {
             feed = f * scale / 60.0;
-            if matches!(g, Some(0 | 10)) && feed > cfg.max_feed_mm_s {
+            // the feed stays in force for the moves after it, also when the line that sets it moves nothing
+            if m.is_none() && matches!(g, None | Some(0 | 10 | 20 | 30)) && feed > cfg.max_feed_mm_s
+            {
                 return fail(
                     "program_over_limit",
                     format!(
@@ -516,7 +598,7 @@ pub fn scan_program(text: &str, cfg: &PrinterConfig) -> Result<Scan, Fault> {
             }
             scan.max_feed_mm_s = scan.max_feed_mm_s.max(feed);
         }
-        if !matches!(g, Some(0 | 10)) {
+        if !matches!(g, Some(0 | 10 | 20 | 30)) {
             continue;
         }
         let mut to = pos;
@@ -841,7 +923,7 @@ impl PrinterDriver for SimDriver {
         if matches!(g.0.state, "printing" | "paused" | "emergency") {
             return Err(DriverError::Refused("the printer is busy".into()));
         }
-        let program = gcode::parse(text, 0, false).map_err(|e| DriverError::Refused(e.detail))?;
+        let entries = gcode::parse_printer(text).map_err(|e| DriverError::Refused(e.detail))?;
         let starts: Vec<usize> = {
             let marks: Vec<usize> = text
                 .lines()
@@ -854,15 +936,14 @@ impl PrinterDriver for SimDriver {
             marks
                 .iter()
                 .map(|m| {
-                    program
-                        .entries
+                    entries
                         .iter()
                         .position(|e| e.raw + 1 >= *m)
-                        .unwrap_or(program.entries.len())
+                        .unwrap_or(entries.len())
                 })
                 .collect()
         };
-        g.0.start_print(name, program.entries.len(), self.step_s, starts);
+        g.0.start_print(name, entries.len(), self.step_s, starts);
         Ok(())
     }
 

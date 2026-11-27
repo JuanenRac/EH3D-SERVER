@@ -411,13 +411,27 @@ impl<H: Http> MoonrakerDriver<H> {
     }
 
     fn script(&self, gcode: &str) -> DriverResult<()> {
-        let q = gcode.replace(' ', "%20");
+        let q = query_value(gcode);
         ok_status(&self.call(
             "POST",
             &format!("/printer/gcode/script?script={q}"),
             HttpBody::None,
         )?)
     }
+}
+
+/// A value in the query of an address: everything but letters, digits and `-._~` is written as `%XX`, so that a line of G-code cannot end the value
+/// (`&`, `#`) or bring a line break of its own (`%0A`).
+fn query_value(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for b in text.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+            out.push(char::from(b));
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
 }
 
 /// The state of Moonraker's `print_stats` in the words of the server.
@@ -528,7 +542,7 @@ impl<H: Http> PrinterDriver for MoonrakerDriver<H> {
             },
         )?;
         ok_status(&up)?;
-        let enc = name.replace(' ', "%20");
+        let enc = query_value(name);
         ok_status(&self.call(
             "POST",
             &format!("/printer/print/start?filename={enc}"),
@@ -1229,6 +1243,15 @@ mod tests {
         let f = fake.inner.lock().unwrap();
         assert!(f.calls.iter().any(|c| c == "POST /api/printer/command"));
         assert_eq!((f.hot.1, f.bed.1), (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_line_with_the_signs_of_an_address_reaches_moonraker_as_one_line() {
+        let (d, fake) = moonraker();
+        d.gcode("M117 a&script=M104%0AS999#+").unwrap();
+        let calls = fake.inner.lock().unwrap().calls.clone();
+        let expected = "POST /printer/gcode/script?script=M117%20a%26script%3DM104%250AS999%23%2B";
+        assert!(calls.iter().any(|c| c == expected), "{calls:?}");
     }
 
     #[test]

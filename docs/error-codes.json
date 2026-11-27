@@ -91,7 +91,7 @@
   },
   {
     "code": "bad_gcode",
-    "description": "A line of the G-code program cannot be sent (control characters, a $ line that is not allowed, a line too long).",
+    "description": "A line of the G-code program cannot be sent or cannot be judged (control characters, a command of the controller, a $ line that is not allowed, a line too long or one that cannot be read for certain).",
     "status": 422
   },
   {
