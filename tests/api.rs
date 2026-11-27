@@ -2927,7 +2927,17 @@ async fn a_resumed_job_asks_apart_before_the_laser_goes_on_and_takes_only_the_na
             wait_state(&s, &token, &second, &["done", "failed"]).await;
             continue;
         }
-        let held = wait_state(&s, &token, &second, &["waiting_operator", "done", "failed"]).await;
+        // the book may still show the question just answered: wait until it asks something else
+        let limit = Instant::now() + Duration::from_secs(60);
+        let held = loop {
+            let held =
+                wait_state(&s, &token, &second, &["waiting_operator", "done", "failed"]).await;
+            if held["state"] != "waiting_operator" || held["pause"]["question"] != asked.as_str() {
+                break held;
+            }
+            assert!(Instant::now() < limit, "{held}");
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        };
         assert_eq!(held["state"], "waiting_operator", "{held}");
         assert_eq!(held["pause"]["kind"], "resume");
         assert_eq!(held["pause"]["power_on"], true, "{held}");
