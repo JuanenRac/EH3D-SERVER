@@ -12,9 +12,10 @@ use serde_json::{json, Value};
 
 use crate::cnc::{analyze, CncConfig};
 use crate::gcode;
-use crate::gerber::{files_of, read_files, Layer, Shape};
+use crate::gerber::{files_of, read_files, read_files_with, Layer, Shape};
 use crate::plugins::{PluginError, PluginResult, Prepared};
 use crate::simjobs::{evenly, known_keys, num, number_in, round2, SimBook};
+use eh3d_drillpro::drill_format::{how_to_choose, NumberFormat};
 
 /// The settings a CAM worker may have: key and what it takes.
 pub const SETTINGS_HELP: &[(&str, &str)] = &[
@@ -237,6 +238,15 @@ fn make_drill(layers: &[Layer], params: &Value, cfg: &CamConfig) -> PluginResult
         Some("none") => false,
         Some(_) => return Err(bad("tool_change is `pause` or `none`")),
     };
+    if let Some((name, line)) = layers
+        .iter()
+        .find_map(|l| l.supposed.map(|line| (l.name.as_str(), line)))
+    {
+        return Err(bad(format!(
+            "EH3D-FORMATS-014: {name} line {line}: {} (params.drill_format)",
+            how_to_choose("en")
+        )));
+    }
     let mut holes: Vec<(f64, (f64, f64))> = layers
         .iter()
         .filter(|l| l.format == "excellon")
@@ -1342,7 +1352,13 @@ impl CamEngine {
         let (kind, made): (&'static str, Made) = match kind {
             "drill" | "outline" | "isolate" => {
                 let files = files_of(request, cfg.max_input_mib)?;
-                let layers = read_files(&files)?;
+                // a drill file that does not declare its number format is read only with the one the request names
+                let chosen = match params.get("drill_format").and_then(Value::as_str) {
+                    None => None,
+                    Some(text) => NumberFormat::from_setting(text)
+                        .map_err(|wrong| bad(format!("drill_format '{wrong}' is not a format")))?,
+                };
+                let layers = read_files_with(&files, chosen)?;
                 match kind {
                     "drill" => ("drill", make_drill(&layers, &params, cfg)?),
                     "outline" => ("outline", make_outline(&layers, &params, cfg)?),

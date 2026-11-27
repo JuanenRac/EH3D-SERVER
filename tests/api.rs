@@ -141,7 +141,7 @@ async fn demo_machine(s: &Server, token: &str, id: &str) {
 
 fn drill_job() -> Value {
     json!({
-        "kind": "drill", "name": "board",
+        "kind": "drill", "drill_format": "mils", "name": "board",
         "tools": [{"number": 1, "feed_mm_min": 1000, "spindle_rpm": 24000}, {"number": 2, "feed_mm_min": 800, "spindle_rpm": 24000}],
         "holes": [{"tool": 1, "x_mm": 10, "y_mm": 10}, {"tool": 1, "x_mm": 20, "y_mm": 10}, {"tool": 2, "x_mm": 30, "y_mm": 20}]
     })
@@ -874,7 +874,7 @@ async fn a_job_can_come_as_files_and_a_routing_job_runs_too() {
         Method::POST,
         "/api/v1/machines/m1/jobs",
         Some(&token),
-        Some(json!({"kind": "drill", "name": "from files", "files": {"ncd": ncd, "dtd": dtd}})),
+        Some(json!({"kind": "drill", "drill_format": "mils", "name": "from files", "files": {"ncd": ncd, "dtd": dtd}})),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{job}");
@@ -1930,7 +1930,7 @@ fn route_job(rpm: u32, feed_xy: u32, feed_z: u32) -> Value {
 
 fn drill_job_at(rpm: u32, feed: u32) -> Value {
     json!({
-        "kind": "drill", "name": "board",
+        "kind": "drill", "drill_format": "mils", "name": "board",
         "tools": [{"number": 1, "feed_mm_min": feed, "spindle_rpm": rpm}],
         "holes": [{"tool": 1, "x_mm": 10, "y_mm": 10}]
     })

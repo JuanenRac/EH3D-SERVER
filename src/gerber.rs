@@ -6,6 +6,7 @@
 //! (`%TF.FileFunction`), and Excellon with its tools and its hits. An arc is taken as the straight line between its ends, and an aperture made by a macro has no size, so the
 //! checks that need a size do not look at it. Nothing here has been compared with another tool: the findings are a first filter, never the last word on a board.
 
+use eh3d_drillpro::drill_format::NumberFormat;
 use std::collections::BTreeMap;
 
 use serde_json::{json, Value};
@@ -180,6 +181,8 @@ pub struct Layer {
     pub regions: usize,
     pub holes: Vec<Hole>,
     pub tools: Vec<f64>,
+    /// The first line of a drill file whose number format had to be supposed to place its holes; a job that moves a machine refuses such a layer.
+    pub supposed: Option<usize>,
 }
 
 impl Layer {
@@ -193,6 +196,7 @@ impl Layer {
             apertures: 0,
             tracks: Vec::new(),
             flashes: Vec::new(),
+            supposed: None,
             regions: 0,
             holes: Vec::new(),
             tools: Vec::new(),
@@ -580,6 +584,33 @@ fn extended_command(
 
 /// Reads an Excellon drill file.
 pub fn read_excellon(name: &str, text: &str) -> Result<Layer, GerberError> {
+    read_excellon_with(name, text, None)
+}
+
+/// [`read_excellon`] with the format the person chose for a file that does not declare one. What the file declares wins. Without a choice a supposed format is still
+/// read, for showing the layer, and said in [`Layer::supposed`].
+pub fn read_excellon_with(
+    name: &str,
+    text: &str,
+    chosen: Option<NumberFormat>,
+) -> Result<Layer, GerberError> {
+    // the choice as (millimetres, digits before the point, digits after, zeros at the end left out)
+    let choice = chosen.map(|c| match c {
+        NumberFormat::Mils => (false, 3usize, 3usize, false),
+        NumberFormat::Digits {
+            metric,
+            integer,
+            decimal,
+            trailing_left_out,
+        } => (
+            metric,
+            usize::from(integer),
+            usize::from(decimal),
+            trailing_left_out,
+        ),
+    });
+    let mut digits_said: Option<(usize, usize)> = None;
+    let mut zeros_said: Option<bool> = None;
     let mut layer = Layer::new(name, "excellon");
     let lower = name.to_ascii_lowercase();
     layer.function = if lower.contains("npth") || lower.contains("nonplated") {
@@ -588,18 +619,28 @@ pub fn read_excellon(name: &str, text: &str) -> Result<Layer, GerberError> {
         "drill_plated".into()
     };
     let mut scale: Option<f64> = None;
-    let (mut trailing, mut inch_default) = (false, false);
+    let mut inch_default = false;
     let mut tools: BTreeMap<u32, f64> = BTreeMap::new();
     let mut current: Option<u32> = None;
     let mut in_header = false;
     let mut hits = 0usize;
     let mut ended = false;
-    for raw in text.lines() {
+    for (index, raw) in text.lines().enumerate() {
         let line = raw.trim();
         if line.is_empty() {
             continue;
         }
         if let Some(comment) = line.strip_prefix(';') {
+            let compact: String = comment.chars().filter(|c| !c.is_whitespace()).collect();
+            if let Some((i, d)) = compact
+                .to_ascii_uppercase()
+                .strip_prefix("FILE_FORMAT=")
+                .and_then(|f| f.split_once(':'))
+                .and_then(|(i, d)| Some((i.parse::<usize>().ok()?, d.parse::<usize>().ok()?)))
+                .filter(|(i, d)| (1..=8).contains(i) && *d <= 8)
+            {
+                digits_said = Some((i, d));
+            }
             let c = comment.to_ascii_lowercase();
             if c.contains("file_function") || c.contains("filefunction") {
                 if c.contains("nonplated") || c.contains("npth") {
@@ -627,7 +668,23 @@ pub fn read_excellon(name: &str, text: &str) -> Result<Layer, GerberError> {
             let inch = upper.starts_with("INCH");
             scale = Some(if inch { 25.4 } else { 1.0 });
             inch_default = inch;
-            trailing = upper.contains(",TZ");
+            // `LZ`: the leading zeros are written and the ones at the end left out; `TZ`: the other way
+            for part in upper.split(',').skip(1).map(str::trim) {
+                match part {
+                    "LZ" => zeros_said = Some(true),
+                    "TZ" => zeros_said = Some(false),
+                    mask => {
+                        if let Some((i, d)) = mask.split_once('.') {
+                            if mask.chars().all(|c| c.is_ascii_digit() || c == '.')
+                                && (1..=8).contains(&i.len())
+                                && d.len() <= 8
+                            {
+                                digits_said = Some((i.len(), d.len()));
+                            }
+                        }
+                    }
+                }
+            }
             continue;
         }
         if upper.starts_with('T') && upper[1..].starts_with(|c: char| c.is_ascii_digit()) {
@@ -645,7 +702,8 @@ pub fn read_excellon(name: &str, text: &str) -> Result<Layer, GerberError> {
                 let size: f64 = size
                     .parse()
                     .map_err(|_| bad(name, format!("the tool T{number} has no diameter")))?;
-                let s = scale.ok_or_else(|| GerberError {
+                let from_choice = choice.map(|c| if c.0 { 1.0 } else { 25.4 });
+                let s = scale.or(from_choice).ok_or_else(|| GerberError {
                     code: "unit_unknown",
                     detail: format!("{name}: a tool is defined before the units (METRIC or INCH)"),
                 })?;
@@ -659,7 +717,8 @@ pub fn read_excellon(name: &str, text: &str) -> Result<Layer, GerberError> {
             if upper.contains("G85") {
                 continue;
             }
-            let Some(s) = scale else {
+            let from_choice = choice.map(|c| if c.0 { 1.0 } else { 25.4 });
+            let Some(s) = scale.or(from_choice) else {
                 return Err(GerberError {
                     code: "unit_unknown",
                     detail: format!(
@@ -670,9 +729,27 @@ pub fn read_excellon(name: &str, text: &str) -> Result<Layer, GerberError> {
             let Some(tool) = current.and_then(|n| tools.get(&n)).copied() else {
                 return Err(bad(name, "a hole comes before any tool is selected"));
             };
-            let (decimals, total) = if inch_default { (4, 6) } else { (3, 6) };
             let (mut x, mut y) = (None, None);
             for (letter, value) in letters(&upper) {
+                let metric = scale.map_or_else(|| choice.is_some_and(|c| c.0), |_| !inch_default);
+                let written = value.trim_start_matches(['+', '-']);
+                // a number with a point, and a zero, mean the same under any format
+                let supposed = !value.contains('.')
+                    && written.bytes().any(|b| b.is_ascii_digit() && b != b'0')
+                    && !digits_said
+                        .is_some_and(|(i, d)| zeros_said.is_some() || written.len() >= i + d);
+                let usable = choice.filter(|c| c.0 == metric);
+                if supposed && usable.is_none() {
+                    layer.supposed.get_or_insert(index + 1);
+                }
+                let usual = if metric { (3, 3) } else { (2, 4) };
+                let (integer, decimals) = digits_said
+                    .or(usable.filter(|_| supposed).map(|c| (c.1, c.2)))
+                    .unwrap_or(usual);
+                let trailing = zeros_said
+                    .or(usable.filter(|_| supposed).map(|c| c.3))
+                    .unwrap_or(false);
+                let total = integer + decimals;
                 let v = coordinate(&value, decimals, total, trailing)
                     .ok_or_else(|| bad(name, format!("`{letter}{value}` is not a coordinate")))?;
                 match letter {
@@ -723,6 +800,14 @@ fn looks_like_excellon(name: &str, text: &str) -> bool {
 
 /// Reads every file of a job.
 pub fn read_files(files: &[(String, String)]) -> Result<Vec<Layer>, GerberError> {
+    read_files_with(files, None)
+}
+
+/// [`read_files`] with the number format chosen for the drill files that do not declare one.
+pub fn read_files_with(
+    files: &[(String, String)],
+    chosen: Option<NumberFormat>,
+) -> Result<Vec<Layer>, GerberError> {
     if files.is_empty() {
         return Err(GerberError {
             code: "missing_layer",
@@ -733,7 +818,7 @@ pub fn read_files(files: &[(String, String)]) -> Result<Vec<Layer>, GerberError>
         .iter()
         .map(|(name, text)| {
             if looks_like_excellon(name, text) {
-                read_excellon(name, text)
+                read_excellon_with(name, text, chosen)
             } else {
                 read_gerber(name, text)
             }
@@ -1905,5 +1990,33 @@ mod tests {
             engine.prepare("w1", &cfg, &junk).err().unwrap().code(),
             "bad_gerber"
         );
+    }
+
+    #[test]
+    fn the_number_format_of_a_drill_file_is_followed_and_a_supposed_one_is_said() {
+        let at = |head: &str, line: &str, chosen: &str| {
+            let text = format!("M48\n{head}\nT1C0.8\n%\nT1\n{line}\nM30\n");
+            let l = read_excellon_with("a.drl", &text, NumberFormat::from_name(chosen)).unwrap();
+            (l.holes[0].at.0, l.supposed.is_some())
+        };
+        let near = |got: (f64, bool), x: f64, supposed: bool| {
+            assert!((got.0 - x).abs() < 1e-6 && got.1 == supposed, "{got:?} {x}");
+        };
+        // TZ leaves out the zeros in front, LZ the ones at the end
+        near(
+            at(";FILE_FORMAT=2:4\nINCH,TZ", "X5850Y1", ""),
+            0.585 * 25.4,
+            false,
+        );
+        near(
+            at(";FILE_FORMAT=2:4\nINCH,LZ", "X05Y1", ""),
+            5.0 * 25.4,
+            false,
+        );
+        near(at(";FILE_FORMAT=3:3\nINCH,TZ", "X1000Y1", ""), 25.4, false);
+        near(at("INCH", "X1000Y1000", ""), 0.1 * 25.4, true);
+        near(at("INCH", "X1000Y1000", "mils"), 25.4, false);
+        near(at("INCH", "X1000Y1000", "metric-3.3-tz"), 0.1 * 25.4, true);
+        near(at("METRIC", "X1.5Y1.0", ""), 1.5, false);
     }
 }
