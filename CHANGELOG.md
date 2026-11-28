@@ -4,7 +4,10 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.3.0] - Notices on a phone, off by default (not tried with Firebase or a phone)
+
 - **Notices on a phone (off by default):** with `push_enabled`, a person who may run jobs registers a phone (`POST /api/v1/push/devices`) and the server sends it, through Firebase Cloud Messaging, which of three things happened to a job: it waits for the operator, it failed or it ended. No name or text goes through Google. New settings `push_enabled` (it can be changed while the server runs) and `push_service_account_file`. Tested against a stand-in on the same computer; not tried with Firebase or a phone.
+
 ## [0.2.9] - A laser job takes its power mode and an answer to a job names its question (not tried on a machine)
 
 - **An answer to a job names its question (safety, changes what is accepted):** `answer_needs_question` is now on unless the configuration turns it off, so a `confirm` or `resume` that does not say which question it answers is refused (`409 question_required`). The published Studio, Android and iOS apps and the touch screens send it; a program of an earlier version needs the setting off.
